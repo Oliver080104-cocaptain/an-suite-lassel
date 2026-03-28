@@ -47,7 +47,7 @@ export default function DeliveryNotePositionsTable({ positions, onChange, readOn
     updated[index] = {
       ...updated[index],
       produktId: product.id,
-      produktName: product.produktName,
+      produktName: product.name,
       beschreibung: product.beschreibung || '',
       einheit: product.einheit || 'Stk',
       menge: updated[index].menge || 1,
@@ -132,15 +132,15 @@ export default function DeliveryNotePositionsTable({ positions, onChange, readOn
                               {(products as any[]).map((product: any) => (
                                 <CommandItem
                                   key={product.id}
-                                  value={product.produktName}
+                                  value={product.name}
                                   onSelect={() => handleProductSelect(index, product)}
                                   className="cursor-pointer"
                                 >
                                   <Check className={cn('mr-2 h-4 w-4', pos.produktId === product.id ? 'opacity-100' : 'opacity-0')} />
                                   <div className="flex-1">
-                                    <div className="font-medium">{product.produktName}</div>
-                                    {product.produktKategorie && (
-                                      <div className="text-xs text-slate-500">{product.produktKategorie}</div>
+                                    <div className="font-medium">{product.name}</div>
+                                    {product.kategorie && (
+                                      <div className="text-xs text-slate-500">{product.kategorie}</div>
                                     )}
                                   </div>
                                 </CommandItem>

@@ -72,7 +72,7 @@ export default function DeliveryNoteDetailPage() {
     queryKey: ['deliveryNote', deliveryNoteId],
     queryFn: async () => {
       if (!deliveryNoteId) return null
-      const { data, error } = await supabase.from('delivery_notes').select('*').eq('id', deliveryNoteId).single()
+      const { data, error } = await supabase.from('lieferscheine').select('*').eq('id', deliveryNoteId).single()
       if (error) throw error
       return data
     },
@@ -84,7 +84,7 @@ export default function DeliveryNoteDetailPage() {
     queryKey: ['deliveryNotePositions', deliveryNoteId],
     queryFn: async () => {
       if (!deliveryNoteId) return []
-      const { data, error } = await supabase.from('delivery_note_positions').select('*').eq('delivery_note_id', deliveryNoteId).order('pos')
+      const { data, error } = await supabase.from('lieferschein_positionen').select('*').eq('lieferschein_id', deliveryNoteId).order('position')
       if (error) throw error
       return data || []
     },
@@ -104,14 +104,35 @@ export default function DeliveryNoteDetailPage() {
   // Init from loaded data
   useEffect(() => {
     if (existingDN && !dnInitialized.current) {
-      setDeliveryNote({ ...defaultDeliveryNote, ...existingDN })
+      setDeliveryNote({
+        ...defaultDeliveryNote,
+        lieferscheinNummer: (existingDN as any).lieferscheinnummer || '',
+        datum: (existingDN as any).lieferdatum || defaultDeliveryNote.datum,
+        status: (existingDN as any).status || 'offen',
+        kundeName: (existingDN as any).kunde_name || '',
+        kundeStrasse: (existingDN as any).kunde_strasse || '',
+        kundePlz: (existingDN as any).kunde_plz || '',
+        kundeOrt: (existingDN as any).kunde_ort || '',
+        objektBezeichnung: (existingDN as any).objekt_adresse || '',
+        ticketNumber: (existingDN as any).ticket_nummer || '',
+        bemerkung: (existingDN as any).notizen || '',
+        pdfUrl: (existingDN as any).pdf_url || '',
+        referenzAngebotId: (existingDN as any).angebot_id || '',
+      })
       dnInitialized.current = true
     }
   }, [existingDN])
 
   useEffect(() => {
     if (existingPositions.length > 0 && !posInitialized.current) {
-      setPositions(existingPositions)
+      setPositions((existingPositions as any[]).map((p: any) => ({
+        id: p.id,
+        pos: p.position,
+        produktName: p.beschreibung || '',
+        beschreibung: '',
+        menge: p.menge || 1,
+        einheit: p.einheit || 'Stk',
+      })))
       posInitialized.current = true
     }
   }, [existingPositions])
@@ -135,10 +156,33 @@ export default function DeliveryNoteDetailPage() {
     }
   }, [deliveryNote, positions, isNew, deliveryNoteId])
 
+  const buildDNData = (dn: typeof defaultDeliveryNote) => ({
+    lieferscheinnummer: dn.lieferscheinNummer,
+    status: dn.status,
+    kunde_name: dn.kundeName,
+    kunde_strasse: dn.kundeStrasse || null,
+    kunde_plz: dn.kundePlz || null,
+    kunde_ort: dn.kundeOrt || null,
+    lieferdatum: dn.datum,
+    objekt_adresse: dn.objektBezeichnung || null,
+    ticket_nummer: dn.ticketNumber || null,
+    notizen: dn.bemerkung || null,
+    pdf_url: dn.pdfUrl || null,
+    angebot_id: (dn as any).referenzAngebotId || null,
+  })
+
+  const buildDNPosData = (p: DeliveryNotePosition, lsId: string) => ({
+    lieferschein_id: lsId,
+    position: p.pos,
+    beschreibung: p.produktName || p.beschreibung || '-',
+    menge: parseFloat(p.menge as string) || 1,
+    einheit: p.einheit,
+  })
+
   const performAutoSave = async () => {
     if (!deliveryNoteId || !deliveryNote.kundeName) return
     try {
-      await supabase.from('delivery_notes').update(deliveryNote).eq('id', deliveryNoteId)
+      await supabase.from('lieferscheine').update(buildDNData(deliveryNote)).eq('id', deliveryNoteId)
       await savePositions(deliveryNoteId, positions, existingPositions)
     } catch (err) {
       console.error('Auto-save error:', err)
@@ -147,7 +191,7 @@ export default function DeliveryNoteDetailPage() {
 
   const generateLieferscheinNumber = async () => {
     const year = new Date().getFullYear()
-    const { data } = await supabase.from('delivery_notes').select('lieferscheinNummer').ilike('lieferscheinNummer', `LI-${year}%`)
+    const { data } = await supabase.from('lieferscheine').select('lieferscheinnummer').ilike('lieferscheinnummer', `LI-${year}%`)
     const nextNum = (data?.length || 0) + 1
     return `LI-${year}-${String(nextNum).padStart(5, '0')}`
   }
@@ -158,11 +202,11 @@ export default function DeliveryNoteDetailPage() {
     const toCreate = currentPositions.filter(p => !p.id)
 
     await Promise.all([
-      ...toDelete.map(p => supabase.from('delivery_note_positions').delete().eq('id', p.id)),
-      ...toUpdate.map(p => supabase.from('delivery_note_positions').update({ ...p, delivery_note_id: targetId }).eq('id', p.id!)),
+      ...toDelete.map(p => supabase.from('lieferschein_positionen').delete().eq('id', p.id)),
+      ...toUpdate.map(p => supabase.from('lieferschein_positionen').update(buildDNPosData(p, targetId)).eq('id', p.id!)),
     ])
     if (toCreate.length > 0) {
-      await supabase.from('delivery_note_positions').insert(toCreate.map(p => ({ ...p, id: undefined, delivery_note_id: targetId })))
+      await supabase.from('lieferschein_positionen').insert(toCreate.map(p => ({ ...buildDNPosData(p, targetId), id: undefined })))
     }
   }
 
@@ -170,17 +214,17 @@ export default function DeliveryNoteDetailPage() {
     setSaving(true)
     try {
       let savedId = deliveryNoteId
-      let savedDN = { ...deliveryNote, id: deliveryNoteId }
+      const dnCopy = { ...deliveryNote }
 
       if (isNew) {
-        deliveryNote.lieferscheinNummer = await generateLieferscheinNumber()
-        const { data, error } = await supabase.from('delivery_notes').insert([deliveryNote]).select().single()
+        dnCopy.lieferscheinNummer = await generateLieferscheinNumber()
+        setDeliveryNote(dnCopy)
+        const { data, error } = await supabase.from('lieferscheine').insert([buildDNData(dnCopy)]).select().single()
         if (error) throw error
         savedId = data.id
-        savedDN = { ...deliveryNote, id: savedId }
         router.replace(`/lieferscheine/${savedId}`)
       } else {
-        const { error } = await supabase.from('delivery_notes').update(deliveryNote).eq('id', deliveryNoteId!)
+        const { error } = await supabase.from('lieferscheine').update(buildDNData(dnCopy)).eq('id', deliveryNoteId!)
         if (error) throw error
       }
 
@@ -200,18 +244,18 @@ export default function DeliveryNoteDetailPage() {
     setUploadingToZoho(true)
     try {
       let savedId = deliveryNoteId
-      let savedDN: any = { ...deliveryNote, id: deliveryNoteId }
+      const dnCopy = { ...deliveryNote }
 
       if (isNew) {
-        const lieferscheinNummer = await generateLieferscheinNumber()
-        const dnData = { ...deliveryNote, lieferscheinNummer, status: 'erstellt' }
-        const { data, error } = await supabase.from('delivery_notes').insert([dnData]).select().single()
+        dnCopy.lieferscheinNummer = await generateLieferscheinNumber()
+        dnCopy.status = 'erstellt'
+        setDeliveryNote(dnCopy)
+        const { data, error } = await supabase.from('lieferscheine').insert([buildDNData(dnCopy)]).select().single()
         if (error) throw error
         savedId = data.id
-        savedDN = { ...dnData, id: savedId }
         router.replace(`/lieferscheine/${savedId}`)
       } else {
-        const { error } = await supabase.from('delivery_notes').update(deliveryNote).eq('id', deliveryNoteId!)
+        const { error } = await supabase.from('lieferscheine').update(buildDNData(dnCopy)).eq('id', deliveryNoteId!)
         if (error) throw error
       }
 
@@ -223,20 +267,14 @@ export default function DeliveryNoteDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           lieferscheinId: savedId,
-          lieferscheinNummer: savedDN.lieferscheinNummer,
-          pdfUrl: savedDN.pdfUrl,
-          fileName: `${savedDN.lieferscheinNummer}.pdf`,
-          ticketId: savedDN.ticketId,
-          ticketNumber: savedDN.ticketNumber,
-          geschaeftsfallNummer: savedDN.geschaeftsfallNummer,
-          datum: savedDN.datum,
-          status: savedDN.status,
-          kundeName: savedDN.kundeName,
-          objektBezeichnung: savedDN.objektBezeichnung,
-          erstelltDurch: savedDN.erstelltDurch,
-          source: savedDN.source,
-          referenzAngebotNummer: savedDN.referenzAngebotNummer,
-          referenzAngebotId: savedDN.referenzAngebotId,
+          lieferscheinNummer: dnCopy.lieferscheinNummer,
+          pdfUrl: dnCopy.pdfUrl,
+          fileName: `${dnCopy.lieferscheinNummer}.pdf`,
+          ticketNumber: dnCopy.ticketNumber,
+          datum: dnCopy.datum,
+          status: dnCopy.status,
+          kundeName: dnCopy.kundeName,
+          objektBezeichnung: dnCopy.objektBezeichnung,
           timestamp: new Date().toISOString()
         })
       }).catch(err => console.error('Zoho webhook failed:', err))

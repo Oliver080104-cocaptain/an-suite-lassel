@@ -78,7 +78,7 @@ export async function GET(
   const { id } = await params
 
   const { data: dn, error } = await supabase
-    .from('delivery_notes')
+    .from('lieferscheine')
     .select('*')
     .eq('id', id)
     .single()
@@ -88,10 +88,10 @@ export async function GET(
   }
 
   const { data: posData } = await supabase
-    .from('delivery_note_positions')
+    .from('lieferschein_positionen')
     .select('*')
-    .eq('deliveryNoteId', id)
-    .order('pos')
+    .eq('lieferschein_id', id)
+    .order('position')
   const positions: Record<string, unknown>[] = posData || []
 
   const { data: settings } = await supabase
@@ -102,10 +102,9 @@ export async function GET(
 
   const posRows = positions.map((p: Record<string, unknown>) => `
     <tr>
-      <td>${esc(p.pos)}</td>
+      <td>${esc(p.position)}</td>
       <td>
-        <div class="pos-name">${esc(p.produktName)}</div>
-        ${p.beschreibung ? `<div class="pos-desc">${esc(p.beschreibung)}</div>` : ''}
+        <div class="pos-name">${esc(p.beschreibung)}</div>
       </td>
       <td class="right">${fmt(p.menge)}</td>
       <td>${esc(p.einheit)}</td>
@@ -118,29 +117,27 @@ export async function GET(
       <img class="logo-img" src="${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/logo.png" alt="Lassel GmbH" />
       <div style="text-align:right">
         <div class="doc-title">LIEFERSCHEIN</div>
-        <div class="doc-number">${esc(dn.lieferscheinNummer)}</div>
+        <div class="doc-number">${esc(dn.lieferscheinnummer)}</div>
       </div>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:20px 0;">
       <div class="address-block">
         <div class="address-label">Empfänger</div>
-        <div class="address-name">${esc(dn.kundeName)}</div>
-        <div class="address-line">${esc(dn.kundeStrasse)}</div>
-        <div class="address-line">${esc(dn.kundePlz)} ${esc(dn.kundeOrt)}</div>
+        <div class="address-name">${esc(dn.kunde_name)}</div>
+        <div class="address-line">${esc(dn.kunde_strasse)}</div>
+        <div class="address-line">${esc(dn.kunde_plz)} ${esc(dn.kunde_ort)}</div>
       </div>
-      ${dn.objektBezeichnung ? `
+      ${dn.objekt_adresse ? `
       <div class="address-block">
         <div class="address-label">Objekt</div>
-        <div class="address-name">${esc(dn.objektBezeichnung)}</div>
-        <div class="address-line">${esc(dn.objektStrasse)}</div>
-        <div class="address-line">${esc(dn.objektPlz)} ${esc(dn.objektOrt)}</div>
+        <div class="address-name">${esc(dn.objekt_adresse)}</div>
       </div>` : ''}
     </div>
 
     <div class="meta-grid">
-      <div class="meta-item"><label>Datum</label><span>${fmtDate(dn.datum)}</span></div>
-      ${dn.ticketNumber ? `<div class="meta-item"><label>Ticketnummer</label><span>${esc(dn.ticketNumber)}</span></div>` : ''}
+      <div class="meta-item"><label>Datum</label><span>${fmtDate(dn.lieferdatum)}</span></div>
+      ${dn.ticket_nummer ? `<div class="meta-item"><label>Ticketnummer</label><span>${esc(dn.ticket_nummer)}</span></div>` : ''}
     </div>
 
     <div class="section-title">Lieferpositionen</div>
@@ -157,7 +154,7 @@ export async function GET(
       <tbody>${posRows}</tbody>
     </table>
 
-    ${dn.bemerkung ? `<div class="anmerkung">${esc(dn.bemerkung)}</div>` : ''}
+    ${dn.notizen ? `<div class="anmerkung">${esc(dn.notizen)}</div>` : ''}
 
     <div class="signature-block">
       <div>

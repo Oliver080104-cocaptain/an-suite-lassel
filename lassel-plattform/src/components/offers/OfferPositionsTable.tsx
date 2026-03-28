@@ -65,11 +65,11 @@ export default function OfferPositionsTable({ positions, onChange, readOnly = fa
     updated[index] = recalc({
       ...updated[index],
       produktId: product.id,
-      produktName: product.produktName,
+      produktName: product.name,
       beschreibung: product.beschreibung || '',
       einheit: product.einheit || 'Stk',
-      einzelpreisNetto: product.standardpreisNetto || 0,
-      ustSatz: product.steuersatz || 20
+      einzelpreisNetto: product.einzelpreis || 0,
+      ustSatz: product.mwst_satz || 20
     })
     onChange(updated)
     setOpenIndex(null)
@@ -159,16 +159,16 @@ export default function OfferPositionsTable({ positions, onChange, readOnly = fa
                                 {(products as any[]).map((product: any) => (
                                   <CommandItem
                                     key={product.id}
-                                    value={product.produktName}
+                                    value={product.name}
                                     onSelect={() => handleProductSelect(index, product)}
                                     className="cursor-pointer"
                                   >
                                     <Check className={cn('mr-2 h-4 w-4', pos.produktId === product.id ? 'opacity-100' : 'opacity-0')} />
                                     <div className="flex-1">
-                                      <div className="font-medium">{product.produktName}</div>
+                                      <div className="font-medium">{product.name}</div>
                                       <div className="text-xs text-slate-500">
-                                        {product.produktKategorie && <span>{product.produktKategorie} • </span>}
-                                        {product.standardpreisNetto ? `€${product.standardpreisNetto.toFixed(2)}` : ''}
+                                        {product.kategorie && <span>{product.kategorie} • </span>}
+                                        {product.einzelpreis ? `€${Number(product.einzelpreis).toFixed(2)}` : ''}
                                       </div>
                                     </div>
                                   </CommandItem>

@@ -110,7 +110,7 @@ export default function InvoiceDetailPage() {
     queryKey: ['invoice', invoiceId],
     queryFn: async () => {
       if (!invoiceId) return null
-      const { data, error } = await supabase.from('invoices').select('*').eq('id', invoiceId).single()
+      const { data, error } = await supabase.from('rechnungen').select('*').eq('id', invoiceId).single()
       if (error) throw error
       return data
     },
@@ -122,7 +122,7 @@ export default function InvoiceDetailPage() {
     queryKey: ['invoicePositions', invoiceId],
     queryFn: async () => {
       if (!invoiceId) return []
-      const { data, error } = await supabase.from('invoice_positions').select('*').eq('invoice_id', invoiceId).order('pos')
+      const { data, error } = await supabase.from('rechnung_positionen').select('*').eq('rechnung_id', invoiceId).order('position')
       if (error) throw error
       return data || []
     },
@@ -162,33 +162,47 @@ export default function InvoiceDetailPage() {
   // Init invoice from loaded data
   useEffect(() => {
     if (existingInvoice && !invoiceInitialized.current) {
-      setInvoice({ ...defaultInvoice, ...existingInvoice })
+      setInvoice({
+        ...defaultInvoice,
+        rechnungsNummer: existingInvoice.rechnungsnummer || '',
+        datum: existingInvoice.rechnungsdatum || defaultInvoice.datum,
+        faelligAm: existingInvoice.faellig_bis || defaultInvoice.faelligAm,
+        status: existingInvoice.status || 'entwurf',
+        kundeName: existingInvoice.kunde_name || '',
+        uidnummer: existingInvoice.kunde_uid || '',
+        kundeStrasse: existingInvoice.kunde_strasse || '',
+        kundePlz: existingInvoice.kunde_plz || '',
+        kundeOrt: existingInvoice.kunde_ort || '',
+        objektBezeichnung: existingInvoice.objekt_adresse || '',
+        ticketNumber: existingInvoice.ticket_nummer || '',
+        bemerkung: existingInvoice.notizen || defaultInvoice.bemerkung,
+        pdfUrl: existingInvoice.pdf_url || '',
+        summeBrutto: existingInvoice.brutto_gesamt || 0,
+        referenzAngebotId: existingInvoice.angebot_id || '',
+        vermittlerId: existingInvoice.vermittler_id || '',
+      })
       invoiceInitialized.current = true
-
-      // Restore selected dates
-      if (existingInvoice.arbeitstage && existingInvoice.arbeitstage.length > 0) {
-        const dates = existingInvoice.arbeitstage.map((d: string) => parseISO(d)).filter(isValid)
-        setSelectedDates(dates)
-      } else if (existingInvoice.leistungszeitraumVon && existingInvoice.leistungszeitraumBis) {
-        const start = parseISO(existingInvoice.leistungszeitraumVon)
-        const end = parseISO(existingInvoice.leistungszeitraumBis)
-        const dates: Date[] = []
-        if (isValid(start) && isValid(end)) {
-          let current = new Date(start)
-          while (current <= end) {
-            dates.push(new Date(current))
-            current = addDays(current, 1)
-          }
-        }
-        setSelectedDates(dates)
-      }
     }
   }, [existingInvoice])
 
   // Init positions
   useEffect(() => {
     if (existingPositions.length > 0 && !positionsInitialized.current) {
-      setPositions(existingPositions)
+      setPositions((existingPositions as any[]).map((p: any) => ({
+        id: p.id,
+        pos: p.position,
+        produktName: p.beschreibung || '',
+        beschreibung: '',
+        menge: p.menge || 1,
+        einheit: p.einheit || 'Stk',
+        einzelpreisNetto: p.einzelpreis || 0,
+        rabattProzent: p.rabatt_prozent || 0,
+        ustSatz: p.mwst_satz || 20,
+        teilfakturaProzent: 100,
+        bereitsFakturiert: 0,
+        gesamtNetto: p.gesamtpreis || 0,
+        gesamtBrutto: p.gesamtpreis || 0,
+      })))
       positionsInitialized.current = true
     }
   }, [existingPositions])
@@ -243,10 +257,22 @@ export default function InvoiceDetailPage() {
 
   const generateInvoiceNumber = async () => {
     const year = new Date().getFullYear()
-    const { data } = await supabase.from('invoices').select('rechnungsNummer').ilike('rechnungsNummer', `RE-${year}%`)
+    const { data } = await supabase.from('rechnungen').select('rechnungsnummer').ilike('rechnungsnummer', `RE-${year}%`)
     const nextNum = (data?.length || 0) + 1
     return `RE-${year}-${String(nextNum).padStart(5, '0')}`
   }
+
+  const buildPosData = (p: InvoicePosition, rechnungId: string) => ({
+    rechnung_id: rechnungId,
+    position: p.pos,
+    beschreibung: p.produktName || p.beschreibung || '-',
+    menge: parseFloat(p.menge as string) || 1,
+    einheit: p.einheit,
+    einzelpreis: parseFloat(p.einzelpreisNetto as string) || 0,
+    rabatt_prozent: parseFloat(p.rabattProzent as string) || 0,
+    mwst_satz: parseFloat(p.ustSatz as string) || 20,
+    gesamtpreis: parseFloat(p.gesamtNetto as string) || 0,
+  })
 
   const savePositions = async (targetId: string, currentPositions: InvoicePosition[], existingPosData: any[]) => {
     const toDelete = existingPosData.filter(ep => !currentPositions.find(p => p.id === ep.id))
@@ -254,19 +280,39 @@ export default function InvoiceDetailPage() {
     const toCreate = currentPositions.filter(p => !p.id)
 
     await Promise.all([
-      ...toDelete.map(p => supabase.from('invoice_positions').delete().eq('id', p.id)),
-      ...toUpdate.map(p => supabase.from('invoice_positions').update({ ...p, invoice_id: targetId }).eq('id', p.id!)),
+      ...toDelete.map(p => supabase.from('rechnung_positionen').delete().eq('id', p.id)),
+      ...toUpdate.map(p => supabase.from('rechnung_positionen').update(buildPosData(p, targetId)).eq('id', p.id!)),
     ])
     if (toCreate.length > 0) {
-      await supabase.from('invoice_positions').insert(toCreate.map(p => ({ ...p, id: undefined, invoice_id: targetId })))
+      await supabase.from('rechnung_positionen').insert(toCreate.map(p => ({ ...buildPosData(p, targetId), id: undefined })))
     }
   }
+
+  const buildRechnungData = (inv: typeof defaultInvoice, t: typeof totals) => ({
+    rechnungsnummer: inv.rechnungsNummer,
+    status: inv.status,
+    kunde_name: inv.kundeName,
+    kunde_strasse: inv.kundeStrasse || null,
+    kunde_plz: inv.kundePlz || null,
+    kunde_ort: inv.kundeOrt || null,
+    kunde_uid: inv.uidnummer || null,
+    rechnungsdatum: inv.datum,
+    faellig_bis: inv.faelligAm || null,
+    objekt_adresse: inv.objektBezeichnung || null,
+    ticket_nummer: inv.ticketNumber || null,
+    notizen: inv.bemerkung || null,
+    pdf_url: inv.pdfUrl || null,
+    angebot_id: inv.referenzAngebotId || null,
+    vermittler_id: inv.vermittlerId || null,
+    netto_gesamt: t.summeNetto || 0,
+    mwst_gesamt: t.summeUst || 0,
+    brutto_gesamt: t.summeBrutto || 0,
+  })
 
   const performAutoSave = async () => {
     if (!invoiceId || !invoice.kundeName) return
     try {
-      const arbeitstage = selectedDates.length > 0 ? selectedDates.map(d => format(d, 'yyyy-MM-dd')) : undefined
-      await supabase.from('invoices').update({ ...invoice, ...totals, arbeitstage }).eq('id', invoiceId)
+      await supabase.from('rechnungen').update(buildRechnungData(invoice, totals)).eq('id', invoiceId)
       await savePositions(invoiceId, positions, existingPositions)
     } catch (err) {
       console.error('Auto-save error:', err)
@@ -276,18 +322,19 @@ export default function InvoiceDetailPage() {
   const handleSave = async () => {
     setSaving(true)
     try {
-      const arbeitstage = selectedDates.length > 0 ? selectedDates.map(d => format(d, 'yyyy-MM-dd')) : undefined
-      const invoiceData = { ...invoice, ...totals, arbeitstage }
       let savedId = invoiceId
+      const invCopy = { ...invoice }
 
       if (isNew) {
-        invoiceData.rechnungsNummer = await generateInvoiceNumber()
-        const { data, error } = await supabase.from('invoices').insert([invoiceData]).select().single()
+        invCopy.rechnungsNummer = await generateInvoiceNumber()
+        setInvoice(invCopy)
+        const dbData = buildRechnungData(invCopy, totals)
+        const { data, error } = await supabase.from('rechnungen').insert([dbData]).select().single()
         if (error) throw error
         savedId = data.id
         router.replace(`/rechnungen/${savedId}`)
       } else {
-        const { error } = await supabase.from('invoices').update(invoiceData).eq('id', invoiceId!)
+        const { error } = await supabase.from('rechnungen').update(buildRechnungData(invCopy, totals)).eq('id', invoiceId!)
         if (error) throw error
       }
 
@@ -307,20 +354,19 @@ export default function InvoiceDetailPage() {
     setSaving(true)
     setUploadingToZoho(true)
     try {
-      const arbeitstage = selectedDates.length > 0 ? selectedDates.map(d => format(d, 'yyyy-MM-dd')) : undefined
-      const invoiceData = { ...invoice, ...totals, arbeitstage }
       let savedId = invoiceId
-      let savedInvoice = { ...invoiceData, id: invoiceId }
+      const invCopy = { ...invoice }
 
       if (isNew) {
-        invoiceData.rechnungsNummer = await generateInvoiceNumber()
-        const { data, error } = await supabase.from('invoices').insert([invoiceData]).select().single()
+        invCopy.rechnungsNummer = await generateInvoiceNumber()
+        setInvoice(invCopy)
+        const dbData = buildRechnungData(invCopy, totals)
+        const { data, error } = await supabase.from('rechnungen').insert([dbData]).select().single()
         if (error) throw error
         savedId = data.id
-        savedInvoice = { ...invoiceData, id: savedId }
         router.replace(`/rechnungen/${savedId}`)
       } else {
-        const { error } = await supabase.from('invoices').update(invoiceData).eq('id', invoiceId!)
+        const { error } = await supabase.from('rechnungen').update(buildRechnungData(invCopy, totals)).eq('id', invoiceId!)
         if (error) throw error
       }
 
@@ -332,22 +378,15 @@ export default function InvoiceDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           rechnungsId: savedId,
-          rechnungsNummer: savedInvoice.rechnungsNummer,
-          rechnungstyp: savedInvoice.rechnungstyp,
-          pdfUrl: savedInvoice.pdfUrl,
-          ticketId: savedInvoice.ticketId,
-          ticketNumber: savedInvoice.ticketNumber,
-          datum: savedInvoice.datum,
-          faelligAm: savedInvoice.faelligAm,
-          status: savedInvoice.status,
-          kundeName: savedInvoice.kundeName,
-          objektBezeichnung: savedInvoice.objektBezeichnung,
-          erstelltDurch: savedInvoice.erstelltDurch,
-          source: savedInvoice.source,
-          referenzAngebotNummer: savedInvoice.referenzAngebotNummer,
-          referenzAngebotId: savedInvoice.referenzAngebotId,
-          stornoVonRechnung: savedInvoice.stornoVonRechnung,
-          stornoGrund: savedInvoice.stornoGrund,
+          rechnungsNummer: invCopy.rechnungsNummer,
+          pdfUrl: invCopy.pdfUrl,
+          ticketNumber: invCopy.ticketNumber,
+          datum: invCopy.datum,
+          faelligAm: invCopy.faelligAm,
+          status: invCopy.status,
+          kundeName: invCopy.kundeName,
+          objektBezeichnung: invCopy.objektBezeichnung,
+          referenzAngebotId: invCopy.referenzAngebotId,
           summen: totals,
           timestamp: new Date().toISOString()
         })
@@ -366,8 +405,8 @@ export default function InvoiceDetailPage() {
   const handleMarkAsPaid = async () => {
     if (!invoiceId) return
     try {
-      await supabase.from('invoices').update({ status: 'bezahlt', bezahltBetrag: totals.summeBrutto }).eq('id', invoiceId)
-      setInvoice(prev => ({ ...prev, status: 'bezahlt', bezahltBetrag: totals.summeBrutto }))
+      await supabase.from('rechnungen').update({ status: 'bezahlt', brutto_gesamt: totals.summeBrutto }).eq('id', invoiceId)
+      setInvoice(prev => ({ ...prev, status: 'bezahlt', summeBrutto: totals.summeBrutto }))
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
       toast.success('Rechnung als bezahlt markiert')
     } catch (err: any) {
@@ -378,7 +417,7 @@ export default function InvoiceDetailPage() {
   const handleSendInvoice = async () => {
     if (!invoiceId) { toast.error('Rechnung muss zuerst gespeichert werden'); return }
     try {
-      await supabase.from('invoices').update({ status: 'offen' }).eq('id', invoiceId)
+      await supabase.from('rechnungen').update({ status: 'offen' }).eq('id', invoiceId)
       setInvoice(prev => ({ ...prev, status: 'offen' }))
 
       await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/rechnung-versenden', {
@@ -424,42 +463,43 @@ export default function InvoiceDetailPage() {
     if (!invoiceId || !cancelReason.trim()) { toast.error('Bitte Stornierungsgrund angeben'); return }
     try {
       const year = new Date().getFullYear()
-      const { data: allInvoices } = await supabase.from('invoices').select('rechnungsNummer').ilike('rechnungsNummer', `RE-${year}%`)
+      const { data: allInvoices } = await supabase.from('rechnungen').select('rechnungsnummer').ilike('rechnungsnummer', `RE-${year}%`)
       const nextNum = (allInvoices?.length || 0) + 1
       const stornoNummer = `RE-${year}-${String(nextNum).padStart(5, '0')}`
 
       const stornoPositions = positions.map(pos => ({
-        pos: pos.pos,
-        produktName: pos.produktName,
-        beschreibung: pos.beschreibung,
+        position: pos.pos,
+        beschreibung: pos.produktName || pos.beschreibung || '-',
         menge: -Math.abs(parseFloat(pos.menge as string) || 0),
         einheit: pos.einheit,
-        einzelpreisNetto: Math.abs(parseFloat(pos.einzelpreisNetto as string) || 0),
-        rabattProzent: parseFloat(pos.rabattProzent as string) || 0,
-        ustSatz: parseFloat(pos.ustSatz as string) || 20,
-        gesamtNetto: -Math.abs(parseFloat(pos.gesamtNetto as string) || 0),
-        gesamtBrutto: -Math.abs(parseFloat(pos.gesamtBrutto as string) || 0),
-        teilfakturaProzent: parseFloat(pos.teilfakturaProzent as string) || 100,
-        bereitsFakturiert: parseFloat(pos.bereitsFakturiert as string) || 0,
+        einzelpreis: Math.abs(parseFloat(pos.einzelpreisNetto as string) || 0),
+        rabatt_prozent: parseFloat(pos.rabattProzent as string) || 0,
+        mwst_satz: parseFloat(pos.ustSatz as string) || 20,
+        gesamtpreis: -Math.abs(parseFloat(pos.gesamtNetto as string) || 0),
       }))
 
-      const { data: stornoData, error } = await supabase.from('invoices').insert([{
-        ...invoice,
-        id: undefined,
-        rechnungsNummer: stornoNummer,
-        rechnungstyp: 'storno',
-        stornoVonRechnung: invoice.rechnungsNummer,
-        stornoGrund: cancelReason,
-        datum: format(new Date(), 'yyyy-MM-dd'),
+      const stornoDbData = {
+        rechnungsnummer: stornoNummer,
         status: 'entwurf',
-        summeNetto: -Math.abs(totals.summeNetto),
-        summeUst: -Math.abs(totals.summeUst),
-        summeBrutto: -Math.abs(totals.summeBrutto),
-        pdfUrl: null,
-      }]).select().single()
+        kunde_name: invoice.kundeName,
+        kunde_strasse: invoice.kundeStrasse || null,
+        kunde_plz: invoice.kundePlz || null,
+        kunde_ort: invoice.kundeOrt || null,
+        kunde_uid: invoice.uidnummer || null,
+        rechnungsdatum: format(new Date(), 'yyyy-MM-dd'),
+        faellig_bis: null,
+        objekt_adresse: invoice.objektBezeichnung || null,
+        ticket_nummer: invoice.ticketNumber || null,
+        notizen: cancelReason,
+        netto_gesamt: -Math.abs(totals.summeNetto),
+        mwst_gesamt: -Math.abs(totals.summeUst),
+        brutto_gesamt: -Math.abs(totals.summeBrutto),
+      }
+
+      const { data: stornoData, error } = await supabase.from('rechnungen').insert([stornoDbData]).select().single()
       if (error) throw error
 
-      await supabase.from('invoice_positions').insert(stornoPositions.map(p => ({ ...p, invoice_id: stornoData.id })))
+      await supabase.from('rechnung_positionen').insert(stornoPositions.map(p => ({ ...p, rechnung_id: stornoData.id })))
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
       toast.success('Storno-Rechnung erstellt')
       setCancelDialogOpen(false)
@@ -480,7 +520,6 @@ export default function InvoiceDetailPage() {
             rechnungsId: invoiceId,
             rechnungsNummer: invoice.rechnungsNummer,
             status: 'bezahlt',
-            ticketId: invoice.ticketId,
             ticketNumber: invoice.ticketNumber,
             objektBezeichnung: invoice.objektBezeichnung,
             kundeName: invoice.kundeName,

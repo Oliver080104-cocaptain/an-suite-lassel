@@ -93,7 +93,7 @@ export async function GET(
   const { id } = await params
 
   const { data: offer, error } = await supabase
-    .from('offers')
+    .from('angebote')
     .select('*')
     .eq('id', id)
     .single()
@@ -103,10 +103,10 @@ export async function GET(
   }
 
   const { data: posData } = await supabase
-    .from('offer_positions')
+    .from('angebot_positionen')
     .select('*')
-    .eq('offerId', id)
-    .order('pos')
+    .eq('angebot_id', id)
+    .order('position')
   const positions: Record<string, unknown>[] = posData || []
 
   const { data: settings } = await supabase
@@ -116,27 +116,26 @@ export async function GET(
     .maybeSingle()
 
   // Summen berechnen
-  const summeNetto = positions.reduce((s: number, p: Record<string, unknown>) => s + (Number(p.gesamtNetto) || 0), 0)
+  const summeNetto = positions.reduce((s: number, p: Record<string, unknown>) => s + (Number(p.gesamtpreis) || 0), 0)
   const summeUst = positions.reduce((s: number, p: Record<string, unknown>) => {
-    const netto = Number(p.gesamtNetto) || 0
-    const ust = Number(p.ustSatz) || 0
-    return s + netto * (ust / 100)
+    const netto = Number(p.gesamtpreis) || 0
+    const ust = Number(p.mwst_satz) || 0
+    return s + netto * (ust / 100) / (1 + ust / 100)
   }, 0)
-  const summeBrutto = summeNetto + summeUst
+  const summeBrutto = summeNetto
 
   const posRows = positions.map((p: Record<string, unknown>) => `
     <tr>
-      <td>${esc(p.pos)}</td>
+      <td>${esc(p.position)}</td>
       <td>
-        <div class="pos-name">${esc(p.produktName)}</div>
-        ${p.beschreibung ? `<div class="pos-desc">${esc(p.beschreibung)}</div>` : ''}
+        <div class="pos-name">${esc(p.beschreibung)}</div>
       </td>
       <td class="right number">${fmt(p.menge)}</td>
       <td>${esc(p.einheit)}</td>
-      <td class="right number">${fmt(p.einzelpreisNetto)} €</td>
-      ${p.rabattProzent ? `<td class="right number">${fmt(p.rabattProzent)}%</td>` : '<td>-</td>'}
-      <td class="right number">${fmt(p.ustSatz)}%</td>
-      <td class="right number">${fmt(p.gesamtNetto)} €</td>
+      <td class="right number">${fmt(p.einzelpreis)} €</td>
+      ${p.rabatt_prozent ? `<td class="right number">${fmt(p.rabatt_prozent)}%</td>` : '<td>-</td>'}
+      <td class="right number">${fmt(p.mwst_satz)}%</td>
+      <td class="right number">${fmt(p.gesamtpreis)} €</td>
     </tr>
   `).join('')
 
@@ -146,7 +145,7 @@ export async function GET(
       <img class="logo-img" src="${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/logo.png" alt="Lassel GmbH" />
       <div style="text-align:right">
         <div class="doc-title">ANGEBOT</div>
-        <div class="doc-number">${esc(offer.angebotNummer)}</div>
+        <div class="doc-number">${esc(offer.angebotsnummer)}</div>
       </div>
     </div>
 
@@ -154,26 +153,24 @@ export async function GET(
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:20px 0;">
       <div class="address-block">
         <div class="address-label">Rechnungsempfänger</div>
-        <div class="address-name">${esc(offer.rechnungsempfaengerName)}</div>
-        <div class="address-line">${esc(offer.rechnungsempfaengerStrasse)}</div>
-        <div class="address-line">${esc(offer.rechnungsempfaengerPlz)} ${esc(offer.rechnungsempfaengerOrt)}</div>
+        <div class="address-name">${esc(offer.kunde_name)}</div>
+        <div class="address-line">${esc(offer.kunde_strasse)}</div>
+        <div class="address-line">${esc(offer.kunde_plz)} ${esc(offer.kunde_ort)}</div>
+        ${offer.kunde_uid ? `<div class="address-line">UID: ${esc(offer.kunde_uid)}</div>` : ''}
       </div>
-      ${offer.objektBezeichnung ? `
+      ${offer.objekt_adresse ? `
       <div class="address-block">
         <div class="address-label">Objekt</div>
-        <div class="address-name">${esc(offer.objektBezeichnung)}</div>
-        <div class="address-line">${esc(offer.objektStrasse)}</div>
-        <div class="address-line">${esc(offer.objektPlz)} ${esc(offer.objektOrt)}</div>
-        ${offer.hausinhabung ? `<div class="address-line">HI: ${esc(offer.hausinhabung)}</div>` : ''}
+        <div class="address-name">${esc(offer.objekt_bezeichnung || offer.objekt_adresse)}</div>
+        <div class="address-line">${esc(offer.objekt_adresse)}</div>
       </div>` : ''}
     </div>
 
     <!-- Meta -->
     <div class="meta-grid">
-      <div class="meta-item"><label>Angebotsdatum</label><span>${fmtDate(offer.datum)}</span></div>
-      <div class="meta-item"><label>Gültig bis</label><span>${fmtDate(offer.gueltigBis)}</span></div>
-      ${offer.ticketNumber ? `<div class="meta-item"><label>Ticketnummer</label><span>${esc(offer.ticketNumber)}</span></div>` : ''}
-      ${offer.erstelltDurch ? `<div class="meta-item"><label>Erstellt von</label><span>${esc(offer.erstelltDurch)}</span></div>` : ''}
+      <div class="meta-item"><label>Angebotsdatum</label><span>${fmtDate(offer.angebotsdatum)}</span></div>
+      <div class="meta-item"><label>Gültig bis</label><span>${fmtDate(offer.gueltig_bis)}</span></div>
+      ${offer.ticket_nummer ? `<div class="meta-item"><label>Ticketnummer</label><span>${esc(offer.ticket_nummer)}</span></div>` : ''}
     </div>
 
     <!-- Positionen -->
@@ -205,7 +202,7 @@ export async function GET(
       </tfoot>
     </table>
 
-    ${offer.bemerkung ? `<div class="anmerkung">${esc(offer.bemerkung)}</div>` : ''}
+    ${offer.notizen ? `<div class="anmerkung">${esc(offer.notizen)}</div>` : ''}
 
     <!-- Footer -->
     <div class="footer">

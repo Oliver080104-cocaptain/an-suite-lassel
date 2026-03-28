@@ -44,7 +44,7 @@ export default function AnalyticsPage() {
   const { data: offers = [] } = useQuery({
     queryKey: ['offers'],
     queryFn: async () => {
-      const { data } = await supabase.from('offers').select('*').is('deleted_at', null)
+      const { data } = await supabase.from('angebote').select('*').is('geloescht_am', null)
       return data || []
     },
     enabled: isAuthenticated,
@@ -53,7 +53,7 @@ export default function AnalyticsPage() {
   const { data: invoices = [] } = useQuery({
     queryKey: ['invoices'],
     queryFn: async () => {
-      const { data } = await supabase.from('invoices').select('*').is('deleted_at', null)
+      const { data } = await supabase.from('rechnungen').select('*')
       return data || []
     },
     enabled: isAuthenticated,

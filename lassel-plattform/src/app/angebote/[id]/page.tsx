@@ -28,35 +28,40 @@ export default function OfferDetailPage() {
   const offerId = isNew ? null : id
 
   const [offer, setOffer] = useState<any>({
-    angebotNummer: '',
-    datum: format(new Date(), 'yyyy-MM-dd'),
-    gueltigBis: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
-    status: 'draft',
-    rechnungsempfaengerName: '',
-    uidnummer: '',
-    rechnungsempfaengerStrasse: '',
-    rechnungsempfaengerPlz: '',
-    rechnungsempfaengerOrt: '',
-    objektBezeichnung: '',
-    objektStrasse: '',
+    angebotsnummer: '',
+    angebotsdatum: format(new Date(), 'yyyy-MM-dd'),
+    gueltig_bis: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
+    status: 'entwurf',
+    kunde_name: '',
+    kunde_uid: '',
+    kunde_strasse: '',
+    kunde_plz: '',
+    kunde_ort: '',
+    objekt_bezeichnung: '',
+    objekt_adresse: '',
+    // UI-only fields (not saved to DB)
     objektPlz: '',
     objektOrt: '',
     hausinhabung: '',
     ansprechpartner: '',
     geschaeftsfallNummer: '',
     erstelltDurch: '',
-    bemerkung: '',
-    anmerkungen: '',
-    ticketId: '',
-    ticketNumber: '',
-    source: 'manual',
-    n8nWebhookUrl: '',
-    reverseCharge: false
+    Skizzen_Link: '',
+    // DB fields
+    ticket_nummer: '',
+    zoho_ticket_id: '',
+    reverse_charge: false,
+    notizen: '',
+    pdf_url: '',
+    vermittler_id: null,
+    netto_gesamt: 0,
+    mwst_gesamt: 0,
+    brutto_gesamt: 0,
   })
 
   const [positions, setPositions] = useState<any[]>([{
-    pos: 1, produktName: '', beschreibung: '', menge: 1, einheit: 'Stk',
-    einzelpreisNetto: 0, rabattProzent: 0, ustSatz: 20, gesamtNetto: 0, gesamtBrutto: 0
+    position: 1, beschreibung: '', menge: 1, einheit: 'Stk',
+    einzelpreis: 0, rabatt_prozent: 0, mwst_satz: 20, gesamtpreis: 0
   }])
 
   const [saving, setSaving] = useState(false)
@@ -71,7 +76,7 @@ export default function OfferDetailPage() {
     queryKey: ['offer', offerId],
     queryFn: async () => {
       if (!offerId) return null
-      const { data, error } = await supabase.from('offers').select('*').eq('id', offerId).single()
+      const { data, error } = await supabase.from('angebote').select('*').eq('id', offerId).single()
       if (error) throw error
       return data
     },
@@ -82,7 +87,7 @@ export default function OfferDetailPage() {
     queryKey: ['offerPositions', offerId],
     queryFn: async () => {
       if (!offerId) return []
-      const { data, error } = await supabase.from('offer_positions').select('*').eq('offerId', offerId).order('pos')
+      const { data, error } = await supabase.from('angebot_positionen').select('*').eq('angebot_id', offerId).order('position')
       if (error) throw error
       return data || []
     },
@@ -93,7 +98,7 @@ export default function OfferDetailPage() {
     queryKey: ['linkedInvoices', offerId],
     queryFn: async () => {
       if (!offerId) return []
-      const { data, error } = await supabase.from('invoices').select('*').eq('referenzAngebotId', offerId)
+      const { data, error } = await supabase.from('rechnungen').select('*').eq('angebot_id', offerId)
       if (error) return []
       return data || []
     },
@@ -104,7 +109,7 @@ export default function OfferDetailPage() {
     queryKey: ['linkedDeliveryNotes', offerId],
     queryFn: async () => {
       if (!offerId) return []
-      const { data, error } = await supabase.from('delivery_notes').select('*').eq('referenzAngebotId', offerId)
+      const { data, error } = await supabase.from('lieferscheine').select('*').eq('angebot_id', offerId)
       if (error) return []
       return data || []
     },
@@ -123,7 +128,7 @@ export default function OfferDetailPage() {
   const { data: vermittlerList = [] } = useQuery({
     queryKey: ['vermittler'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('vermittler').select('*').eq('status', 'aktiv').order('name')
+      const { data, error } = await supabase.from('vermittler').select('*').order('name')
       if (error) throw error
       return data || []
     }
@@ -132,7 +137,7 @@ export default function OfferDetailPage() {
   const { data: companySettingsData } = useQuery({
     queryKey: ['companySettings'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('company_settings').select('*').limit(1).single()
+      const { data, error } = await supabase.from('einstellungen').select('*').limit(1).single()
       if (error) return {}
       return data || {}
     }
@@ -159,38 +164,63 @@ export default function OfferDetailPage() {
   useEffect(() => {
     if (isNew) return
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden' && offerId && offer.rechnungsempfaengerName) {
+      if (document.visibilityState === 'hidden' && offerId && offer.kunde_name) {
         handleAutoSave()
       }
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
-      if (offerId && offer.rechnungsempfaengerName) handleAutoSave()
+      if (offerId && offer.kunde_name) handleAutoSave()
     }
   }, [offer, positions, isNew, offerId])
 
   const totals = useMemo(() => {
-    const summeNetto = positions.reduce((sum: number, p: any) => sum + (parseFloat(p.gesamtNetto) || 0), 0)
-    const summeRabatt = positions.reduce((sum: number, p: any) => {
+    const netto_gesamt = positions.reduce((sum: number, p: any) => {
       const menge = parseFloat(p.menge) || 0
-      const einzelpreis = parseFloat(p.einzelpreisNetto) || 0
-      const rabatt = parseFloat(p.rabattProzent) || 0
-      return sum + (menge * einzelpreis * (rabatt / 100))
+      const einzelpreis = parseFloat(p.einzelpreis) || 0
+      const rabatt = parseFloat(p.rabatt_prozent) || 0
+      return sum + (menge * einzelpreis * (1 - rabatt / 100))
     }, 0)
-    const summeUst = positions.reduce((sum: number, p: any) => {
-      const gesamtNetto = parseFloat(p.gesamtNetto) || 0
-      const ustSatz = parseFloat(p.ustSatz) || 20
-      return sum + (gesamtNetto * (ustSatz / 100))
+    const mwst_gesamt = positions.reduce((sum: number, p: any) => {
+      const menge = parseFloat(p.menge) || 0
+      const einzelpreis = parseFloat(p.einzelpreis) || 0
+      const rabatt = parseFloat(p.rabatt_prozent) || 0
+      const nettoPos = menge * einzelpreis * (1 - rabatt / 100)
+      const mwst_satz = parseFloat(p.mwst_satz) || 20
+      return sum + (nettoPos * (mwst_satz / 100))
     }, 0)
-    return { summeNetto, summeRabatt, summeUst, summeBrutto: summeNetto + summeUst }
+    return { netto_gesamt, mwst_gesamt, brutto_gesamt: netto_gesamt + mwst_gesamt }
   }, [positions])
+
+  const buildOfferData = (offerState: any) => ({
+    angebotsnummer: offerState.angebotsnummer,
+    angebotsdatum: offerState.angebotsdatum,
+    gueltig_bis: offerState.gueltig_bis,
+    status: offerState.status || 'entwurf',
+    kunde_name: offerState.kunde_name || '',
+    kunde_uid: offerState.kunde_uid || null,
+    kunde_strasse: offerState.kunde_strasse || null,
+    kunde_plz: offerState.kunde_plz || null,
+    kunde_ort: offerState.kunde_ort || null,
+    objekt_bezeichnung: offerState.objekt_bezeichnung || null,
+    objekt_adresse: offerState.objekt_adresse || null,
+    ticket_nummer: offerState.ticket_nummer || null,
+    zoho_ticket_id: offerState.zoho_ticket_id || null,
+    reverse_charge: offerState.reverse_charge || false,
+    notizen: offerState.notizen || null,
+    pdf_url: offerState.pdf_url || null,
+    vermittler_id: offerState.vermittler_id || null,
+    netto_gesamt: offerState.netto_gesamt || 0,
+    mwst_gesamt: offerState.mwst_gesamt || 0,
+    brutto_gesamt: offerState.brutto_gesamt || 0,
+  })
 
   const handleAutoSave = async () => {
     if (isNew || !offerId || autoSaveLock.current) return
     autoSaveLock.current = true
     try {
-      await supabase.from('offers').update({ ...offer, ...totals }).eq('id', offerId)
+      await supabase.from('angebote').update(buildOfferData({ ...offer, ...totals })).eq('id', offerId)
       await savePositions(offerId, positions, existingPositions)
     } catch (error) {
       console.error('Auto-save error:', error)
@@ -206,30 +236,27 @@ export default function OfferDetailPage() {
     const toCreate = currentPositions.filter((p: any) => !p.id)
 
     const buildPosData = (pos: any) => ({
-      offerId: targetOfferId,
-      pos: pos.pos,
-      produktId: pos.produktId,
-      produktName: pos.produktName,
+      angebot_id: targetOfferId,
+      position: pos.position,
       beschreibung: pos.beschreibung || '',
       menge: parseFloat(pos.menge) || 0,
       einheit: pos.einheit,
-      einzelpreisNetto: parseFloat(pos.einzelpreisNetto) || 0,
-      rabattProzent: parseFloat(pos.rabattProzent) || 0,
-      ustSatz: parseFloat(pos.ustSatz) || 20,
-      gesamtNetto: parseFloat(pos.gesamtNetto) || 0,
-      gesamtBrutto: parseFloat(pos.gesamtBrutto) || 0
+      einzelpreis: parseFloat(pos.einzelpreis) || 0,
+      rabatt_prozent: parseFloat(pos.rabatt_prozent) || 0,
+      mwst_satz: parseFloat(pos.mwst_satz) || 20,
+      gesamtpreis: parseFloat(pos.gesamtpreis) || 0,
     })
 
     await Promise.all([
-      ...toDelete.map((p: any) => supabase.from('offer_positions').delete().eq('id', p.id)),
-      ...toUpdate.map((p: any) => supabase.from('offer_positions').update(buildPosData(p)).eq('id', p.id)),
-      ...(toCreate.length > 0 ? [supabase.from('offer_positions').insert(toCreate.map(buildPosData))] : [])
+      ...toDelete.map((p: any) => supabase.from('angebot_positionen').delete().eq('id', p.id)),
+      ...toUpdate.map((p: any) => supabase.from('angebot_positionen').update(buildPosData(p)).eq('id', p.id)),
+      ...(toCreate.length > 0 ? [supabase.from('angebot_positionen').insert(toCreate.map(buildPosData))] : [])
     ])
   }
 
   const generateOfferNumber = async () => {
     const year = new Date().getFullYear()
-    const { data } = await supabase.from('offers').select('angebotNummer').like('angebotNummer', `AN-${year}-%`)
+    const { data } = await supabase.from('angebote').select('angebotsnummer').like('angebotsnummer', `AN-${year}-%`)
     const nextNumber = (data?.length || 0) + 1
     return `AN-${year}-${String(nextNumber).padStart(5, '0')}`
   }
@@ -238,14 +265,14 @@ export default function OfferDetailPage() {
     setSaving(true)
     try {
       let savedOffer: any
-      const offerData = { ...offer, ...totals }
+      const offerData = buildOfferData({ ...offer, ...totals })
       if (isNew) {
-        offerData.angebotNummer = await generateOfferNumber()
-        const { data, error } = await supabase.from('offers').insert(offerData).select().single()
+        offerData.angebotsnummer = await generateOfferNumber()
+        const { data, error } = await supabase.from('angebote').insert(offerData).select().single()
         if (error) throw error
         savedOffer = data
       } else {
-        const { error } = await supabase.from('offers').update(offerData).eq('id', offerId)
+        const { error } = await supabase.from('angebote').update(offerData).eq('id', offerId)
         if (error) throw error
         savedOffer = { ...offerData, id: offerId }
       }
@@ -263,7 +290,7 @@ export default function OfferDetailPage() {
   }
 
   const handleSaveAndUploadToZoho = async () => {
-    if (positions.length === 0 || !positions[0].produktName) {
+    if (positions.length === 0 || !positions[0].beschreibung) {
       toast.error('Mindestens eine Position erforderlich')
       return
     }
@@ -271,15 +298,15 @@ export default function OfferDetailPage() {
     setUploadingToZoho(true)
     try {
       let savedOffer: any
-      const offerData = { ...offer, ...totals }
+      const offerData = buildOfferData({ ...offer, ...totals })
       if (isNew) {
-        offerData.angebotNummer = await generateOfferNumber()
-        const { data, error } = await supabase.from('offers').insert(offerData).select().single()
+        offerData.angebotsnummer = await generateOfferNumber()
+        const { data, error } = await supabase.from('angebote').insert(offerData).select().single()
         if (error) throw error
         savedOffer = data
         router.replace(`/angebote/${savedOffer.id}`)
       } else {
-        const { error } = await supabase.from('offers').update(offerData).eq('id', offerId)
+        const { error } = await supabase.from('angebote').update(offerData).eq('id', offerId)
         if (error) throw error
         savedOffer = { ...offerData, id: offerId }
       }
@@ -291,21 +318,21 @@ export default function OfferDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           offerId: savedOffer.id,
-          angebotNummer: savedOffer.angebotNummer,
-          pdfUrl: savedOffer.pdfUrl,
+          angebotNummer: savedOffer.angebotsnummer,
+          pdfUrl: savedOffer.pdf_url,
           editUrl,
-          ticketId: savedOffer.ticketId,
-          ticketNumber: savedOffer.ticketNumber,
+          ticketId: savedOffer.zoho_ticket_id,
+          ticketNumber: savedOffer.ticket_nummer,
           dealId: savedOffer.dealId,
-          geschaeftsfallNummer: savedOffer.geschaeftsfallNummer,
-          datum: savedOffer.datum,
-          gueltigBis: savedOffer.gueltigBis,
+          geschaeftsfallNummer: offer.geschaeftsfallNummer,
+          datum: savedOffer.angebotsdatum,
+          gueltigBis: savedOffer.gueltig_bis,
           status: savedOffer.status,
-          rechnungsempfaengerName: savedOffer.rechnungsempfaengerName,
-          objektBezeichnung: savedOffer.objektBezeichnung,
-          erstelltDurch: savedOffer.erstelltDurch,
+          rechnungsempfaengerName: savedOffer.kunde_name,
+          objektBezeichnung: savedOffer.objekt_bezeichnung,
+          erstelltDurch: offer.erstelltDurch,
           summen: totals,
-          skizzenLink: savedOffer.Skizzen_Link,
+          skizzenLink: offer.Skizzen_Link,
           timestamp: new Date().toISOString()
         })
       }).catch(console.error)
@@ -325,37 +352,28 @@ export default function OfferDetailPage() {
     setCreatingDeliveryNote(true)
     toast.loading('Lieferschein wird erstellt...')
     try {
-      const lieferscheinNummer = offer.angebotNummer?.replace('AN-', 'LI-')
-      const { data: deliveryNote, error } = await supabase.from('delivery_notes').insert({
-        lieferscheinNummer,
-        ticketIdentifikation: offer.ticketId || offer.ticketNumber,
-        source: 'manual',
-        ticketId: offer.ticketId,
-        ticketNumber: offer.ticketNumber,
-        geschaeftsfallNummer: offer.geschaeftsfallNummer,
-        referenzAngebotNummer: offer.angebotNummer,
-        referenzAngebotId: offer.id || offerId,
-        kundeName: offer.rechnungsempfaengerName,
-        uidnummer: offer.uidnummer,
-        kundeStrasse: offer.rechnungsempfaengerStrasse,
-        kundePlz: offer.rechnungsempfaengerPlz,
-        kundeOrt: offer.rechnungsempfaengerOrt,
-        kundeAnsprechpartner: offer.ansprechpartner,
-        hausinhabung: offer.hausinhabung,
-        objektStrasse: offer.objektStrasse,
-        objektBezeichnung: offer.objektBezeichnung,
-        datum: format(new Date(), 'yyyy-MM-dd'),
-        erstelltDurch: offer.erstelltDurch,
-        bemerkung: offer.bemerkung,
+      const lieferscheinnummer = offer.angebotsnummer?.replace('AN-', 'LI-')
+      const { data: deliveryNote, error } = await supabase.from('lieferscheine').insert({
+        lieferscheinnummer,
+        angebot_id: offer.id || offerId,
+        kunde_name: offer.kunde_name,
+        kunde_strasse: offer.kunde_strasse,
+        kunde_plz: offer.kunde_plz,
+        kunde_ort: offer.kunde_ort,
+        objekt_adresse: offer.objekt_bezeichnung || offer.objekt_adresse,
+        lieferdatum: format(new Date(), 'yyyy-MM-dd'),
+        ticket_nummer: offer.ticket_nummer,
         status: 'entwurf'
       }).select().single()
       if (error) throw error
 
-      await supabase.from('delivery_note_positions').insert(
+      await supabase.from('lieferschein_positionen').insert(
         positions.map((pos: any) => ({
-          deliveryNoteId: deliveryNote.id,
-          pos: pos.pos, produktName: pos.produktName,
-          beschreibung: pos.beschreibung || '', menge: pos.menge, einheit: pos.einheit
+          lieferschein_id: deliveryNote.id,
+          position: pos.position,
+          beschreibung: pos.beschreibung || '',
+          menge: pos.menge,
+          einheit: pos.einheit
         }))
       )
 
@@ -383,50 +401,38 @@ export default function OfferDetailPage() {
     setCreatingInvoice(true)
     toast.loading('Rechnung wird erstellt...')
     try {
-      const rechnungsNummer = offer.angebotNummer?.replace('AN-', 'RE-')
-      const { data: invoice, error } = await supabase.from('invoices').insert({
-        rechnungsNummer,
+      const rechnungsnummer = offer.angebotsnummer?.replace('AN-', 'RE-')
+      const { data: invoice, error } = await supabase.from('rechnungen').insert({
+        rechnungsnummer,
         rechnungstyp: 'normal',
-        ticketId: offer.ticketId,
-        ticketNumber: offer.ticketNumber,
-        objektBezeichnung: offer.objektBezeichnung,
-        referenzAngebotNummer: offer.angebotNummer,
-        referenzAngebotId: offer.id || offerId,
-        kundeName: offer.rechnungsempfaengerName,
-        uidnummer: offer.uidnummer,
-        kundeStrasse: offer.rechnungsempfaengerStrasse,
-        kundePlz: offer.rechnungsempfaengerPlz,
-        kundeOrt: offer.rechnungsempfaengerOrt,
-        kundeAnsprechpartner: offer.ansprechpartner,
-        hausinhabung: offer.hausinhabung,
-        objektStrasse: offer.objektStrasse,
-        objektPlz: offer.objektPlz,
-        objektOrt: offer.objektOrt,
-        datum: format(new Date(), 'yyyy-MM-dd'),
-        zahlungskondition: '14 Tage netto',
-        zahlungszielTage: 14,
-        faelligAm: format(addDays(new Date(), 14), 'yyyy-MM-dd'),
-        erstelltDurch: offer.erstelltDurch,
-        bemerkung: offer.bemerkung,
+        angebot_id: offer.id || offerId,
+        kunde_name: offer.kunde_name,
+        kunde_strasse: offer.kunde_strasse,
+        kunde_plz: offer.kunde_plz,
+        kunde_ort: offer.kunde_ort,
+        objekt_adresse: offer.objekt_bezeichnung || offer.objekt_adresse,
+        rechnungsdatum: format(new Date(), 'yyyy-MM-dd'),
+        faellig_bis: format(addDays(new Date(), 14), 'yyyy-MM-dd'),
+        ticket_nummer: offer.ticket_nummer,
         status: 'entwurf',
-        summeNetto: totals.summeNetto,
-        summeRabatt: totals.summeRabatt,
-        summeUst: totals.summeUst,
-        summeBrutto: totals.summeBrutto
+        reverse_charge: offer.reverse_charge,
+        netto_gesamt: totals.netto_gesamt,
+        mwst_gesamt: totals.mwst_gesamt,
+        brutto_gesamt: totals.brutto_gesamt,
       }).select().single()
       if (error) throw error
 
-      await supabase.from('invoice_positions').insert(
+      await supabase.from('rechnung_positionen').insert(
         positions.map((pos: any) => ({
-          invoiceId: invoice.id,
-          pos: pos.pos, produktName: pos.produktName, beschreibung: pos.beschreibung || '',
-          menge: parseFloat(pos.menge) || 0, einheit: pos.einheit,
-          einzelpreisNetto: parseFloat(pos.einzelpreisNetto) || 0,
-          rabattProzent: parseFloat(pos.rabattProzent) || 0,
-          ustSatz: parseFloat(pos.ustSatz) || 20,
-          gesamtNetto: parseFloat(pos.gesamtNetto) || 0,
-          gesamtBrutto: parseFloat(pos.gesamtBrutto) || 0,
-          teilfakturaProzent: 100, bereitsFakturiert: 0
+          rechnung_id: invoice.id,
+          position: pos.position,
+          beschreibung: pos.beschreibung || '',
+          menge: parseFloat(pos.menge) || 0,
+          einheit: pos.einheit,
+          einzelpreis: parseFloat(pos.einzelpreis) || 0,
+          rabatt_prozent: parseFloat(pos.rabatt_prozent) || 0,
+          mwst_satz: parseFloat(pos.mwst_satz) || 20,
+          gesamtpreis: parseFloat(pos.gesamtpreis) || 0,
         }))
       )
 
@@ -452,14 +458,14 @@ export default function OfferDetailPage() {
   const handleSendOffer = async () => {
     if (!offerId) { toast.error('Angebot muss zuerst gespeichert werden'); return }
     try {
-      await supabase.from('offers').update({ status: 'versendet' }).eq('id', offerId)
+      await supabase.from('angebote').update({ status: 'versendet' }).eq('id', offerId)
       setOffer({ ...offer, status: 'versendet' })
       try {
         const editUrl = `${window.location.origin}/angebote/${offerId}`
         await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/ab34322b-aed4-4a93-b232-9178bf75ecaf', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ offerId, angebotNummer: offer.angebotNummer, editUrl, status: 'versendet', timestamp: new Date().toISOString() })
+          body: JSON.stringify({ offerId, angebotNummer: offer.angebotsnummer, editUrl, status: 'versendet', timestamp: new Date().toISOString() })
         })
       } catch (e) { console.error('Webhook fehlgeschlagen:', e) }
       queryClient.invalidateQueries({ queryKey: ['offers'] })
@@ -490,7 +496,7 @@ export default function OfferDetailPage() {
             </div>
             <div>
               <Link href="/angebote" className="text-sm text-slate-500 hover:text-slate-700">← Alle Angebote</Link>
-              <h1 className="text-3xl font-bold text-slate-900">{isNew ? 'Neues Angebot' : offer.angebotNummer || 'Angebot'}</h1>
+              <h1 className="text-3xl font-bold text-slate-900">{isNew ? 'Neues Angebot' : offer.angebotsnummer || 'Angebot'}</h1>
               <p className="text-sm text-slate-600 mt-1">
                 {isNew ? 'Angebot erstellen' : (createdAt ? `Erstellt am ${format(new Date(createdAt), 'dd.MM.yyyy')}` : '')}
               </p>
@@ -564,8 +570,8 @@ export default function OfferDetailPage() {
             <Card className="p-6">
               <div className="flex items-start justify-between mb-4">
                 <h2 className="text-lg font-semibold text-slate-900">Rechnungsempfänger</h2>
-                {offer.ticketId && (
-                  <a href={`https://crm.zoho.eu/crm/org20107446748/tab/CustomModule17/${offer.ticketId}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-700" title="In Zoho öffnen">
+                {offer.zoho_ticket_id && (
+                  <a href={`https://crm.zoho.eu/crm/org20107446748/tab/CustomModule17/${offer.zoho_ticket_id}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-700" title="In Zoho öffnen">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                     </svg>
@@ -575,25 +581,25 @@ export default function OfferDetailPage() {
               <div className="grid grid-cols-1 gap-4">
                 <div>
                   <Label>Name (Hausverwaltung / Kunde)</Label>
-                  <Input value={offer.rechnungsempfaengerName || ''} onChange={(e) => setOffer({ ...offer, rechnungsempfaengerName: e.target.value })} placeholder="z.B. PAUL Vienna Office GmbH" className="mt-1" />
+                  <Input value={offer.kunde_name || ''} onChange={(e) => setOffer({ ...offer, kunde_name: e.target.value })} placeholder="z.B. PAUL Vienna Office GmbH" className="mt-1" />
                 </div>
                 <div>
                   <Label>Straße</Label>
-                  <Input value={offer.rechnungsempfaengerStrasse || ''} onChange={(e) => setOffer({ ...offer, rechnungsempfaengerStrasse: e.target.value })} placeholder="Straße und Hausnummer" className="mt-1" />
+                  <Input value={offer.kunde_strasse || ''} onChange={(e) => setOffer({ ...offer, kunde_strasse: e.target.value })} placeholder="Straße und Hausnummer" className="mt-1" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>PLZ</Label>
-                    <Input value={offer.rechnungsempfaengerPlz || ''} onChange={(e) => setOffer({ ...offer, rechnungsempfaengerPlz: e.target.value })} placeholder="PLZ" className="mt-1" />
+                    <Input value={offer.kunde_plz || ''} onChange={(e) => setOffer({ ...offer, kunde_plz: e.target.value })} placeholder="PLZ" className="mt-1" />
                   </div>
                   <div>
                     <Label>Ort</Label>
-                    <Input value={offer.rechnungsempfaengerOrt || ''} onChange={(e) => setOffer({ ...offer, rechnungsempfaengerOrt: e.target.value })} placeholder="Ort" className="mt-1" />
+                    <Input value={offer.kunde_ort || ''} onChange={(e) => setOffer({ ...offer, kunde_ort: e.target.value })} placeholder="Ort" className="mt-1" />
                   </div>
                 </div>
                 <div>
                   <Label>UID-Nummer</Label>
-                  <Input value={offer.uidnummer || ''} onChange={(e) => setOffer({ ...offer, uidnummer: e.target.value })} placeholder="z.B. ATU12345678" className="mt-1" />
+                  <Input value={offer.kunde_uid || ''} onChange={(e) => setOffer({ ...offer, kunde_uid: e.target.value })} placeholder="z.B. ATU12345678" className="mt-1" />
                 </div>
               </div>
             </Card>
@@ -603,11 +609,11 @@ export default function OfferDetailPage() {
               <div className="grid grid-cols-1 gap-4">
                 <div>
                   <Label>Objektbezeichnung</Label>
-                  <Input value={offer.objektBezeichnung || ''} onChange={(e) => setOffer({ ...offer, objektBezeichnung: e.target.value })} placeholder="z.B. Hauptstraße 50, 2020 Magersdorf" className="mt-1" />
+                  <Input value={offer.objekt_bezeichnung || ''} onChange={(e) => setOffer({ ...offer, objekt_bezeichnung: e.target.value })} placeholder="z.B. Hauptstraße 50, 2020 Magersdorf" className="mt-1" />
                 </div>
                 <div>
                   <Label>Objektadresse (Straße und Nummer)</Label>
-                  <Input value={offer.objektStrasse || ''} onChange={(e) => setOffer({ ...offer, objektStrasse: e.target.value })} placeholder="z.B. Rauscherstraße 251" className="mt-1" />
+                  <Input value={offer.objekt_adresse || ''} onChange={(e) => setOffer({ ...offer, objekt_adresse: e.target.value })} placeholder="z.B. Rauscherstraße 251" className="mt-1" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -634,11 +640,11 @@ export default function OfferDetailPage() {
               <div className="space-y-4">
                 <div>
                   <Label>Angebotsdatum</Label>
-                  <Input type="date" value={offer.datum || ''} onChange={(e) => setOffer({ ...offer, datum: e.target.value })} className="mt-1" />
+                  <Input type="date" value={offer.angebotsdatum || ''} onChange={(e) => setOffer({ ...offer, angebotsdatum: e.target.value })} className="mt-1" />
                 </div>
                 <div>
                   <Label>Gültig bis</Label>
-                  <Input type="date" value={offer.gueltigBis || ''} onChange={(e) => setOffer({ ...offer, gueltigBis: e.target.value })} className="mt-1" />
+                  <Input type="date" value={offer.gueltig_bis || ''} onChange={(e) => setOffer({ ...offer, gueltig_bis: e.target.value })} className="mt-1" />
                 </div>
                 <div>
                   <Label>Angebot erstellt von</Label>
@@ -651,10 +657,10 @@ export default function OfferDetailPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className={offer.vermittlerId ? 'p-3 bg-orange-50 border-2 border-orange-300 rounded-lg' : ''}>
+                <div className={offer.vermittler_id ? 'p-3 bg-orange-50 border-2 border-orange-300 rounded-lg' : ''}>
                   <Label>Vermittler</Label>
-                  <Select value={offer.vermittlerId || ''} onValueChange={(value) => setOffer({ ...offer, vermittlerId: value || null })}>
-                    <SelectTrigger className={offer.vermittlerId ? 'mt-1 border-orange-300 bg-white' : 'mt-1'}><SelectValue placeholder="Vermittler auswählen (optional)..." /></SelectTrigger>
+                  <Select value={offer.vermittler_id || ''} onValueChange={(value) => setOffer({ ...offer, vermittler_id: value || null })}>
+                    <SelectTrigger className={offer.vermittler_id ? 'mt-1 border-orange-300 bg-white' : 'mt-1'}><SelectValue placeholder="Vermittler auswählen (optional)..." /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="">Kein Vermittler</SelectItem>
                       {(vermittlerList as any[]).map((v: any) => (
@@ -662,9 +668,9 @@ export default function OfferDetailPage() {
                       ))}
                     </SelectContent>
                   </Select>
-                  {offer.vermittlerId && (vermittlerList as any[]).find((v: any) => v.id === offer.vermittlerId) && (
+                  {offer.vermittler_id && (vermittlerList as any[]).find((v: any) => v.id === offer.vermittler_id) && (
                     <p className="text-xs text-orange-700 font-medium mt-2">
-                      Vermittler-Provision: {(vermittlerList as any[]).find((v: any) => v.id === offer.vermittlerId)?.provisionssatz || 10}% wird an Vermittler gezahlt
+                      Vermittler-Provision: {(vermittlerList as any[]).find((v: any) => v.id === offer.vermittler_id)?.provisionssatz || 10}% wird an Vermittler gezahlt
                     </p>
                   )}
                 </div>
@@ -672,7 +678,7 @@ export default function OfferDetailPage() {
                   <Label>Status</Label>
                   <div className="p-3 bg-blue-50 border-2 border-blue-300 rounded-lg mt-1">
                     <Select
-                      value={offer.status || 'draft'}
+                      value={offer.status || 'entwurf'}
                       onValueChange={async (v) => {
                         setOffer({ ...offer, status: v })
                         if (v === 'angenommen' && offerId) {
@@ -680,7 +686,7 @@ export default function OfferDetailPage() {
                             await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/2c51d71e-b55d-493d-aafb-1443d1d100cc', {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ angebotId: offerId, angebotNummer: offer.angebotNummer, status: 'angenommen', timestamp: new Date().toISOString() })
+                              body: JSON.stringify({ angebotId: offerId, angebotNummer: offer.angebotsnummer, status: 'angenommen', timestamp: new Date().toISOString() })
                             })
                           } catch (e) { console.error('Webhook Fehler:', e) }
                         }
@@ -688,7 +694,7 @@ export default function OfferDetailPage() {
                     >
                       <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="draft">Draft</SelectItem>
+                        <SelectItem value="entwurf">Entwurf</SelectItem>
                         <SelectItem value="in_bearbeitung">In Bearbeitung</SelectItem>
                         <SelectItem value="ready_for_pdf">Bereit für PDF</SelectItem>
                         <SelectItem value="final">Final</SelectItem>
@@ -703,7 +709,7 @@ export default function OfferDetailPage() {
                 </div>
                 <div>
                   <Label>Ticket-Nr.</Label>
-                  <Input value={offer.ticketNumber || ''} onChange={(e) => setOffer({ ...offer, ticketNumber: e.target.value })} placeholder="Ticket-Nummer" className="mt-1" />
+                  <Input value={offer.ticket_nummer || ''} onChange={(e) => setOffer({ ...offer, ticket_nummer: e.target.value })} placeholder="Ticket-Nummer" className="mt-1" />
                 </div>
                 <div>
                   <Label>Geschäftsfallnummer</Label>
@@ -718,9 +724,9 @@ export default function OfferDetailPage() {
                 </div>
                 <div>
                   <Label>PDF Link</Label>
-                  <Input value={offer.pdfUrl || ''} onChange={(e) => setOffer({ ...offer, pdfUrl: e.target.value })} placeholder="PDF Link (wird automatisch gesetzt)" className="mt-1" readOnly />
-                  {offer.pdfUrl && (
-                    <a href={offer.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-700 underline mt-1 block">PDF öffnen</a>
+                  <Input value={offer.pdf_url || ''} onChange={(e) => setOffer({ ...offer, pdf_url: e.target.value })} placeholder="PDF Link (wird automatisch gesetzt)" className="mt-1" readOnly />
+                  {offer.pdf_url && (
+                    <a href={offer.pdf_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-700 underline mt-1 block">PDF öffnen</a>
                   )}
                 </div>
               </div>
@@ -736,7 +742,7 @@ export default function OfferDetailPage() {
                       <div className="space-y-1">
                         {(linkedInvoices as any[]).map((inv: any) => (
                           <Link key={inv.id} href={`/rechnungen/${inv.id}`} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-slate-50 group">
-                            <span className="text-sm font-medium text-blue-600 group-hover:underline">{inv.rechnungsNummer}</span>
+                            <span className="text-sm font-medium text-blue-600 group-hover:underline">{inv.rechnungsnummer}</span>
                             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${inv.status === 'bezahlt' ? 'bg-emerald-100 text-emerald-700' : inv.status === 'offen' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>{inv.status}</span>
                           </Link>
                         ))}
@@ -749,7 +755,7 @@ export default function OfferDetailPage() {
                       <div className="space-y-1">
                         {(linkedDeliveryNotes as any[]).map((dn: any) => (
                           <Link key={dn.id} href={`/lieferscheine/${dn.id}`} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-slate-50 group">
-                            <span className="text-sm font-medium text-blue-600 group-hover:underline">{dn.lieferscheinNummer}</span>
+                            <span className="text-sm font-medium text-blue-600 group-hover:underline">{dn.lieferscheinnummer}</span>
                             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${dn.status === 'erledigt' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{dn.status}</span>
                           </Link>
                         ))}
@@ -773,8 +779,8 @@ export default function OfferDetailPage() {
           <Card className="p-6">
             <h2 className="text-lg font-semibold text-slate-900 mb-4">Anmerkungen zum Angebot</h2>
             <Textarea
-              value={offer.anmerkungen || ''}
-              onChange={(e) => setOffer({ ...offer, anmerkungen: e.target.value })}
+              value={offer.notizen || ''}
+              onChange={(e) => setOffer({ ...offer, notizen: e.target.value })}
               placeholder="Optionale Anmerkungen, die im Angebot angezeigt werden..."
               rows={4}
             />
@@ -786,8 +792,8 @@ export default function OfferDetailPage() {
             <div className="flex items-center space-x-2">
               <Checkbox
                 id="reverseCharge"
-                checked={offer.reverseCharge || false}
-                onCheckedChange={(checked) => setOffer({ ...offer, reverseCharge: checked })}
+                checked={offer.reverse_charge || false}
+                onCheckedChange={(checked) => setOffer({ ...offer, reverse_charge: checked })}
               />
               <label htmlFor="reverseCharge" className="text-sm font-medium leading-none cursor-pointer">
                 Ohne 20% UST (Reverse Charge / Ausnahme)
@@ -795,7 +801,7 @@ export default function OfferDetailPage() {
             </div>
           </Card>
 
-          <OfferSummary positions={positions} reverseCharge={offer.reverseCharge} />
+          <OfferSummary positions={positions} reverseCharge={offer.reverse_charge} />
         </div>
 
         {/* PDF Preview */}
