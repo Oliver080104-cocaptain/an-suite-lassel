@@ -35,7 +35,7 @@ export default function LieferscheinePage() {
       const { data, error } = await supabase
         .from('lieferscheine')
         .select('*')
-        .order('lieferdatum', { ascending: false })
+        .order('created_at', { ascending: false })
       if (error) throw error
       return data || []
     }
