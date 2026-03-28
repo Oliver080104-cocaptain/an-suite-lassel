@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(for f:*)",
+      "Bash(do)",
+      "Bash(echo \"=== $f ===\")",
+      "Read(//c/CoCaptain Projekte/Lassel GmbH - Tourenplaner V2/Daten Import/**)",
+      "Bash(done)"
+    ]
+  }
+}
