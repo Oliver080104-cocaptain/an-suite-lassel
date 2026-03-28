@@ -6,70 +6,58 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://an-suite-lassel.vercel.app'
+
 function esc(s: unknown): string {
   if (s === null || s === undefined) return ''
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
-function fmt(n: unknown): string {
-  return new Intl.NumberFormat('de-AT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n) || 0)
+function formatDate(d: string | null | undefined): string {
+  if (!d) return ''
+  try { return new Date(d).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }) }
+  catch { return String(d) }
 }
 
-function fmtDate(s: unknown): string {
-  if (!s) return ''
-  try { return new Date(String(s)).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }) } catch { return String(s) }
+function fmtMenge(n: unknown): string {
+  return new Intl.NumberFormat('de-AT', { minimumFractionDigits: 2, maximumFractionDigits: 3 }).format(Number(n) || 0)
 }
 
-function wrap(body: string): string {
-  return `<!DOCTYPE html>
-<html lang="de">
-<head>
-<meta charset="UTF-8" />
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  @page { size: A4; margin: 0; }
-  body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #1a1a1a; background: #f0f0f0; }
-  .page { width: 210mm; min-height: 297mm; padding: 18mm; background: white; box-shadow: 0 4px 24px rgba(0,0,0,0.18); margin: 0 auto; position: relative; }
-  .logo-img { height: 48px; width: auto; }
-  .header-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
-  .doc-title { font-size: 22px; font-weight: 700; }
-  .doc-number { font-size: 13px; color: #555; }
-  .address-block { margin: 4px 0; }
-  .address-label { font-size: 9px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
-  .address-name { font-size: 13px; font-weight: 600; }
-  .address-line { font-size: 11px; color: #444; }
-  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 20px 0; padding: 14px; background: #f8f9fa; border-radius: 4px; }
-  .meta-item label { font-size: 9px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 2px; }
-  .meta-item span { font-size: 11px; font-weight: 500; }
-  .section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #555; margin-bottom: 8px; border-bottom: 1px solid #e0e0e0; padding-bottom: 4px; }
-  table { width: 100%; border-collapse: collapse; margin: 12px 0; }
-  thead th { background: #f8f9fa; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #555; padding: 6px 8px; border-bottom: 2px solid #e0e0e0; text-align: left; }
-  thead th.right { text-align: right; }
-  thead th.center { text-align: center; }
-  tbody tr { border-bottom: 1px solid #f0f0f0; }
-  td { padding: 7px 8px; font-size: 10px; vertical-align: top; }
-  td.right { text-align: right; }
-  td.center { text-align: center; }
-  .pos-name { font-weight: 600; }
-  .pos-desc { color: #666; font-size: 9px; margin-top: 2px; white-space: pre-wrap; }
-  .checkbox { display: inline-block; width: 14px; height: 14px; border: 1px solid #333; }
-  .anmerkung { margin: 16px 0; padding: 10px 14px; border-left: 3px solid #e05a1a; background: #fff8f5; font-size: 10px; color: #444; white-space: pre-wrap; }
-  .signature-block { margin-top: 32px; display: grid; grid-template-columns: 1fr 1fr; gap: 48px; }
-  .signature-line { border-top: 1px solid #333; padding-top: 4px; font-size: 9px; color: #888; margin-top: 48px; }
-  .footer { position: absolute; bottom: 12mm; left: 18mm; right: 18mm; border-top: 1px solid #e0e0e0; padding-top: 8px; }
-  .footer-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-  .footer-item { font-size: 8px; color: #888; line-height: 1.4; }
-  .footer-item strong { color: #555; display: block; margin-bottom: 2px; }
-  @media print { body { background: white; } .page { box-shadow: none; } }
-</style>
-</head>
-<body>
-<div class="page">
-${body}
-</div>
-</body>
-</html>`
-}
+const CSS = `
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: Arial, Helvetica, sans-serif; font-size: 10px; color: #333; background: #f0f0f0; padding: 20px; }
+.page { width: 210mm; min-height: 297mm; background: white; margin: 0 auto; padding: 15mm 18mm 30mm 18mm; box-shadow: 0 2px 20px rgba(0,0,0,0.15); position: relative; }
+.absender { font-size: 7.5px; color: #666; margin-bottom: 14px; }
+.header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; }
+.empfaenger { flex: 1; }
+.empfaenger .name { font-size: 12px; font-weight: bold; margin-bottom: 3px; }
+.empfaenger .adresse { font-size: 10px; line-height: 1.7; color: #333; }
+.meta-block { text-align: right; min-width: 210px; }
+.logo-img { height: 55px; object-fit: contain; display: block; margin-left: auto; margin-bottom: 10px; }
+.meta-table { font-size: 9.5px; border-collapse: collapse; margin-left: auto; }
+.meta-table td { padding: 1.5px 0; }
+.meta-table td:first-child { color: #888; padding-right: 8px; text-align: right; }
+.meta-table td:last-child { font-weight: bold; color: #111; }
+.doc-title { font-size: 18px; font-weight: bold; color: #111; margin-bottom: 6px; margin-top: 10px; }
+.obj-line { font-size: 10px; font-weight: bold; color: #333; margin-bottom: 2px; }
+.ticket-line { font-size: 9px; color: #666; margin-bottom: 20px; }
+table.positionen { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 9.5px; }
+table.positionen thead tr { border-top: 1px solid #ddd; border-bottom: 1px solid #ddd; }
+table.positionen thead th { padding: 6px 8px; text-align: left; font-weight: bold; font-size: 9px; color: #555; text-transform: uppercase; letter-spacing: 0.3px; }
+table.positionen thead th.right { text-align: right; }
+table.positionen tbody td { padding: 8px; vertical-align: top; border-bottom: 1px solid #f0f0f0; font-size: 9.5px; line-height: 1.5; }
+table.positionen tbody td.right { text-align: right; }
+.pos-name { font-weight: bold; margin-bottom: 3px; }
+.pos-desc { color: #555; font-size: 9px; line-height: 1.5; white-space: pre-wrap; }
+.notizen-block { border-left: 3px solid #E85A1B; padding-left: 10px; margin-bottom: 20px; font-size: 9px; color: #555; white-space: pre-wrap; }
+.abschlusstext { font-size: 9.5px; color: #444; line-height: 1.7; margin-bottom: 16px; }
+.signatur { font-size: 10px; font-weight: bold; }
+.signature-block { margin-top: 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 48px; margin-bottom: 20px; }
+.signature-line { border-top: 1px solid #999; padding-top: 5px; font-size: 8.5px; color: #888; margin-top: 50px; }
+.footer { position: absolute; bottom: 10mm; left: 18mm; right: 18mm; border-top: 1px solid #ddd; padding-top: 6px; font-size: 7.5px; color: #666; text-align: center; line-height: 1.8; }
+.print-btn { position: fixed; top: 16px; right: 16px; background: #E85A1B; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 13px; cursor: pointer; box-shadow: 0 4px 12px rgba(232,90,27,0.4); z-index: 100; }
+@media print { body { background: white; padding: 0; } .page { box-shadow: none; margin: 0; } .print-btn { display: none; } @page { size: A4; margin: 0; } }
+`
 
 export async function GET(
   _req: NextRequest,
@@ -77,121 +65,142 @@ export async function GET(
 ) {
   const { id } = await params
 
-  const { data: dn, error } = await supabase
+  const { data: ls, error } = await supabase
     .from('lieferscheine')
     .select('*')
     .eq('id', id)
     .single()
 
-  if (error || !dn) {
+  if (error || !ls) {
     return new NextResponse('Lieferschein nicht gefunden', { status: 404 })
   }
 
-  const { data: posData } = await supabase
-    .from('lieferschein_positionen')
-    .select('*')
-    .eq('lieferschein_id', id)
-    .order('position')
-  const positions: Record<string, unknown>[] = posData || []
+  const [posResult, firmaResult, mitarbeiterResult] = await Promise.all([
+    supabase.from('lieferschein_positionen').select('*').eq('lieferschein_id', id).order('position'),
+    supabase.from('einstellungen').select('value').eq('key', 'firma').maybeSingle(),
+    ls.erstellt_von_id
+      ? supabase.from('mitarbeiter').select('name').eq('id', ls.erstellt_von_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+  ])
 
-  const { data: settings } = await supabase
-    .from('company_settings')
-    .select('*')
-    .limit(1)
-    .maybeSingle()
+  const positionen: Record<string, unknown>[] = posResult.data || []
+  const firma: Record<string, string> = (firmaResult.data?.value as Record<string, string>) || {}
+  const erstelltVon: string = (mitarbeiterResult.data as any)?.name || ''
 
-  const posRows = positions.map((p: Record<string, unknown>) => `
+  const firmaName = firma.name || 'Lassel GmbH'
+  const firmaStrasse = firma.strasse || ''
+  const firmaPlz = firma.plz || ''
+  const firmaOrt = firma.ort || ''
+  const firmaLand = firma.land || 'Österreich'
+  const firmaTelefon = firma.telefon || ''
+  const firmaEmail = firma.email || ''
+  const firmaWebsite = firma.website || ''
+  const firmaIban = firma.iban || ''
+  const firmaBic = firma.bic || ''
+  const firmaBank = firma.bank || ''
+  const firmaUstId = firma.uid || ''
+  const firmaSteuernummer = firma.steuernummer || ''
+  const firmaAmtsgericht = firma.amtsgericht || ''
+  const firmaGF = firma.geschaeftsfuehrung || ''
+
+  const posRows = positionen.map((p, i) => {
+    const lines = (p.beschreibung as string || '').split('\n')
+    const firstLine = esc(lines[0] || '')
+    const restLines = lines.slice(1).join('\n')
+    return `
     <tr>
-      <td>${esc(p.position)}</td>
+      <td>${i + 1}</td>
       <td>
-        <div class="pos-name">${esc(p.beschreibung)}</div>
+        <div class="pos-name">${firstLine}</div>
+        ${restLines ? `<div class="pos-desc">${esc(restLines)}</div>` : ''}
       </td>
-      <td class="right">${fmt(p.menge)}</td>
-      <td>${esc(p.einheit)}</td>
-      <td class="center"><span class="checkbox"></span></td>
-    </tr>
-  `).join('')
+      <td class="right">${fmtMenge(p.menge)}</td>
+      <td class="right">${esc(p.einheit || 'Stk')}</td>
+    </tr>`
+  }).join('')
 
-  const body = `
-    <div class="header-row">
-      <img class="logo-img" src="${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/logo.png" alt="Lassel GmbH" />
-      <div style="text-align:right">
-        <div class="doc-title">LIEFERSCHEIN</div>
-        <div class="doc-number">${esc(dn.lieferscheinnummer)}</div>
+  const html = `<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<style>${CSS}</style>
+</head>
+<body>
+<button class="print-btn" onclick="window.print()">⬇ PDF speichern</button>
+<div class="page">
+
+  <div class="absender">${esc(firmaName)} - ${esc(firmaStrasse)} - ${esc(firmaPlz)} ${esc(firmaOrt)}</div>
+
+  <div class="header">
+    <div class="empfaenger">
+      <div class="name">${esc(ls.kunde_name)}</div>
+      <div class="adresse">
+        ${ls.kunde_strasse ? esc(ls.kunde_strasse) + '<br>' : ''}
+        ${ls.kunde_plz || ''} ${ls.kunde_ort || ''}<br>
+        ${esc(ls.kunde_land || 'Österreich')}
       </div>
     </div>
-
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:20px 0;">
-      <div class="address-block">
-        <div class="address-label">Empfänger</div>
-        <div class="address-name">${esc(dn.kunde_name)}</div>
-        <div class="address-line">${esc(dn.kunde_strasse)}</div>
-        <div class="address-line">${esc(dn.kunde_plz)} ${esc(dn.kunde_ort)}</div>
-      </div>
-      ${dn.objekt_adresse ? `
-      <div class="address-block">
-        <div class="address-label">Objekt</div>
-        <div class="address-name">${esc(dn.objekt_adresse)}</div>
-      </div>` : ''}
+    <div class="meta-block">
+      <img class="logo-img" src="${APP_URL}/logo.png" alt="${esc(firmaName)}">
+      <table class="meta-table">
+        <tr><td>Lieferscheinnummer:</td><td>${esc(ls.lieferscheinnummer)}</td></tr>
+        <tr><td>Datum:</td><td>${formatDate(ls.lieferdatum || ls.created_at)}</td></tr>
+        ${erstelltVon ? `<tr><td>Ihr Ansprechpartner:</td><td>${esc(erstelltVon)}</td></tr>` : ''}
+      </table>
     </div>
+  </div>
 
-    <div class="meta-grid">
-      <div class="meta-item"><label>Datum</label><span>${fmtDate(dn.lieferdatum)}</span></div>
-      ${dn.ticket_nummer ? `<div class="meta-item"><label>Ticketnummer</label><span>${esc(dn.ticket_nummer)}</span></div>` : ''}
+  <div class="doc-title">Lieferschein ${esc(ls.lieferscheinnummer)}</div>
+  ${ls.objekt_adresse ? `<div class="obj-line">OBJ: ${esc(ls.objekt_bezeichnung || ls.objekt_adresse)}</div>` : ''}
+  ${ls.ticket_nummer ? `<div class="ticket-line">Ticket: ${esc(ls.ticket_nummer)}</div>` : '<div class="ticket-line">&nbsp;</div>'}
+
+  <table class="positionen">
+    <thead>
+      <tr>
+        <th style="width:25px">#</th>
+        <th>Beschreibung</th>
+        <th class="right" style="width:55px">Menge</th>
+        <th class="right" style="width:60px">Einheit</th>
+      </tr>
+    </thead>
+    <tbody>${posRows}</tbody>
+  </table>
+
+  ${ls.notizen ? `<div class="notizen-block">${esc(ls.notizen)}</div>` : ''}
+
+  <div class="signature-block">
+    <div>
+      <div class="signature-line">Datum / Unterschrift Auftraggeber</div>
     </div>
-
-    <div class="section-title">Lieferpositionen</div>
-    <table>
-      <thead>
-        <tr>
-          <th style="width:30px">#</th>
-          <th>Bezeichnung</th>
-          <th class="right" style="width:60px">Menge</th>
-          <th style="width:40px">Einh.</th>
-          <th class="center" style="width:50px">Erledigt</th>
-        </tr>
-      </thead>
-      <tbody>${posRows}</tbody>
-    </table>
-
-    ${dn.notizen ? `<div class="anmerkung">${esc(dn.notizen)}</div>` : ''}
-
-    <div class="signature-block">
-      <div>
-        <div class="signature-line">Datum / Unterschrift Auftraggeber</div>
-      </div>
-      <div>
-        <div class="signature-line">Datum / Unterschrift Auftragnehmer</div>
-      </div>
+    <div>
+      <div class="signature-line">Datum / Unterschrift Auftragnehmer</div>
     </div>
+  </div>
 
-    <div class="footer">
-      <div class="footer-grid">
-        <div class="footer-item">
-          <strong>${esc(settings?.firmaName || 'Lassel GmbH')}</strong>
-          ${esc(settings?.firmaStrasse || '')}<br/>
-          ${esc(settings?.firmaPLZ || '')} ${esc(settings?.firmaOrt || '')}
-        </div>
-        <div class="footer-item">
-          <strong>Bankverbindung</strong>
-          ${esc(settings?.bank || '')}<br/>
-          IBAN: ${esc(settings?.iban || '')}
-        </div>
-        <div class="footer-item">
-          <strong>Kontakt</strong>
-          ${esc(settings?.email || '')}<br/>
-          ${esc(settings?.telefon || '')}
-        </div>
-        <div class="footer-item">
-          <strong>Steuernummer</strong>
-          ${esc(settings?.steuernummer || '')}<br/>
-          UID: ${esc(settings?.uid || '')}
-        </div>
-      </div>
-    </div>
-  `
+  <div class="abschlusstext">
+    <strong>Mit freundlichen Grüßen</strong><br><br>
+    <span class="signatur">${esc(erstelltVon || firmaGF || firmaName)}</span>
+  </div>
 
-  return new NextResponse(wrap(body), {
+  <div class="footer">
+    ${esc(firmaName)} _ ${esc(firmaStrasse)} _ ${esc(firmaPlz)} ${esc(firmaOrt)} _ ${esc(firmaLand)}
+    ${firmaTelefon ? `&nbsp;&nbsp;TEL. ${esc(firmaTelefon)}` : ''}
+    ${firmaEmail ? `&nbsp;&nbsp;E-MAIL ${esc(firmaEmail)}` : ''}<br>
+    ${firmaWebsite ? `WEB ${esc(firmaWebsite)} &nbsp;` : ''}
+    ${firmaAmtsgericht ? `AMTSGERICHT ${esc(firmaAmtsgericht)} &nbsp;` : ''}
+    ${firmaUstId ? `UST.-ID ${esc(firmaUstId)} &nbsp;` : ''}
+    ${firmaSteuernummer ? `STEUER-NR. ${esc(firmaSteuernummer)}` : ''}<br>
+    ${firmaGF ? `GESCHÄFTSFÜHRUNG ${esc(firmaGF)} &nbsp;` : ''}
+    ${firmaBank ? `BANK ${esc(firmaBank)} &nbsp;` : ''}
+    ${firmaIban ? `IBAN ${esc(firmaIban)} &nbsp;` : ''}
+    ${firmaBic ? `BIC ${esc(firmaBic)}` : ''}
+  </div>
+
+</div>
+</body>
+</html>`
+
+  return new NextResponse(html, {
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
   })
 }
