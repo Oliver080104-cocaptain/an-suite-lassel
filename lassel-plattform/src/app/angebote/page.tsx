@@ -37,9 +37,9 @@ export default function AngebotePage() {
     queryKey: ['offers'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('offers')
+        .from('angebote')
         .select('*')
-        .is('deleted_at', null)
+        .is('geloescht_am', null)
         .order('created_at', { ascending: false })
       if (error) throw error
       return data || []
@@ -49,7 +49,7 @@ export default function AngebotePage() {
   const { data: allPositions = [] } = useQuery({
     queryKey: ['offerPositions'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('offer_positions').select('*')
+      const { data, error } = await supabase.from('angebot_positionen').select('*')
       if (error) throw error
       return data || []
     },
@@ -71,8 +71,8 @@ export default function AngebotePage() {
   const deleteOfferMutation = useMutation({
     mutationFn: async (offerId: string) => {
       const { error } = await supabase
-        .from('offers')
-        .update({ deleted_at: new Date().toISOString() })
+        .from('angebote')
+        .update({ geloescht_am: new Date().toISOString() })
         .eq('id', offerId)
       if (error) throw error
     },
@@ -88,8 +88,8 @@ export default function AngebotePage() {
   // Jahre für Filter
   const yearOptions = useMemo(() => {
     const years = new Set<number>()
-    offers.forEach((o: { datum?: string }) => {
-      if (o.datum) years.add(new Date(o.datum).getFullYear())
+    offers.forEach((o: { angebotsdatum?: string }) => {
+      if (o.angebotsdatum) years.add(new Date(o.angebotsdatum).getFullYear())
     })
     return Array.from(years).sort((a, b) => b - a)
   }, [offers])
@@ -100,11 +100,8 @@ export default function AngebotePage() {
     mitarbeiterList.forEach((m: { name?: string }) => {
       if (m.name) employees.add(m.name)
     })
-    offers.forEach((o: { erstelltDurch?: string }) => {
-      if (o.erstelltDurch) employees.add(o.erstelltDurch)
-    })
     return Array.from(employees).sort()
-  }, [mitarbeiterList, offers])
+  }, [mitarbeiterList])
 
   const searchInObject = (obj: Record<string, unknown>, searchTerm: string, fieldNames: Record<string, string> = {}) => {
     if (!obj) return []
@@ -124,22 +121,15 @@ export default function AngebotePage() {
 
   const filteredOffers = useMemo(() => {
     const fieldLabels: Record<string, string> = {
-      angebotNummer: 'Angebotsnummer',
-      rechnungsempfaengerName: 'Rechnungsempfänger',
-      rechnungsempfaengerStrasse: 'RE Straße',
-      rechnungsempfaengerPlz: 'RE PLZ',
-      rechnungsempfaengerOrt: 'RE Ort',
-      objektBezeichnung: 'Objektbezeichnung',
-      objektStrasse: 'Objekt Straße',
-      objektPlz: 'Objekt PLZ',
-      objektOrt: 'Objekt Ort',
-      hausinhabung: 'Hausinhabung',
-      ansprechpartner: 'Ansprechpartner',
-      erstelltDurch: 'Erstellt durch',
-      bemerkung: 'Bemerkung',
-      ticketNumber: 'Ticketnummer',
-      geschaeftsfallNummer: 'Geschäftsfallnummer',
-      dealName: 'Deal Name',
+      angebotsnummer: 'Angebotsnummer',
+      kunde_name: 'Rechnungsempfänger',
+      kunde_strasse: 'RE Straße',
+      kunde_plz: 'RE PLZ',
+      kunde_ort: 'RE Ort',
+      objekt_bezeichnung: 'Objektbezeichnung',
+      objekt_adresse: 'Objekt Adresse',
+      notizen: 'Notizen',
+      ticket_nummer: 'Ticketnummer',
       status: 'Status',
     }
 
@@ -149,7 +139,7 @@ export default function AngebotePage() {
         const search = filters.search.toLowerCase()
         const offerMatches = searchInObject(o, search, fieldLabels)
         matchedFields = [...offerMatches]
-        const offerPositions = allPositions.filter((p: { offerId?: string }) => p.offerId === o.id)
+        const offerPositions = allPositions.filter((p: { angebot_id?: string }) => p.angebot_id === o.id)
         offerPositions.forEach((pos: Record<string, unknown>, idx: number) => {
           const posMatches = searchInObject(pos, search, {
             produktName: `Position ${idx + 1} - Produkt`,
@@ -165,11 +155,10 @@ export default function AngebotePage() {
     }).filter((o) => o !== null) as Record<string, unknown>[]
 
     const finalFiltered = filtered.filter((o: Record<string, unknown>) => {
-      if (filters.year !== 'all' && o.datum) {
-        if (new Date(o.datum as string).getFullYear() !== parseInt(filters.year)) return false
+      if (filters.year !== 'all' && o.angebotsdatum) {
+        if (new Date(o.angebotsdatum as string).getFullYear() !== parseInt(filters.year)) return false
       }
       if (filters.status !== 'all' && o.status !== filters.status) return false
-      if (filters.employee !== 'all' && o.erstelltDurch !== filters.employee) return false
       return true
     })
 

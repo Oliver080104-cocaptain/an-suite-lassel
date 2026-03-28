@@ -5,7 +5,6 @@ import { Card } from '@/components/ui/card'
 import Link from 'next/link'
 import {
   Calendar,
-  User,
   Building2,
   FileText,
   ChevronRight,
@@ -86,72 +85,54 @@ export default function OfferListItem({ offer, onDelete, searchTerm = '' }: Prop
     setCreatingInvoice(true)
     try {
       const { data: positions } = await supabase
-        .from('offer_positions')
+        .from('angebot_positionen')
         .select('*')
-        .eq('offerId', offer.id)
-        .order('pos')
+        .eq('angebot_id', offer.id)
+        .order('position')
 
       // Rechnungsnummer generieren
       const year = new Date().getFullYear()
       const { data: existingInvoices } = await supabase
-        .from('invoices')
-        .select('rechnungsNummer')
-        .like('rechnungsNummer', `RE-${year}-%`)
+        .from('rechnungen')
+        .select('rechnungsnummer')
+        .like('rechnungsnummer', `RE-${year}-%`)
       const nextNumber = (existingInvoices?.length || 0) + 1
-      const rechnungsNummer = `RE-${year}-${String(nextNumber).padStart(5, '0')}`
+      const rechnungsnummer = `RE-${year}-${String(nextNumber).padStart(5, '0')}`
 
       const today = format(new Date(), 'yyyy-MM-dd')
       const fälligAm = format(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd')
 
       const invoiceData = {
-        rechnungstyp: 'normal',
-        datum: today,
-        zahlungskondition: '30 Tage netto',
-        zahlungszielTage: 30,
-        faelligAm: fälligAm,
+        rechnungsdatum: today,
+        faellig_bis: fälligAm,
         status: 'entwurf',
-        rechnungsNummer,
-        kundeName: offer.rechnungsempfaengerName || '',
-        kundeStrasse: offer.rechnungsempfaengerStrasse || '',
-        kundePlz: offer.rechnungsempfaengerPlz || '',
-        kundeOrt: offer.rechnungsempfaengerOrt || '',
-        objektBezeichnung: offer.objektBezeichnung || '',
-        objektStrasse: offer.objektStrasse || '',
-        objektPlz: offer.objektPlz || '',
-        objektOrt: offer.objektOrt || '',
-        hausinhabung: offer.hausinhabung || '',
-        ticketId: offer.ticketId || '',
-        ticketNumber: offer.ticketNumber || '',
-        referenzAngebotNummer: offer.angebotNummer,
-        referenzAngebotId: offer.id,
-        source: offer.source || 'manual',
-        entityType: offer.entityType,
+        rechnungsnummer,
+        kunde_name: offer.kunde_name || '',
+        kunde_strasse: offer.kunde_strasse || '',
+        kunde_plz: offer.kunde_plz || '',
+        kunde_ort: offer.kunde_ort || '',
+        angebot_id: offer.id as string,
       }
 
       const { data: newInvoice, error: invoiceError } = await supabase
-        .from('invoices')
+        .from('rechnungen')
         .insert(invoiceData)
         .select()
         .single()
       if (invoiceError) throw invoiceError
 
       for (const pos of positions || []) {
-        await supabase.from('invoice_positions').insert({
-          invoiceId: newInvoice.id,
-          pos: pos.pos,
-          produktId: pos.produktId,
-          produktName: pos.produktName || '',
+        await supabase.from('rechnung_positionen').insert({
+          rechnung_id: newInvoice.id,
+          position: pos.position,
+          produkt_id: pos.produkt_id,
           beschreibung: pos.beschreibung || '',
           menge: pos.menge || 1,
           einheit: pos.einheit || 'Stk',
-          einzelpreisNetto: pos.einzelpreisNetto || 0,
-          rabattProzent: pos.rabattProzent || 0,
-          ustSatz: pos.ustSatz || 20,
-          gesamtNetto: pos.gesamtNetto || 0,
-          gesamtBrutto: pos.gesamtBrutto || 0,
-          teilfakturaProzent: 100,
-          bereitsFakturiert: 0,
-          referenzOfferPositionId: pos.id,
+          einzelpreis: pos.einzelpreis || 0,
+          rabatt_prozent: pos.rabatt_prozent || 0,
+          mwst_satz: pos.mwst_satz || 20,
+          gesamtpreis: pos.gesamtpreis || 0,
         })
       }
 
@@ -165,7 +146,7 @@ export default function OfferListItem({ offer, onDelete, searchTerm = '' }: Prop
   }
 
   const matchedFields = (offer._matchedFields as MatchField[]) || []
-  const datum = offer.datum ? format(new Date(offer.datum as string), 'dd.MM.yyyy') : '-'
+  const datum = offer.angebotsdatum ? format(new Date(offer.angebotsdatum as string), 'dd.MM.yyyy') : '-'
 
   return (
     <>
@@ -181,31 +162,25 @@ export default function OfferListItem({ offer, onDelete, searchTerm = '' }: Prop
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-2">
                 <span className="font-bold text-slate-900 text-base whitespace-nowrap">
-                  {highlightText(offer.angebotNummer as string, searchTerm)}
+                  {highlightText(offer.angebotsnummer as string, searchTerm)}
                 </span>
                 <StatusBadge status={offer.status as string} />
               </div>
               <div className="flex flex-col gap-1 text-sm">
-                {!!offer.rechnungsempfaengerName && (
+                {!!offer.kunde_name && (
                   <span className="flex items-center gap-1.5 min-w-0">
                     <Building2 className="w-4 h-4 flex-shrink-0 text-orange-500" />
                     <span className="truncate font-medium text-slate-700">
-                      {highlightText(offer.rechnungsempfaengerName as string, searchTerm)}
+                      {highlightText(offer.kunde_name as string, searchTerm)}
                     </span>
                   </span>
                 )}
-                {!!offer.objektBezeichnung && (
+                {!!offer.objekt_bezeichnung && (
                   <span className="flex items-center gap-1.5 min-w-0">
                     <MapPin className="w-4 h-4 flex-shrink-0 text-orange-500" />
                     <span className="truncate text-slate-600">
-                      {highlightText(offer.objektBezeichnung as string, searchTerm)}
+                      {highlightText(offer.objekt_bezeichnung as string, searchTerm)}
                     </span>
-                  </span>
-                )}
-                {!!offer.erstelltDurch && (
-                  <span className="flex items-center gap-1.5 text-slate-500">
-                    <User className="w-4 h-4 text-orange-500" />
-                    {highlightText(offer.erstelltDurch as string, searchTerm)}
                   </span>
                 )}
               </div>
@@ -215,11 +190,11 @@ export default function OfferListItem({ offer, onDelete, searchTerm = '' }: Prop
             <div className="flex items-center gap-6 flex-shrink-0">
               {/* Ticket */}
               <div className="w-36 text-sm text-slate-600">
-                {!!offer.ticketNumber && (
+                {!!offer.ticket_nummer && (
                   <span className="flex items-center gap-1.5">
                     <Hash className="w-4 h-4 flex-shrink-0 text-orange-500" />
                     <span className="font-medium">
-                      {highlightText(offer.ticketNumber as string, searchTerm)}
+                      {highlightText(offer.ticket_nummer as string, searchTerm)}
                     </span>
                   </span>
                 )}
@@ -236,7 +211,7 @@ export default function OfferListItem({ offer, onDelete, searchTerm = '' }: Prop
               {/* Betrag */}
               <div className="text-right w-28">
                 <CurrencyDisplay
-                  value={offer.summeBrutto as number}
+                  value={offer.brutto_gesamt as number}
                   className="text-lg font-bold text-slate-900 whitespace-nowrap"
                 />
                 <p className="text-xs text-slate-500">Brutto</p>
@@ -254,14 +229,14 @@ export default function OfferListItem({ offer, onDelete, searchTerm = '' }: Prop
                 >
                   {creatingInvoice ? 'Erstelle...' : 'Rechnung'}
                 </Button>
-                {!!offer.pdfUrl && (
+                {!!offer.pdf_url && (
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={(e) => {
                       e.preventDefault()
                       e.stopPropagation()
-                      window.open(offer.pdfUrl as string, '_blank')
+                      window.open(offer.pdf_url as string, '_blank')
                     }}
                     className="text-xs text-orange-600 hover:text-orange-700 hover:bg-orange-50 h-8 px-2"
                     title="Angebot PDF"
@@ -313,7 +288,7 @@ export default function OfferListItem({ offer, onDelete, searchTerm = '' }: Prop
           <AlertDialogHeader>
             <AlertDialogTitle>Angebot löschen?</AlertDialogTitle>
             <AlertDialogDescription>
-              Möchten Sie das Angebot <strong>{offer.angebotNummer as string}</strong> wirklich löschen?
+              Möchten Sie das Angebot <strong>{offer.angebotsnummer as string}</strong> wirklich löschen?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -333,7 +308,7 @@ export default function OfferListItem({ offer, onDelete, searchTerm = '' }: Prop
               Unwiderruflich löschen?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Das Angebot <strong>{offer.angebotNummer as string}</strong> und alle zugehörigen Positionen
+              Das Angebot <strong>{offer.angebotsnummer as string}</strong> und alle zugehörigen Positionen
               werden permanent gelöscht.
               <br />
               <br />

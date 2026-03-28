@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
@@ -15,14 +14,11 @@ import { toast } from 'sonner'
 import { Plus, Pencil, Trash2, Search } from 'lucide-react'
 
 const defaultForm = {
-  produktName: '',
-  artikelnummer: '',
-  produktKategorie: '',
-  produkttyp: 'dienstleistung',
+  name: '',
+  kategorie: '',
   einheit: 'Stk',
-  standardpreisNetto: 0,
-  steuersatz: 20,
-  steuerpflichtig: true,
+  einzelpreis: 0,
+  mwst_satz: 20,
   aktiv: true,
   beschreibung: '',
 }
@@ -37,7 +33,7 @@ export default function ProdukteListePage() {
   const { data: products = [], isLoading } = useQuery({
     queryKey: ['products'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('produkte').select('*').order('produktName')
+      const { data, error } = await supabase.from('produkte').select('*').order('name')
       if (error) throw error
       return data || []
     },
@@ -110,9 +106,8 @@ export default function ProdukteListePage() {
   }
 
   const filteredProducts = (products as any[]).filter((p: any) =>
-    p.produktName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.artikelnummer?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.produktKategorie?.toLowerCase().includes(searchTerm.toLowerCase())
+    p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    p.kategorie?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   return (
@@ -153,25 +148,19 @@ export default function ProdukteListePage() {
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <h3 className="text-base sm:text-lg font-semibold text-slate-900">{product.produktName}</h3>
+                      <h3 className="text-base sm:text-lg font-semibold text-slate-900">{product.name}</h3>
                       {!product.aktiv && <Badge variant="secondary">Inaktiv</Badge>}
-                      {product.produkttyp && (
-                        <Badge className="bg-orange-100 text-orange-700 border-orange-200">{product.produkttyp}</Badge>
-                      )}
-                      {product.produktKategorie && (
-                        <Badge variant="outline" className="text-slate-600">{product.produktKategorie}</Badge>
+                      {product.kategorie && (
+                        <Badge variant="outline" className="text-slate-600">{product.kategorie}</Badge>
                       )}
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm text-slate-600 mt-3">
-                      {product.artikelnummer && (
-                        <div><span className="font-medium">Artikel-Nr:</span> {product.artikelnummer}</div>
-                      )}
                       <div>
                         <span className="font-medium">Preis:</span>{' '}
-                        {new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(product.standardpreisNetto || 0)}
+                        {new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(product.einzelpreis || 0)}
                       </div>
                       <div><span className="font-medium">Einheit:</span> {product.einheit}</div>
-                      <div><span className="font-medium">MwSt:</span> {product.steuersatz}%</div>
+                      <div><span className="font-medium">MwSt:</span> {product.mwst_satz}%</div>
                     </div>
                     {product.beschreibung && (
                       <p className="text-sm text-slate-500 mt-3 line-clamp-2">{product.beschreibung}</p>
@@ -206,46 +195,31 @@ export default function ProdukteListePage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="sm:col-span-2">
                   <Label>Produktname *</Label>
-                  <Input value={formData.produktName} onChange={e => setFormData(p => ({ ...p, produktName: e.target.value }))} required className="mt-1" />
-                </div>
-                <div>
-                  <Label>Artikelnummer</Label>
-                  <Input value={formData.artikelnummer} onChange={e => setFormData(p => ({ ...p, artikelnummer: e.target.value }))} className="mt-1" />
+                  <Input value={formData.name} onChange={e => setFormData(p => ({ ...p, name: e.target.value }))} required className="mt-1" />
                 </div>
                 <div>
                   <Label>Kategorie</Label>
-                  <Input value={formData.produktKategorie} onChange={e => setFormData(p => ({ ...p, produktKategorie: e.target.value }))} className="mt-1" />
-                </div>
-                <div>
-                  <Label>Produkttyp</Label>
-                  <Select value={formData.produkttyp} onValueChange={v => setFormData(p => ({ ...p, produkttyp: v ?? '' }))}>
-                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="dienstleistung">Dienstleistung</SelectItem>
-                      <SelectItem value="material">Material</SelectItem>
-                      <SelectItem value="paket">Paket</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Input value={formData.kategorie} onChange={e => setFormData(p => ({ ...p, kategorie: e.target.value }))} className="mt-1" />
                 </div>
                 <div>
                   <Label>Einheit</Label>
                   <Input value={formData.einheit} onChange={e => setFormData(p => ({ ...p, einheit: e.target.value }))} className="mt-1" />
                 </div>
                 <div>
-                  <Label>Standardpreis (netto)</Label>
+                  <Label>Preis (netto)</Label>
                   <Input
                     type="number" step="0.01"
-                    value={formData.standardpreisNetto}
-                    onChange={e => setFormData(p => ({ ...p, standardpreisNetto: parseFloat(e.target.value) || 0 }))}
+                    value={formData.einzelpreis}
+                    onChange={e => setFormData(p => ({ ...p, einzelpreis: parseFloat(e.target.value) || 0 }))}
                     className="mt-1"
                   />
                 </div>
                 <div>
-                  <Label>Steuersatz (%)</Label>
+                  <Label>MwSt-Satz (%)</Label>
                   <Input
                     type="number" step="0.01"
-                    value={formData.steuersatz}
-                    onChange={e => setFormData(p => ({ ...p, steuersatz: parseFloat(e.target.value) || 20 }))}
+                    value={formData.mwst_satz}
+                    onChange={e => setFormData(p => ({ ...p, mwst_satz: parseFloat(e.target.value) || 20 }))}
                     className="mt-1"
                   />
                 </div>
@@ -257,10 +231,6 @@ export default function ProdukteListePage() {
                     onChange={e => setFormData(p => ({ ...p, beschreibung: e.target.value }))}
                     className="mt-1 resize-none"
                   />
-                </div>
-                <div className="flex items-center gap-2">
-                  <input type="checkbox" id="steuerpflichtig" checked={formData.steuerpflichtig} onChange={e => setFormData(p => ({ ...p, steuerpflichtig: e.target.checked }))} className="rounded" />
-                  <Label htmlFor="steuerpflichtig" className="cursor-pointer">Steuerpflichtig</Label>
                 </div>
                 <div className="flex items-center gap-2">
                   <input type="checkbox" id="aktiv" checked={formData.aktiv} onChange={e => setFormData(p => ({ ...p, aktiv: e.target.checked }))} className="rounded" />

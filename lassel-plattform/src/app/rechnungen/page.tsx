@@ -41,12 +41,11 @@ export default function RechnungenPage() {
   })
 
   const { data: invoices = [], isLoading } = useQuery({
-    queryKey: ['invoices'],
+    queryKey: ['rechnungen'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('invoices')
+        .from('rechnungen')
         .select('*')
-        .is('deleted_at', null)
         .order('created_at', { ascending: false })
       if (error) throw error
       return data || []
@@ -54,9 +53,9 @@ export default function RechnungenPage() {
   })
 
   const { data: allPositions = [] } = useQuery({
-    queryKey: ['invoicePositions'],
+    queryKey: ['rechnungPositionen'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('invoice_positions').select('*')
+      const { data, error } = await supabase.from('rechnung_positionen').select('*')
       if (error) throw error
       return data || []
     }
@@ -74,15 +73,14 @@ export default function RechnungenPage() {
   const deleteInvoiceMutation = useMutation({
     mutationFn: async (invoiceId: string) => {
       const { error } = await supabase
-        .from('invoices')
-        .update({ deleted_at: new Date().toISOString() })
+        .from('rechnungen')
+        .delete()
         .eq('id', invoiceId)
       if (error) throw error
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['invoices'] })
-      queryClient.invalidateQueries({ queryKey: ['deletedInvoices'] })
-      toast.success('Rechnung in Papierkorb verschoben')
+      queryClient.invalidateQueries({ queryKey: ['rechnungen'] })
+      toast.success('Rechnung gelöscht')
     },
     onError: (error: Error) => {
       toast.error('Fehler beim Löschen: ' + error.message)
@@ -92,7 +90,7 @@ export default function RechnungenPage() {
   const yearOptions = useMemo(() => {
     const years = new Set<number>()
     invoices.forEach((i: any) => {
-      if (i.datum) years.add(getYear(new Date(i.datum)))
+      if (i.rechnungsdatum) years.add(getYear(new Date(i.rechnungsdatum)))
     })
     return Array.from(years).sort((a, b) => b - a)
   }, [invoices])
@@ -100,9 +98,8 @@ export default function RechnungenPage() {
   const employeeOptions = useMemo(() => {
     const employees = new Set<string>()
     mitarbeiterList.forEach((m: any) => { if (m.name) employees.add(m.name) })
-    invoices.forEach((i: any) => { if (i.erstelltDurch) employees.add(i.erstelltDurch) })
     return Array.from(employees).sort()
-  }, [mitarbeiterList, invoices])
+  }, [mitarbeiterList])
 
   const searchInObject = (obj: any, searchTerm: string, fieldLabels: Record<string, string> = {}) => {
     const lowerSearch = searchTerm.toLowerCase()
@@ -117,17 +114,12 @@ export default function RechnungenPage() {
 
   const filteredInvoices = useMemo(() => {
     const fieldLabels: Record<string, string> = {
-      rechnungsNummer: 'Rechnungs-Nr.',
-      kundeName: 'Kunde',
-      kundeStrasse: 'Kundenstraße',
-      kundePlz: 'PLZ',
-      kundeOrt: 'Ort',
-      objektStrasse: 'Objektstraße',
-      objektBezeichnung: 'Objekt',
-      ticketNumber: 'Ticketnummer',
-      bemerkung: 'Bemerkung',
-      erstelltDurch: 'Ersteller',
-      hausverwaltungName: 'Hausverwaltung'
+      rechnungsnummer: 'Rechnungs-Nr.',
+      kunde_name: 'Kunde',
+      kunde_strasse: 'Kundenstraße',
+      kunde_plz: 'PLZ',
+      kunde_ort: 'Ort',
+      notizen: 'Notizen',
     }
 
     let result = invoices.map((invoice: any) => {
@@ -135,7 +127,7 @@ export default function RechnungenPage() {
       if (filters.search) {
         const invoiceMatches = searchInObject(invoice, filters.search, fieldLabels)
         matchDetails = invoiceMatches
-        const invoicePositions = allPositions.filter((p: any) => p.invoiceId === invoice.id)
+        const invoicePositions = allPositions.filter((p: any) => p.rechnung_id === invoice.id)
         invoicePositions.forEach((pos: any, idx: number) => {
           const posLabels: Record<string, string> = { produktName: 'Produkt', beschreibung: 'Beschreibung', menge: 'Menge', einheit: 'Einheit' }
           const posMatches = searchInObject(pos, filters.search, posLabels)
@@ -147,12 +139,10 @@ export default function RechnungenPage() {
     }).filter((i: any) => i !== null)
 
     result = result.filter((i: any) => {
-      if (filters.year !== 'all' && i.datum) {
-        if (getYear(new Date(i.datum)) !== parseInt(filters.year)) return false
+      if (filters.year !== 'all' && i.rechnungsdatum) {
+        if (getYear(new Date(i.rechnungsdatum)) !== parseInt(filters.year)) return false
       }
       if (filters.status !== 'all' && i.status !== filters.status) return false
-      if (filters.type !== 'all' && i.rechnungstyp !== filters.type) return false
-      if (filters.employee !== 'all' && i.erstelltDurch !== filters.employee) return false
       return true
     })
 

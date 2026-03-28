@@ -30,22 +30,12 @@ export default function LieferscheinePage() {
   const queryClient = useQueryClient()
 
   const { data: deliveryNotes = [], isLoading } = useQuery({
-    queryKey: ['deliveryNotes'],
+    queryKey: ['lieferscheine'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('delivery_notes')
+        .from('lieferscheine')
         .select('*')
-        .is('deleted_at', null)
-        .order('datum', { ascending: false })
-      if (error) throw error
-      return data || []
-    }
-  })
-
-  const { data: allPositions = [] } = useQuery({
-    queryKey: ['deliveryNotePositions'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('delivery_note_positions').select('*')
+        .order('lieferdatum', { ascending: false })
       if (error) throw error
       return data || []
     }
@@ -63,15 +53,14 @@ export default function LieferscheinePage() {
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase
-        .from('delivery_notes')
-        .update({ deleted_at: new Date().toISOString() })
+        .from('lieferscheine')
+        .delete()
         .eq('id', id)
       if (error) throw error
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['deliveryNotes'] })
-      queryClient.invalidateQueries({ queryKey: ['deletedDeliveryNotes'] })
-      toast.success('Lieferschein in Papierkorb verschoben')
+      queryClient.invalidateQueries({ queryKey: ['lieferscheine'] })
+      toast.success('Lieferschein gelöscht')
     },
     onError: (error: Error) => {
       toast.error('Fehler beim Löschen: ' + error.message)
@@ -92,7 +81,7 @@ export default function LieferscheinePage() {
   }
 
   const yearOptions = useMemo(() => {
-    const years = [...new Set(deliveryNotes.map((dn: any) => dn.datum ? new Date(dn.datum).getFullYear() : null))]
+    const years = [...new Set(deliveryNotes.map((dn: any) => dn.lieferdatum ? new Date(dn.lieferdatum).getFullYear() : null))]
       .filter(Boolean).sort((a, b) => (b as number) - (a as number))
     return years as number[]
   }, [deliveryNotes])
@@ -100,9 +89,8 @@ export default function LieferscheinePage() {
   const employeeOptions = useMemo(() => {
     const employees = new Set<string>()
     mitarbeiterList.forEach((m: any) => { if (m.name) employees.add(m.name) })
-    deliveryNotes.forEach((dn: any) => { if (dn.erstelltDurch) employees.add(dn.erstelltDurch) })
     return Array.from(employees).sort()
-  }, [mitarbeiterList, deliveryNotes])
+  }, [mitarbeiterList])
 
   const searchInObject = (obj: any, searchTerm: string, fieldLabels: Record<string, string> = {}) => {
     const lowerSearch = searchTerm.toLowerCase()
@@ -117,16 +105,14 @@ export default function LieferscheinePage() {
 
   const filteredDeliveryNotes = useMemo(() => {
     const fieldLabels: Record<string, string> = {
-      lieferscheinNummer: 'Lieferschein-Nr.',
-      kundeName: 'Kunde',
-      kundeStrasse: 'Kundenstraße',
-      kundePlz: 'PLZ',
-      kundeOrt: 'Ort',
-      objektStrasse: 'Objektstraße',
-      objektBezeichnung: 'Objekt',
-      ticketNumber: 'Ticketnummer',
-      referenz: 'Referenz',
-      erstelltDurch: 'Ersteller'
+      lieferscheinnummer: 'Lieferschein-Nr.',
+      kunde_name: 'Kunde',
+      kunde_strasse: 'Kundenstraße',
+      kunde_plz: 'PLZ',
+      kunde_ort: 'Ort',
+      objekt_adresse: 'Objekt',
+      ticket_nummer: 'Ticketnummer',
+      notizen: 'Notizen',
     }
 
     let result = deliveryNotes.map((dn: any) => {
@@ -134,26 +120,19 @@ export default function LieferscheinePage() {
       if (filters.search) {
         const dnMatches = searchInObject(dn, filters.search, fieldLabels)
         matchDetails = dnMatches
-        const dnPositions = allPositions.filter((p: any) => p.deliveryNoteId === dn.id)
-        dnPositions.forEach((pos: any, idx: number) => {
-          const posLabels: Record<string, string> = { produktName: 'Produkt', beschreibung: 'Beschreibung', menge: 'Menge', einheit: 'Einheit' }
-          const posMatches = searchInObject(pos, filters.search, posLabels)
-          posMatches.forEach((match: any) => { matchDetails.push({ ...match, position: idx + 1 }) })
-        })
         if (matchDetails.length === 0) return null
       }
       return { ...dn, matchDetails }
     }).filter((dn: any) => dn !== null)
 
     result = result.filter((dn: any) => {
-      const matchYear = filters.year === 'all' || (dn.datum && new Date(dn.datum).getFullYear().toString() === filters.year)
+      const matchYear = filters.year === 'all' || (dn.lieferdatum && new Date(dn.lieferdatum).getFullYear().toString() === filters.year)
       const matchStatus = filters.status === 'all' || dn.status === filters.status
-      const matchEmployee = filters.employee === 'all' || dn.erstelltDurch === filters.employee
-      return matchYear && matchStatus && matchEmployee
+      return matchYear && matchStatus
     })
 
-    return result.sort((a: any, b: any) => new Date(b.datum).getTime() - new Date(a.datum).getTime())
-  }, [deliveryNotes, allPositions, filters])
+    return result.sort((a: any, b: any) => new Date(b.lieferdatum).getTime() - new Date(a.lieferdatum).getTime())
+  }, [deliveryNotes, filters])
 
   const handleFilterChange = (key: string, value: string) => {
     setFilters(prev => ({ ...prev, [key]: value }))
@@ -287,7 +266,7 @@ export default function LieferscheinePage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="font-bold text-slate-900 text-base whitespace-nowrap">
-                          {dn.lieferscheinNummer}
+                          {dn.lieferscheinnummer}
                         </span>
                         <StatusBadge status={dn.status} />
                       </div>
@@ -295,11 +274,11 @@ export default function LieferscheinePage() {
                       <div className="flex flex-col gap-1 text-sm">
                         <span className="flex items-center gap-1.5 min-w-0">
                           <Building2 className="w-4 h-4 flex-shrink-0 text-purple-500" />
-                          <span className="truncate font-medium text-slate-700">{dn.kundeName || 'Kein Kunde'}</span>
+                          <span className="truncate font-medium text-slate-700">{dn.kunde_name || 'Kein Kunde'}</span>
                         </span>
-                        {dn.objektBezeichnung && (
+                        {dn.objekt_adresse && (
                           <span className="flex items-center gap-1.5 min-w-0">
-                            <span className="truncate text-slate-600">{dn.objektBezeichnung}</span>
+                            <span className="truncate text-slate-600">{dn.objekt_adresse}</span>
                           </span>
                         )}
                       </div>
@@ -332,10 +311,10 @@ export default function LieferscheinePage() {
 
                     <div className="flex items-center gap-6 flex-shrink-0">
                       <div className="w-36 text-sm text-slate-600">
-                        {dn.ticketNumber && (
+                        {dn.ticket_nummer && (
                           <span className="flex items-center gap-1.5">
                             <Hash className="w-4 h-4 flex-shrink-0 text-purple-500" />
-                            <span className="font-medium">{dn.ticketNumber}</span>
+                            <span className="font-medium">{dn.ticket_nummer}</span>
                           </span>
                         )}
                       </div>
@@ -343,19 +322,19 @@ export default function LieferscheinePage() {
                       <div className="w-28 text-sm text-slate-500">
                         <span className="flex items-center gap-1.5 whitespace-nowrap">
                           <Calendar className="w-4 h-4 text-purple-500" />
-                          {dn.datum ? format(new Date(dn.datum), 'dd.MM.yyyy') : '-'}
+                          {dn.lieferdatum ? format(new Date(dn.lieferdatum), 'dd.MM.yyyy') : '-'}
                         </span>
                       </div>
 
                       <div className="flex items-center gap-1 w-28 justify-end">
-                        {dn.pdfUrl && (
+                        {dn.pdf_url && (
                           <Button
                             variant="ghost"
                             size="icon"
                             onClick={(e) => {
                               e.preventDefault()
                               e.stopPropagation()
-                              window.open(dn.pdfUrl, '_blank')
+                              window.open(dn.pdf_url, '_blank')
                             }}
                             className="text-slate-400 hover:text-purple-600 hover:bg-purple-50 h-8 w-8"
                             title="PDF öffnen"
@@ -386,14 +365,13 @@ export default function LieferscheinePage() {
             <AlertDialogHeader>
               <AlertDialogTitle>Lieferschein löschen?</AlertDialogTitle>
               <AlertDialogDescription>
-                Der Lieferschein <strong>{selectedDN?.lieferscheinNummer}</strong> wird in den Papierkorb verschoben.
-                Nach 10 Tagen wird er automatisch endgültig gelöscht.
+                Der Lieferschein <strong>{selectedDN?.lieferscheinnummer}</strong> wird endgültig gelöscht.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Abbrechen</AlertDialogCancel>
               <AlertDialogAction onClick={confirmDelete} className="bg-red-600 hover:bg-red-700">
-                In Papierkorb verschieben
+                Löschen
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

@@ -99,7 +99,7 @@ export default function Sidebar() {
               <img
                 src="/logo.png"
                 alt="Lassel GmbH"
-                className="h-9 w-auto object-contain"
+                className="h-12 w-auto object-contain"
               />
             </div>
           )}
