@@ -1,0 +1,2 @@
+ort,ansprechpartner,strasse,telefon,name,email,ustIdNr,plz,id,created_date,updated_date,created_by_id,created_by,is_sample
+"Wien","Max Mustermann","Teststraße 123","+43 1 1234567","Test Hausverwaltung GmbH","test@hausverwaltung.at","","1010","697a05f32128443a9fe58486","2026-01-28T12:49:55.288000","2026-01-28T12:49:55.288000","6937375d862a164b90207fd4","info@oswebdev.com","false"

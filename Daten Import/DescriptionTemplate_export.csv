@@ -1,0 +1,95 @@
+name,sortierung,text,kategorie,id,created_date,updated_date,created_by_id,created_by,is_sample
+"Gesimse (Hof)","0","Baustelle einrichten. 
+Seilaufbau für die Dauer der Arbeiten. 
+Notwendige Abdeckungen für die Dauer der Arbeiten vornehmen. 
+Öffnen des Taubennetzes für die Dauer der Arbeiten. 
+Schadhafte Stelle am hofseitigen Gesimse wie in den beiliegenden Skizzen Rot markiert, 
+mittels seilunterstützter Arbeit abschlagen und neu verputzen. 
+Verputze Stellen farblich angleichen. 
+Holzbretter am Dach wie in den beiliegenden Skizzen blau markiert entfernen. 
+Abdeckungen nach Fertigstellung der Arbeiten entfernen. 
+Verschließen des Taubennetzes nach Fertigstellung der Arbeit. 
+Seilabbau nach Fertigstellung der Arbeiten. 
+Baustelle räumen. 
+Entsorgen der Holzbretter. 
+ ","verputz","699ec6484a75797b13a5cbf6","2026-02-25T09:52:08.833000","2026-02-25T09:52:08.833000","anonymous","anonymous","false"
+"Dach Inspektion","0","Dach Inspektion mit Fotodokumentation.","dach","69983e70f4fbbf989f65fdde","2026-02-20T10:58:56.816000","2026-02-20T10:58:56.816000","anonymous","anonymous","false"
+"Taubennetz Reparatur ","0","Baustelle einrichten. 
+Seilaufbau für die Dauer der Arbeiten.
+Vorhandenes beschädigtes Taubennetz wie in der beiliegenden Skizze rot markiert, 
+mittels seilunterstützter Arbeit wieder in Stand setzen.
+Seilabbau nach Fertigstellung der Arbeiten. 
+Baustelle räumen.
+
+Für Schäden, die nach der Montage durch außergewöhnliche oder übermäßige Schneelast, Eisbildung, Laubansammlungen, Sturm oder sonstige äußere Einflüsse entstehen, übernehmen wir keine Haftung.
+Die regelmäßige Kontrolle, Wartung sowie das Entfernen von Schnee, Eis und Laub obliegen ausschließlich dem Hauseigentümer bzw. der Hausverwaltung. Erforderliche Maßnahmen sind eigenständig zu beauftragen. ","sonstige","69981f28c52a27f4f4bd3598","2026-02-20T08:45:28.168000","2026-03-04T07:12:09.589000","anonymous","anonymous","false"
+"Bewilligung für Arbeiten über öffentlichem Gut","0","Beantragen und Teilnahme an der Verhandlung für die 
+Bewilligung für die Arbeiten über öffentlichem Gut.","sonstige","6997f9906f20dbbc76ef4563","2026-02-20T06:05:04.802000","2026-02-20T06:05:04.802000","anonymous","anonymous","false"
+"Parkraumsperre","0","Beantragung und Errichtung einer Parkraumsperre für die Dauer der Arbeiten.
+
+Sollte sich im Zuge der Verhandlung zur Parkraumsperre herausstellen, dass weitere Maßnahmen erforderlich sind (Teilgerüst, Passagengerüst o. Ä) erfolgt ein gesondertes Angebot","sonstige","6996e4c92837a6a7a46496d6","2026-02-19T10:24:09.042000","2026-02-19T10:24:09.042000","anonymous","anonymous","false"
+"Taubenspiralen","0","Baustelle einrichten. 
+Seilaufbau für die Dauer der Arbeiten.
+Taubenabwehrspiralen wie in den beiliegenden Skizzen grün markiert, 
+mittels seilunterstützter Arbeit kleben. 
+Seilabbau nach Fertigstellung der Arbeiten. 
+Baustelle räumen","tauben","6996ada99344597aa9c0b9e8","2026-02-19T06:28:57.469000","2026-02-19T06:28:57.469000","anonymous","anonymous","false"
+"Fassadenreinigung","0","Baustelle einrichten. 
+Seilaufbau für die Dauer der Arbeiten. 
+Reinigen der Fassade unterhalb der Trenkwalder Aufschrift wie in den beiliegenden Skizzen orange markiert. 
+Seilabbau nach Fertigstellung der Arbeiten. 
+Baustelle räumen. ","reinigung","6995dd862f0cd5725461d73f","2026-02-18T15:40:54.920000","2026-02-18T15:40:54.920000","anonymous","anonymous","false"
+"Feuermauer Sanierung ","0","Baustelle einrichten. 
+Seilaufbau für die Dauer der Arbeiten.
+Alten Putz an der hofseitigen Feuermauer wie in der beiliegenden Skizze rot markiert, 
+mittels seilunterstützter Arbeit abschlagen. 
+Anschließendes neu verputzen der Feuermauer. 
+Seilabbau nach Fertigstellung der Arbeiten. 
+Baustelle räumen. 
+Entsorgen des Bauschuttes. ","verputz","699320ffe9ed93a860161bc2","2026-02-16T13:51:59.595000","2026-02-16T13:51:59.595000","anonymous","anonymous","false"
+"Verputz Arbeiten (Straße)","0","Einrichten der Baustelle.
+Seilaufbau für die Dauer der Arbeiten.
+Notwendige Abdeckungen für die Dauer der Arbeiten.
+Schadhafte Stellen an der straßenseitigen Fassade wie in der beiliegenden Skizze rot markiert,
+mittels seilunterstützter Arbeit abschlagen und neu verputzen.
+Verputzte Stellen farblich angleichen.
+Abdeckungen nach Fertigstellung der Arbeiten wieder entfernen.
+Seilabbau nach Durchführung der Arbeiten.
+Räumen der Baustelle.
+Entsorgung des Bauschuttes.
+
+Das Angebot bezieht sich auf das von Boden aus ersichtliche Schadensausmaß.","sonstige","699313c31b2cd8cf9488bfcd","2026-02-16T12:55:31.747000","2026-02-16T12:55:54.761000","anonymous","anonymous","false"
+"Taubennetz","0","Baustelle einrichten. 
+Seilaufbau für die Dauer der Arbeiten.
+Taubennetz wie in den beiliegenden Skizzen grün markiert montieren. 
+Reinigen der von Taubenkot verunreinigten Stellen wie in den beiliegenden Skizzen blau markiert. 
+Taubenspitzen wie in den beiliegenden Skizzen rot markiert kleben. 
+Seilabbau nach Fertigstellung der Arbeiten. 
+Baustelle räumen.
+
+Für Schäden, die nach der Montage durch außergewöhnliche oder übermäßige Schneelast, Eisbildung, Laubansammlungen, Sturm oder sonstige äußere Einflüsse entstehen, übernehmen wir keine Haftung.
+
+Die regelmäßige Kontrolle, Wartung sowie das Entfernen von Schnee, Eis und Laub obliegen ausschließlich dem Hauseigentümer bzw. der Hausverwaltung. Erforderliche Maßnahmen sind eigenständig zu beauftragen.","tauben","6992f08bccfd7a8e7d85f513","2026-02-16T10:25:15.946000","2026-03-04T07:11:50.743000","anonymous","anonymous","false"
+"Streich Arbeiten Lichthof","0","Baustelle einrichten. 
+Seilaufbau für die Dauer der Arbeiten.
+Öffnen des vorhandenen Taubennetzes für die Dauer der Arbeiten. 
+Notwendige Abdeckungen für die Dauer der Arbeiten.
+Gesamten Lichthof wie in den beiliegenden Skizzen rot markiert,
+mittels seilunterstützter Arbeit neu streichen. 
+Abdeckungen nach Fertigstellung der Arbeiten wieder entfernen.
+Verschließen des Taubennetzes nach Fertigstellung der Arbeiten. 
+Seilabbau nach Durchführung der Arbeiten.
+Räumen der Baustelle.
+Entsorgung des Bauschuttes.
+","sonstige","6992e918fe4cd22c562a8b49","2026-02-16T09:53:28.262000","2026-02-16T09:53:28.262000","anonymous","anonymous","false"
+"Verputz Arbeiten (ohne Seil)","0","Einrichten der Baustelle.
+Schadhafte Stellen an der hofseitigen Fassade wie in der beiliegenden Skizze rot markiert abschlagen und neu verputzen.
+Verputzte Stellen farblich angleichen.
+Abdeckungen nach Fertigstellung der Arbeiten wieder entfernen.
+Räumen der Baustelle.
+Entsorgung des Bauschuttes.","sonstige","6992e734307c9ecd72b25c09","2026-02-16T09:45:24.104000","2026-02-16T09:46:28.924000","anonymous","anonymous","false"
+"Fassadenreinigung","0","Baustelle einrichten. 
+Seilaufbau für die Dauer der Arbeiten. 
+Fassade der Hotelseite wie in den beiliegenden Skizzen rot markiert an der Außenseite reinigen. 
+Seilabbau nach Fertigstellung der Arbeiten. 
+Baustelle räumen. ","reinigung","6992dfd3bb11331a864b1201","2026-02-16T09:13:55.671000","2026-02-16T09:13:55.671000","anonymous","anonymous","false"

@@ -1,0 +1,6 @@
+datum,titel,prozentAnteil,betrag,bemerkung,invoiceId,status,zahlungsart,id,created_date,updated_date,created_by_id,created_by,is_sample
+"2026-02-15","","0","0","","6991bfd1e79c4e82b2a88da5","ausstehend","überweisung","6991c04aee6a3560d64f8741","2026-02-15T12:47:06.546000","2026-02-15T12:47:06.546000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"2026-02-13","","0","0","","698e088563a513c23a327ff7","ausstehend","überweisung","698f6f6fab2c4d4e9e97e853","2026-02-13T18:37:35.226000","2026-02-13T18:37:35.226000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"2026-01-30","3.zahlun sgöcv","50","16197","","697a05f32128443a9fe5848c","ausstehend","überweisung","697cbe05895b601f2410ed9b","2026-01-30T14:19:49.548000","2026-01-30T14:53:39.970000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"2026-01-29","1zah","0.19","61.5486","","697b48214f3930b5ab2035cb","bezahlt","überweisung","697b713752b1925238377ed6","2026-01-29T14:39:51.654000","2026-01-29T14:40:34.791000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"2026-01-29","","0","0","","6978ca59d1009cb62f675d97","ausstehend","überweisung","697b6eaf117259a31baa004a","2026-01-29T14:29:03.147000","2026-01-29T14:29:03.147000","6937375d862a164b90207fd4","info@oswebdev.com","false"
