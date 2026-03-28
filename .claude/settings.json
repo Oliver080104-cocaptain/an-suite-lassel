@@ -14,7 +14,9 @@
       "Bash(mkdir -p \"c:/CoCaptain Projekte/Lassel GmbH - Angebotssuite V2/lassel-plattform/src/app/rechnungen/[id]\")",
       "Bash(mkdir -p \"c:/CoCaptain Projekte/Lassel GmbH - Angebotssuite V2/lassel-plattform/src/app/lieferscheine/[id]\")",
       "Read(//c/Users/osien/.claude/projects/c--CoCaptain-Projekte-Lassel-GmbH---Angebotssuite-V2/04518d30-9f86-4480-9d43-3e26e6fa61af/subagents/**)",
-      "Bash(npx next:*)"
+      "Bash(npx next:*)",
+      "Bash(npx tsx:*)",
+      "Bash(node -e \":*)"
     ]
   }
 }
