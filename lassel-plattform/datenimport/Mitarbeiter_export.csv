@@ -1,0 +1,7 @@
+name,email,abteilung,aktiv,id,created_date,updated_date,created_by_id,created_by,is_sample
+"Reinhard Lassel","r.lassel@hoehenarbeiten-lassel.at","Innendienst","true","69666526d63df914d991e01c","2026-01-13T15:30:46.485000","2026-01-13T15:30:46.485000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"Nikolas Schmadlak","n.schmadlak@hoehenarbeiten-lassel.at","Innendienst","true","69666526d63df914d991e01d","2026-01-13T15:30:46.485000","2026-03-02T18:55:11.423000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"Manuel Wullers","m.wullers@hoehenarbeiten-lassel.at","Innendienst","true","69666526d63df914d991e01b","2026-01-13T15:30:46.485000","2026-01-13T15:30:46.485000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"Ines Peschek","i.peschek@hoehenarbeiten-lassel.at","Innendienst","true","69666526d63df914d991e01a","2026-01-13T15:30:46.485000","2026-01-13T15:30:46.485000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"Sabine Rauscher","s.rauscher@hoehenarbeiten-lassel.at","Innendienst","true","69666526d63df914d991e019","2026-01-13T15:30:46.485000","2026-01-13T15:30:46.485000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"Christoph Kribala","c.kribala@hoehenarbeiten-lassel.at","Innendienst","true","69666526d63df914d991e018","2026-01-13T15:30:46.485000","2026-03-02T18:53:07.867000","6937375d862a164b90207fd4","info@oswebdev.com","false"

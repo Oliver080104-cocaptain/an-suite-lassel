@@ -1,0 +1,5 @@
+name,email,telefon,provisionssatz,status,notizen,id,created_date,updated_date,created_by_id,created_by,is_sample
+"LDS Lederer","","","10","aktiv","","6964dd0788168341031fcb9d","2026-01-12T11:37:43.720000","2026-01-12T11:37:43.720000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"Purissima","","","20","aktiv","","6964dd0788168341031fcb9f","2026-01-12T11:37:43.720000","2026-02-13T18:03:03.274000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"Obermaier","","","10","aktiv","","6964dd0788168341031fcb9c","2026-01-12T11:37:43.720000","2026-01-12T11:37:43.720000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"Schmid - All Clear","","","10","aktiv","","6964dd0788168341031fcb9e","2026-01-12T11:37:43.720000","2026-02-13T17:54:47.937000","6937375d862a164b90207fd4","info@oswebdev.com","false"

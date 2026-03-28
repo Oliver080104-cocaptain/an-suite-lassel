@@ -1,0 +1,108 @@
+deliveryNoteId,produktName,menge,einheit,pos,beschreibung,id,created_date,updated_date,created_by_id,created_by,is_sample
+"69b7a06d4268263f361179e3","Diverse Dienstleistungen","1","Stk","2","Baustelle einrichten. 
+Seilaufbau für die Dauer der Arbeiten. 
+Reinigen der Fassade unterhalb der Trenkwalder Aufschrift wie in den beiliegenden Skizzen orange markiert. 
+Seilabbau nach Fertigstellung der Arbeiten. 
+Baustelle räumen. ","69b7a06e4b261b2c14984704","2026-03-16T06:17:18.406000","2026-03-16T06:18:08.570000","anonymous","anonymous","false"
+"69b7a06d4268263f361179e3","Taubenabwehr","1","Stk","1","Baustelle einrichten. 
+Seilaufbau für die Dauer der Arbeiten. 
+Taubenabwehrspitzen an den Verblechungen für die Dauer der Arbeiten entfernen. 
+Taubenabwehrspitzen wie in den beiliegenden Skizzen grün markiert, 
+werden mittels seilunterstützter Arbeit auf den Buchstaben und dem Gerüst geklebt. 
+Seilabbau nach Fertigstellung der Arbeiten. 
+Taubenabwehrspitzen an den Verblechungen nach Fertigstellung der Arbeiten wieder montieren.
+Baustelle räumen.","69b7a06e9d767028d6cc9eba","2026-03-16T06:17:18.141000","2026-03-16T06:18:08.338000","anonymous","anonymous","false"
+"69a16604352528600e4056e8","Verputz Arbeiten","1","pauschal","1","Einrichten der Baustelle. 
+Seilaufbau für die Dauer der Arbeiten. 
+Öffnen des Taubennetzes für die Dauer der Arbeiten. 
+Notwendige Abdeckungen für die Dauer der Arbeiten Schadhafte Stellen an der hofseitigen Fassade wie in der beiliegenden Skizze, rot markiert mittels seilunterstützter Arbeit abschlagen und neu verputzen. 
+Abdeckungen nach Fertigstellung der Arbeiten wieder entfernen. 
+Taubennetz nach Fertigstellung der Arbeiten wieder verschließen.
+Seilabbau nach Durchführung der Arbeiten.
+Räumen der Baustelle.
+Entsorgung des Bauschuttes.","69afca4c85b6a1a4bc0a62cf","2026-03-10T07:37:48.233000","2026-03-10T07:51:54.031000","anonymous","anonymous","false"
+"69ae65129002e0bfcd50a4e1","","1","Stk","1","","69ae651275f138782fba2695","2026-03-09T06:13:38.229000","2026-03-09T06:13:38.229000","anonymous","anonymous","false"
+"69ae64b0bd61a687f13bf69c","Verputz Arbeiten","1","pauschal","1","Baustelle einrichten.
+Notwendige Abdeckungen für die Dauer der Arbeiten.
+Seilaufbau für die Dauer der Arbeiten. 
+Offene Stelle am Gesimse wird ausgemauert und neu verputz. 
+Abgeschlagene schadhafte Stelle am hofseitigen Gesimse wie in der beiliegenden Skizze, 
+rot markiert mittels seilunterstützter Arbeit neu verputzen und farblich angleichen.
+Abdeckungen nach Fertigstellung der Arbeiten wieder entfernen. 
+Seilabbau nach Fertigstellung der Arbeiten. 
+Baustelle räumen. 
+ ","69ae64b18d401b6d900e195b","2026-03-09T06:12:01.278000","2026-03-09T06:15:16.921000","anonymous","anonymous","false"
+"69a5a0c0c48235fefceb53e0","Verputz Arbeiten","1","pauschal","2","
+
+Einrichten der Baustelle
+Notwendige Abdeckungen für die Dauer der Arbeiten durchführen.
+Schadhafte Stellen an der Fassade wie in der beiliegenden Skizze, blau markiert, ersichtlich, abschlagen und neu verputzen.
+Abdeckungen nach Fertigstellung der Arbeiten wieder entfernen.
+Räumen der Baustelle.
+Entsorgung des Bauschuttes.
+
+","69a5a0c1674876744f894ac5","2026-03-02T14:37:53.085000","2026-03-02T14:38:44.330000","anonymous","anonymous","false"
+"69a5a0c0c48235fefceb53e0","Taubenabwehr","1","Stk","1","
+
+Baustelle einrichten. 
+Reinigung der von Taubenkot verunreinigten Stellen im Bereich des Fensters.
+Taubennetz vor den Fenster wie in den beiliegenden Skizzen rot markiert montieren. 
+Baustelle räumen.","69a5a0c04fbf750ea63ef15c","2026-03-02T14:37:52.776000","2026-03-02T14:38:44.099000","anonymous","anonymous","false"
+"699da494d75c0b5a057ed90a","Taubenabwehr","1","Stk","1","Baustelle einrichten. 
+Seilaufbau für die Dauer der Arbeiten.
+Die von Taubenkot verunreinigten Fensterbretter reinigen.
+Entfernen der alten desolaten Taubenspitzen an den Fensterbrettern. 
+Taubenabwehrspiralen wie in den beiliegenden Skizzen grün markiert, 
+werden mittels seilunterstützter Arbeit doppelt gesetzt geklebt. 
+Seilabbau nach Fertigstellung der Arbeiten. 
+Baustelle räumen.
+Entsorgen der alten Taubenspitzen. ","699da49403046ab5014d1395","2026-02-24T13:16:04.754000","2026-03-23T13:32:31.714000","anonymous","anonymous","false"
+"699da465839a334c4151c5f3","Taubenabwehr","1","Stk","1","Baustelle einrichten. 
+Seilaufbau für die Dauer der Arbeiten.
+Die von Taubenkot verunreinigten Fensterbretter reinigen.
+Entfernen der alten desolaten Taubenspitzen an den Fensterbrettern. 
+Taubenabwehrspiralen wie in den beiliegenden Skizzen grün markiert, 
+werden mittels seilunterstützter Arbeit doppelt gesetzt geklebt. 
+Seilabbau nach Fertigstellung der Arbeiten. 
+Baustelle räumen.
+Entsorgen der alten Taubenspitzen. ","699da465ca5003ef1899046e","2026-02-24T13:15:17.829000","2026-02-24T13:15:26.475000","anonymous","anonymous","false"
+"699d5e082986d0a0573cf25f","Verputzarbeiten","1","Stk","1","Einrichten der Baustelle.
+Seilaufbau für die Dauer der Arbeiten. 
+Notwendige Abdeckungen vornehmen.
+Schadhafte Stellen an dem hofseitigen Gesimse wie in den beiliegenden Skizzen rot markiert, 
+mittels seilunterstützter Arbeit abschlagen und neu verputzen. 
+Verputzte Stellen farblich angleichen.
+Abdeckungen wieder entfernen.
+Räumen der Baustelle.
+Entsorgen des Bauschutts.","699d5e08675fbe0497ef544f","2026-02-24T08:15:04.523000","2026-02-24T08:15:51.924000","anonymous","anonymous","false"
+"699c37105ee5a76ce2d86750","Taubenabwehr","1","Stk","1","Baustelle einrichten. 
+Demontage des beschädigten vorhandenen Taubennetzes. 
+Neues Taubennetz wie in den beiliegenden Skizzen rot markiert montieren.  
+Baustelle räumen.
+Entsorgen des alten Taubennetzes. ","699c371011bbfc9a962a76de","2026-02-23T11:16:32.711000","2026-02-24T21:09:18.990000","anonymous","anonymous","false"
+"69922612a98ba3572535f213","Diverse Dienstleistungen","1","Stk","2","Einrichten der Baustelle
+Seilaufbau für die Dauer der Arbeiten
+Mangelhafte Abdichtungen wie in den beiliegenden Skizzen rot markiert mittels seilunterstützter Arbeit vorbehandeln und mittels Flüssigkunststoff abdichten
+Seilabbau nach Fertigstellung der Arbeiten
+Räumen der Baustelle","699226134da1fdd3622b0eb0","2026-02-15T20:01:23.203000","2026-02-20T09:02:24.704000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"69922612a98ba3572535f213","Taubenabwehr","1","Stk","1","Einrichten der Baustelle
+Reinigung und Desinfektion des gesamten Balkons wie in den beiliegenden Skizzen grünmarkiert ersichtlich
+Taubenabwehrspiralen wie in den beiliegenden Skizzen gelb markiert ersichtlich, mittels Steighilfen kleben
+Räumen der Baustelle
+
+Einrichten der Baustelle
+Seilaufbau für die Dauer der Arbeiten
+Die zu beklebenden Stellen reinigen
+Taubenabwehrspitzen wie in den beiliegenden Skizzen rot markiert mittels seilunterstützter Arbeit kleben
+Seilabbau nach Fertigstellung der Arbeiten
+Räumen der Baustelle","69922612821d41475a003ba7","2026-02-15T20:01:22.966000","2026-02-20T09:02:24.398000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"LI-2026-00001","Mosoosentfernung","40","m²","2","Spezialisierte Entfernung von Moos und Algen","6978eb5ea6021fe3b167cfab","2026-01-27T16:44:14.776000","2026-01-27T16:44:14.776000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"LI-2026-00002","Außenfassadenreinigung","120","m²","1","Professionelle Reinigung der Außfassade","6978eb5ea6021fe3b167cfae","2026-01-27T16:44:14.776000","2026-01-27T16:44:14.776000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"LI-2026-00001","Dachkehrichtung","40","m²","1","Gründliche Reinigung und Kehrichtung des Daches","6978eb5ea6021fe3b167cfaa","2026-01-27T16:44:14.776000","2026-01-27T16:44:14.776000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"LI-2026-00003","Dachdeckerarbeiten","6","Std","2","Teilweiser Austausch beschädigter Dachziegel","6978eb5ea6021fe3b167cfb2","2026-01-27T16:44:14.776000","2026-01-27T16:44:14.776000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"LI-2026-00001","Dachrinnen Reinigung","1","Pauschal","3","Säuberung und Desinfektion der Dachrinnen","6978eb5ea6021fe3b167cfac","2026-01-27T16:44:14.776000","2026-01-27T16:44:14.776000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"LI-2026-00002","Taubenabwehr Installation","8","h","3","Installation von Taubenschutznetzen","6978eb5ea6021fe3b167cfb0","2026-01-27T16:44:14.776000","2026-01-27T16:44:14.776000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"LI-2026-00003","Rauchfangkopf Sanierung","1","Stk","3","Sanierung und Erneuerung des Rauchfangkopfes","6978eb5ea6021fe3b167cfb3","2026-01-27T16:44:14.776000","2026-01-27T16:44:14.776000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"LI-2026-00001","Verblechungen kontrollieren","2","h","4","Kontrolle aller Verblechungen auf Schäden","6978eb5ea6021fe3b167cfad","2026-01-27T16:44:14.776000","2026-01-27T16:44:14.776000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"LI-2026-00003","Verputzschadensanierung","25","m²","1","Reparatur beschädigter Verputzflächen","6978eb5ea6021fe3b167cfb1","2026-01-27T16:44:14.776000","2026-01-27T16:44:14.776000","6937375d862a164b90207fd4","info@oswebdev.com","false"
+"LI-2026-00002","Fensterreinigung","24","Stk","2","Innenseite und Außenseite aller Fenster","6978eb5ea6021fe3b167cfaf","2026-01-27T16:44:14.776000","2026-01-27T16:44:14.776000","6937375d862a164b90207fd4","info@oswebdev.com","false"

@@ -1,0 +1,985 @@
+'use client'
+
+import React, { useState, useEffect, useMemo, useRef } from 'react'
+import { useParams, useRouter } from 'next/navigation'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { supabase } from '@/lib/supabase'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Card } from '@/components/ui/card'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
+import { toast } from 'sonner'
+import { FileDown, Loader2, CheckCircle2, Ban, Send, Calendar as CalendarIcon, ArrowLeft } from 'lucide-react'
+import { format, addDays, parseISO, isValid } from 'date-fns'
+import { Calendar } from '@/components/ui/calendar'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import Link from 'next/link'
+import InvoicePositionsTable from '@/components/invoices/InvoicePositionsTable'
+import OfferSummary from '@/components/offers/OfferSummary'
+
+interface InvoicePosition {
+  id?: string
+  pos: number
+  produktId?: string
+  produktName: string
+  beschreibung: string
+  menge: number | string
+  einheit: string
+  einzelpreisNetto: number | string
+  rabattProzent: number | string
+  ustSatz: number | string
+  teilfakturaProzent: number | string
+  bereitsFakturiert: number | string
+  gesamtNetto: number | string
+  gesamtBrutto: number | string
+}
+
+const defaultInvoice = {
+  rechnungsNummer: '',
+  rechnungstyp: 'normal',
+  datum: format(new Date(), 'yyyy-MM-dd'),
+  zahlungszielTage: 30,
+  faelligAm: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
+  skontoAktiv: false,
+  skontoProzent: 3,
+  skontoTage: 14,
+  status: 'entwurf',
+  kundeName: '',
+  uidnummer: '',
+  kundeStrasse: '',
+  kundePlz: '',
+  kundeOrt: '',
+  kundeAnsprechpartner: '',
+  erstelltDurch: '',
+  ticketId: '',
+  ticketNumber: '',
+  objektBezeichnung: '',
+  objektStrasse: '',
+  objektPlz: '',
+  objektOrt: '',
+  hausinhabung: '',
+  referenzAngebotNummer: '',
+  referenzAngebotId: '',
+  bemerkung: 'Bitte überweisen Sie den Rechnungsbetrag unter Angabe der Rechnungsnummer auf das unten angegebene Konto.',
+  source: 'manual',
+  rechnungAnHI: false,
+  uidVonHI: '',
+  stornoVonRechnung: '',
+  stornoGrund: '',
+  pdfUrl: '',
+  vermittlerId: '',
+  leistungszeitraumVon: '',
+  leistungszeitraumBis: '',
+  arbeitstage: [] as string[],
+  summeBrutto: 0,
+  bezahltBetrag: 0,
+}
+
+const defaultPosition: InvoicePosition = {
+  pos: 1, produktName: '', beschreibung: '', menge: 1, einheit: 'Stk',
+  einzelpreisNetto: 0, rabattProzent: 0, ustSatz: 20,
+  teilfakturaProzent: 100, bereitsFakturiert: 0,
+  gesamtNetto: 0, gesamtBrutto: 0
+}
+
+export default function InvoiceDetailPage() {
+  const params = useParams()
+  const router = useRouter()
+  const queryClient = useQueryClient()
+  const rawId = params?.id as string
+  const isNew = rawId === 'neu'
+  const invoiceId = isNew ? null : rawId
+
+  const [invoice, setInvoice] = useState({ ...defaultInvoice })
+  const [positions, setPositions] = useState<InvoicePosition[]>([{ ...defaultPosition }])
+  const [selectedDates, setSelectedDates] = useState<Date[]>([])
+  const [saving, setSaving] = useState(false)
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+  const [uploadingToZoho, setUploadingToZoho] = useState(false)
+
+  const invoiceInitialized = useRef(false)
+  const positionsInitialized = useRef(false)
+  const autoSaveLock = useRef(false)
+
+  // Load invoice
+  const { data: existingInvoice, isLoading: loadingInvoice } = useQuery({
+    queryKey: ['invoice', invoiceId],
+    queryFn: async () => {
+      if (!invoiceId) return null
+      const { data, error } = await supabase.from('invoices').select('*').eq('id', invoiceId).single()
+      if (error) throw error
+      return data
+    },
+    enabled: !!invoiceId,
+  })
+
+  // Load positions
+  const { data: existingPositions = [] } = useQuery({
+    queryKey: ['invoicePositions', invoiceId],
+    queryFn: async () => {
+      if (!invoiceId) return []
+      const { data, error } = await supabase.from('invoice_positions').select('*').eq('invoice_id', invoiceId).order('pos')
+      if (error) throw error
+      return data || []
+    },
+    enabled: !!invoiceId,
+  })
+
+  // Load mitarbeiter
+  const { data: mitarbeiterList = [] } = useQuery({
+    queryKey: ['mitarbeiter'],
+    queryFn: async () => {
+      const { data } = await supabase.from('mitarbeiter').select('*').eq('aktiv', true).order('name')
+      return data || []
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+
+  // Load vermittler
+  const { data: vermittlerList = [] } = useQuery({
+    queryKey: ['vermittler'],
+    queryFn: async () => {
+      const { data } = await supabase.from('vermittler').select('*').eq('status', 'aktiv').order('name')
+      return data || []
+    },
+    staleTime: 5 * 60 * 1000,
+  })
+
+  // Load company settings
+  const { data: companySettings } = useQuery({
+    queryKey: ['companySettings'],
+    queryFn: async () => {
+      const { data } = await supabase.from('company_settings').select('*').limit(1).single()
+      return data || {}
+    },
+    staleTime: 10 * 60 * 1000,
+  })
+
+  // Init invoice from loaded data
+  useEffect(() => {
+    if (existingInvoice && !invoiceInitialized.current) {
+      setInvoice({ ...defaultInvoice, ...existingInvoice })
+      invoiceInitialized.current = true
+
+      // Restore selected dates
+      if (existingInvoice.arbeitstage && existingInvoice.arbeitstage.length > 0) {
+        const dates = existingInvoice.arbeitstage.map((d: string) => parseISO(d)).filter(isValid)
+        setSelectedDates(dates)
+      } else if (existingInvoice.leistungszeitraumVon && existingInvoice.leistungszeitraumBis) {
+        const start = parseISO(existingInvoice.leistungszeitraumVon)
+        const end = parseISO(existingInvoice.leistungszeitraumBis)
+        const dates: Date[] = []
+        if (isValid(start) && isValid(end)) {
+          let current = new Date(start)
+          while (current <= end) {
+            dates.push(new Date(current))
+            current = addDays(current, 1)
+          }
+        }
+        setSelectedDates(dates)
+      }
+    }
+  }, [existingInvoice])
+
+  // Init positions
+  useEffect(() => {
+    if (existingPositions.length > 0 && !positionsInitialized.current) {
+      setPositions(existingPositions)
+      positionsInitialized.current = true
+    }
+  }, [existingPositions])
+
+  // Auto-update fälligAm when datum or zahlungszielTage changes
+  useEffect(() => {
+    if (invoice.datum && invoice.zahlungszielTage) {
+      try {
+        const d = parseISO(invoice.datum)
+        if (isValid(d)) {
+          setInvoice(prev => ({ ...prev, faelligAm: format(addDays(d, Number(prev.zahlungszielTage)), 'yyyy-MM-dd') }))
+        }
+      } catch {}
+    }
+  }, [invoice.datum, invoice.zahlungszielTage])
+
+  // Auto-save on visibility change
+  useEffect(() => {
+    if (isNew) return
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden' && invoiceId && invoice.kundeName && !autoSaveLock.current) {
+        autoSaveLock.current = true
+        performAutoSave().finally(() => { autoSaveLock.current = false })
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility)
+      if (invoiceId && invoice.kundeName && !autoSaveLock.current) {
+        autoSaveLock.current = true
+        performAutoSave().finally(() => { autoSaveLock.current = false })
+      }
+    }
+  }, [invoice, positions, isNew, invoiceId])
+
+  const totals = useMemo(() => {
+    const summeNetto = positions.reduce((sum, p) => sum + (parseFloat(p.gesamtNetto as string) || 0), 0)
+    const summeRabatt = positions.reduce((sum, p) => {
+      const menge = parseFloat(p.menge as string) || 0
+      const einzelpreis = parseFloat(p.einzelpreisNetto as string) || 0
+      const rabatt = parseFloat(p.rabattProzent as string) || 0
+      return sum + (menge * einzelpreis * (rabatt / 100))
+    }, 0)
+    const summeUst = positions.reduce((sum, p) => {
+      const gesamtNetto = parseFloat(p.gesamtNetto as string) || 0
+      const ustSatz = parseFloat(p.ustSatz as string) || 20
+      return sum + (gesamtNetto * (ustSatz / 100))
+    }, 0)
+    const summeBrutto = summeNetto + summeUst
+    return { summeNetto, summeRabatt, summeUst, summeBrutto }
+  }, [positions])
+
+  const generateInvoiceNumber = async () => {
+    const year = new Date().getFullYear()
+    const { data } = await supabase.from('invoices').select('rechnungsNummer').ilike('rechnungsNummer', `RE-${year}%`)
+    const nextNum = (data?.length || 0) + 1
+    return `RE-${year}-${String(nextNum).padStart(5, '0')}`
+  }
+
+  const savePositions = async (targetId: string, currentPositions: InvoicePosition[], existingPosData: any[]) => {
+    const toDelete = existingPosData.filter(ep => !currentPositions.find(p => p.id === ep.id))
+    const toUpdate = currentPositions.filter(p => p.id && existingPosData.find(ep => ep.id === p.id))
+    const toCreate = currentPositions.filter(p => !p.id)
+
+    await Promise.all([
+      ...toDelete.map(p => supabase.from('invoice_positions').delete().eq('id', p.id)),
+      ...toUpdate.map(p => supabase.from('invoice_positions').update({ ...p, invoice_id: targetId }).eq('id', p.id!)),
+    ])
+    if (toCreate.length > 0) {
+      await supabase.from('invoice_positions').insert(toCreate.map(p => ({ ...p, id: undefined, invoice_id: targetId })))
+    }
+  }
+
+  const performAutoSave = async () => {
+    if (!invoiceId || !invoice.kundeName) return
+    try {
+      const arbeitstage = selectedDates.length > 0 ? selectedDates.map(d => format(d, 'yyyy-MM-dd')) : undefined
+      await supabase.from('invoices').update({ ...invoice, ...totals, arbeitstage }).eq('id', invoiceId)
+      await savePositions(invoiceId, positions, existingPositions)
+    } catch (err) {
+      console.error('Auto-save error:', err)
+    }
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const arbeitstage = selectedDates.length > 0 ? selectedDates.map(d => format(d, 'yyyy-MM-dd')) : undefined
+      const invoiceData = { ...invoice, ...totals, arbeitstage }
+      let savedId = invoiceId
+
+      if (isNew) {
+        invoiceData.rechnungsNummer = await generateInvoiceNumber()
+        const { data, error } = await supabase.from('invoices').insert([invoiceData]).select().single()
+        if (error) throw error
+        savedId = data.id
+        router.replace(`/rechnungen/${savedId}`)
+      } else {
+        const { error } = await supabase.from('invoices').update(invoiceData).eq('id', invoiceId!)
+        if (error) throw error
+      }
+
+      await savePositions(savedId!, positions, isNew ? [] : existingPositions)
+      queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      queryClient.invalidateQueries({ queryKey: ['invoice', savedId] })
+      queryClient.invalidateQueries({ queryKey: ['invoicePositions', savedId] })
+      toast.success(isNew ? 'Rechnung erstellt' : 'Rechnung gespeichert')
+    } catch (err: any) {
+      toast.error('Fehler beim Speichern: ' + err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSaveAndUploadToZoho = async () => {
+    setSaving(true)
+    setUploadingToZoho(true)
+    try {
+      const arbeitstage = selectedDates.length > 0 ? selectedDates.map(d => format(d, 'yyyy-MM-dd')) : undefined
+      const invoiceData = { ...invoice, ...totals, arbeitstage }
+      let savedId = invoiceId
+      let savedInvoice = { ...invoiceData, id: invoiceId }
+
+      if (isNew) {
+        invoiceData.rechnungsNummer = await generateInvoiceNumber()
+        const { data, error } = await supabase.from('invoices').insert([invoiceData]).select().single()
+        if (error) throw error
+        savedId = data.id
+        savedInvoice = { ...invoiceData, id: savedId }
+        router.replace(`/rechnungen/${savedId}`)
+      } else {
+        const { error } = await supabase.from('invoices').update(invoiceData).eq('id', invoiceId!)
+        if (error) throw error
+      }
+
+      await savePositions(savedId!, positions, isNew ? [] : existingPositions)
+
+      // Trigger Zoho webhook
+      await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/48a021d8-c88d-4663-80f6-dc09a70d598b', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rechnungsId: savedId,
+          rechnungsNummer: savedInvoice.rechnungsNummer,
+          rechnungstyp: savedInvoice.rechnungstyp,
+          pdfUrl: savedInvoice.pdfUrl,
+          ticketId: savedInvoice.ticketId,
+          ticketNumber: savedInvoice.ticketNumber,
+          datum: savedInvoice.datum,
+          faelligAm: savedInvoice.faelligAm,
+          status: savedInvoice.status,
+          kundeName: savedInvoice.kundeName,
+          objektBezeichnung: savedInvoice.objektBezeichnung,
+          erstelltDurch: savedInvoice.erstelltDurch,
+          source: savedInvoice.source,
+          referenzAngebotNummer: savedInvoice.referenzAngebotNummer,
+          referenzAngebotId: savedInvoice.referenzAngebotId,
+          stornoVonRechnung: savedInvoice.stornoVonRechnung,
+          stornoGrund: savedInvoice.stornoGrund,
+          summen: totals,
+          timestamp: new Date().toISOString()
+        })
+      }).catch(err => console.error('Zoho webhook failed:', err))
+
+      queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      toast.success('Gespeichert & in Zoho abgelegt')
+    } catch (err: any) {
+      toast.error('Fehler: ' + err.message)
+    } finally {
+      setSaving(false)
+      setUploadingToZoho(false)
+    }
+  }
+
+  const handleMarkAsPaid = async () => {
+    if (!invoiceId) return
+    try {
+      await supabase.from('invoices').update({ status: 'bezahlt', bezahltBetrag: totals.summeBrutto }).eq('id', invoiceId)
+      setInvoice(prev => ({ ...prev, status: 'bezahlt', bezahltBetrag: totals.summeBrutto }))
+      queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      toast.success('Rechnung als bezahlt markiert')
+    } catch (err: any) {
+      toast.error('Fehler: ' + err.message)
+    }
+  }
+
+  const handleSendInvoice = async () => {
+    if (!invoiceId) { toast.error('Rechnung muss zuerst gespeichert werden'); return }
+    try {
+      await supabase.from('invoices').update({ status: 'offen' }).eq('id', invoiceId)
+      setInvoice(prev => ({ ...prev, status: 'offen' }))
+
+      await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/rechnung-versenden', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rechnungsId: invoiceId,
+          rechnungsNummer: invoice.rechnungsNummer,
+          rechnungstyp: invoice.rechnungstyp,
+          pdfUrl: invoice.pdfUrl,
+          status: 'offen',
+          datum: invoice.datum,
+          faelligAm: invoice.faelligAm,
+          ticketId: invoice.ticketId,
+          ticketNumber: invoice.ticketNumber,
+          source: invoice.source,
+          referenzAngebotNummer: invoice.referenzAngebotNummer,
+          stornoVonRechnung: invoice.stornoVonRechnung,
+          kunde: {
+            name: invoice.kundeName,
+            strasse: invoice.kundeStrasse,
+            plz: invoice.kundePlz,
+            ort: invoice.kundeOrt,
+            ansprechpartner: invoice.kundeAnsprechpartner
+          },
+          objekt: { bezeichnung: invoice.objektBezeichnung },
+          erstelltDurch: invoice.erstelltDurch,
+          bemerkung: invoice.bemerkung,
+          positionen: positions,
+          summen: totals,
+          timestamp: new Date().toISOString()
+        })
+      }).catch(err => console.error('Send webhook failed:', err))
+
+      queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      toast.success('Rechnung versendet')
+    } catch (err: any) {
+      toast.error('Fehler: ' + err.message)
+    }
+  }
+
+  const handleStorno = async () => {
+    if (!invoiceId || !cancelReason.trim()) { toast.error('Bitte Stornierungsgrund angeben'); return }
+    try {
+      const year = new Date().getFullYear()
+      const { data: allInvoices } = await supabase.from('invoices').select('rechnungsNummer').ilike('rechnungsNummer', `RE-${year}%`)
+      const nextNum = (allInvoices?.length || 0) + 1
+      const stornoNummer = `RE-${year}-${String(nextNum).padStart(5, '0')}`
+
+      const stornoPositions = positions.map(pos => ({
+        pos: pos.pos,
+        produktName: pos.produktName,
+        beschreibung: pos.beschreibung,
+        menge: -Math.abs(parseFloat(pos.menge as string) || 0),
+        einheit: pos.einheit,
+        einzelpreisNetto: Math.abs(parseFloat(pos.einzelpreisNetto as string) || 0),
+        rabattProzent: parseFloat(pos.rabattProzent as string) || 0,
+        ustSatz: parseFloat(pos.ustSatz as string) || 20,
+        gesamtNetto: -Math.abs(parseFloat(pos.gesamtNetto as string) || 0),
+        gesamtBrutto: -Math.abs(parseFloat(pos.gesamtBrutto as string) || 0),
+        teilfakturaProzent: parseFloat(pos.teilfakturaProzent as string) || 100,
+        bereitsFakturiert: parseFloat(pos.bereitsFakturiert as string) || 0,
+      }))
+
+      const { data: stornoData, error } = await supabase.from('invoices').insert([{
+        ...invoice,
+        id: undefined,
+        rechnungsNummer: stornoNummer,
+        rechnungstyp: 'storno',
+        stornoVonRechnung: invoice.rechnungsNummer,
+        stornoGrund: cancelReason,
+        datum: format(new Date(), 'yyyy-MM-dd'),
+        status: 'entwurf',
+        summeNetto: -Math.abs(totals.summeNetto),
+        summeUst: -Math.abs(totals.summeUst),
+        summeBrutto: -Math.abs(totals.summeBrutto),
+        pdfUrl: null,
+      }]).select().single()
+      if (error) throw error
+
+      await supabase.from('invoice_positions').insert(stornoPositions.map(p => ({ ...p, invoice_id: stornoData.id })))
+      queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      toast.success('Storno-Rechnung erstellt')
+      setCancelDialogOpen(false)
+      router.push(`/rechnungen/${stornoData.id}`)
+    } catch (err: any) {
+      toast.error('Fehler: ' + err.message)
+    }
+  }
+
+  const handleStatusChange = async (v: string) => {
+    setInvoice(prev => ({ ...prev, status: v }))
+    if (v === 'bezahlt' && invoiceId) {
+      try {
+        await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/fd01a47a-4d74-4763-b551-e5c3a29155da', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            rechnungsId: invoiceId,
+            rechnungsNummer: invoice.rechnungsNummer,
+            status: 'bezahlt',
+            ticketId: invoice.ticketId,
+            ticketNumber: invoice.ticketNumber,
+            objektBezeichnung: invoice.objektBezeichnung,
+            kundeName: invoice.kundeName,
+            summeBrutto: totals.summeBrutto,
+            datum: invoice.datum,
+            faelligAm: invoice.faelligAm,
+            timestamp: new Date().toISOString()
+          })
+        })
+        toast.success('Status auf Bezahlt gesetzt')
+      } catch (err) {
+        console.error('Bezahlt webhook failed:', err)
+      }
+    }
+  }
+
+  const showTeilfaktura = invoice.rechnungstyp === 'teilrechnung' || invoice.rechnungstyp === 'schlussrechnung'
+
+  const formatSelectedDates = (dates: Date[]) => {
+    if (dates.length === 0) return null
+    if (dates.length === 1) return format(dates[0], 'dd.MM.yyyy')
+    const sorted = [...dates].sort((a, b) => a.getTime() - b.getTime())
+    const ranges: { start: Date; end: Date }[] = []
+    let rangeStart = sorted[0]
+    let rangeEnd = sorted[0]
+    for (let i = 1; i < sorted.length; i++) {
+      const diff = (sorted[i].getTime() - rangeEnd.getTime()) / (1000 * 60 * 60 * 24)
+      if (diff === 1) {
+        rangeEnd = sorted[i]
+      } else {
+        ranges.push({ start: rangeStart, end: rangeEnd })
+        rangeStart = sorted[i]
+        rangeEnd = sorted[i]
+      }
+    }
+    ranges.push({ start: rangeStart, end: rangeEnd })
+    const formatted = ranges.map(r =>
+      r.start.getTime() === r.end.getTime()
+        ? format(r.start, 'dd.MM.yyyy')
+        : `${format(r.start, 'dd.MM.yyyy')} - ${format(r.end, 'dd.MM.yyyy')}`
+    ).join(', ')
+    return `${formatted} (${dates.length} Tage)`
+  }
+
+  if (loadingInvoice) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+      </div>
+    )
+  }
+
+  const selectedVermittler = vermittlerList.find((v: any) => v.id === invoice.vermittlerId)
+
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 sm:mb-8">
+          <div className="flex items-center gap-4">
+            <Link href="/rechnungen">
+              <Button variant="ghost" size="sm" className="text-slate-500 hover:text-slate-900">
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Alle Rechnungen
+              </Button>
+            </Link>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
+                {isNew ? 'Neue Rechnung' : (invoice.rechnungsNummer || 'Rechnung')}
+              </h1>
+              {!isNew && (
+                <div className="flex flex-wrap gap-2 mt-1">
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                    ${invoice.status === 'bezahlt' ? 'bg-emerald-100 text-emerald-800' :
+                      invoice.status === 'offen' ? 'bg-blue-100 text-blue-800' :
+                      invoice.status === 'mahnung' ? 'bg-red-100 text-red-800' :
+                      invoice.status === 'storniert' ? 'bg-rose-100 text-rose-800' :
+                      'bg-slate-100 text-slate-600'}`}>
+                    {invoice.status}
+                  </span>
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                    {invoice.rechnungstyp}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {!isNew && invoice.rechnungstyp !== 'storno' && invoice.status === 'offen' && (
+              <Button variant="outline" onClick={handleMarkAsPaid} className="text-emerald-600 border-emerald-200 hover:bg-emerald-50">
+                <CheckCircle2 className="w-4 h-4 mr-2" />
+                <span className="hidden sm:inline">Als bezahlt markieren</span>
+                <span className="sm:hidden">Bezahlt</span>
+              </Button>
+            )}
+            {!isNew && invoice.rechnungstyp !== 'storno' && invoice.status !== 'storniert' && invoice.status !== 'entwurf' && (
+              <Button variant="outline" onClick={() => setCancelDialogOpen(true)} className="text-rose-600 border-rose-200 hover:bg-rose-50">
+                <Ban className="w-4 h-4 mr-2" />
+                Stornieren
+              </Button>
+            )}
+            {!isNew && (
+              <Button variant="outline" onClick={handleSendInvoice} className="text-blue-600 border-blue-200 hover:bg-blue-50">
+                <Send className="w-4 h-4 mr-2" />
+                <span className="hidden sm:inline">Rechnung versenden</span>
+                <span className="sm:hidden">Versenden</span>
+              </Button>
+            )}
+            <Button onClick={handleSaveAndUploadToZoho} disabled={saving || uploadingToZoho} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+              {(saving || uploadingToZoho) ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <FileDown className="w-4 h-4 mr-2" />}
+              <span className="hidden sm:inline">Speichern & in Zoho ablegen</span>
+              <span className="sm:hidden">Speichern</span>
+            </Button>
+          </div>
+        </div>
+
+        {/* Storno Dialog */}
+        {cancelDialogOpen && (
+          <Card className="p-6 mb-6 border-rose-200 bg-rose-50">
+            <h3 className="text-lg font-semibold text-rose-800 mb-3">Rechnung stornieren</h3>
+            <p className="text-sm text-rose-700 mb-3">
+              Es wird eine neue Storno-Rechnung für <strong>{invoice.rechnungsNummer}</strong> erstellt.
+            </p>
+            <div className="mb-4">
+              <Label className="text-rose-800">Stornierungsgrund *</Label>
+              <Textarea
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="z.B. Retoure, Preisänderung, Vertragsverletzung"
+                rows={3}
+                className="mt-1 border-rose-200"
+              />
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={() => setCancelDialogOpen(false)}>Abbrechen</Button>
+              <Button onClick={handleStorno} className="bg-rose-600 hover:bg-rose-700 text-white" disabled={!cancelReason.trim()}>
+                Storno-Rechnung erstellen
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {/* Main grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          {/* Left: Kundendaten + Objekt */}
+          <div className="space-y-6">
+            <Card className="p-6">
+              <div className="flex items-start justify-between mb-4">
+                <h2 className="text-lg font-semibold text-slate-900">Kundendaten</h2>
+                {invoice.ticketId && (
+                  <a
+                    href={`https://crm.zoho.eu/crm/org20107446748/tab/CustomModule17/${invoice.ticketId}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-700"
+                    title="In Zoho öffnen"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+                )}
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <Label>Kundenname</Label>
+                  <Input value={invoice.kundeName || ''} onChange={e => setInvoice(p => ({ ...p, kundeName: e.target.value }))} placeholder="Firma / Name" className="mt-1" />
+                </div>
+                <div>
+                  <Label>Straße</Label>
+                  <Input value={invoice.kundeStrasse || ''} onChange={e => setInvoice(p => ({ ...p, kundeStrasse: e.target.value }))} placeholder="Straße und Hausnummer" className="mt-1" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>PLZ</Label>
+                    <Input value={invoice.kundePlz || ''} onChange={e => setInvoice(p => ({ ...p, kundePlz: e.target.value }))} placeholder="PLZ" className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>Ort</Label>
+                    <Input value={invoice.kundeOrt || ''} onChange={e => setInvoice(p => ({ ...p, kundeOrt: e.target.value }))} placeholder="Ort" className="mt-1" />
+                  </div>
+                </div>
+                <div>
+                  <Label>Ansprechpartner</Label>
+                  <Input value={invoice.kundeAnsprechpartner || ''} onChange={e => setInvoice(p => ({ ...p, kundeAnsprechpartner: e.target.value }))} placeholder="Ansprechpartner" className="mt-1" />
+                </div>
+                <div>
+                  <Label>UID-Nummer</Label>
+                  <Input value={invoice.uidnummer || ''} onChange={e => setInvoice(p => ({ ...p, uidnummer: e.target.value }))} placeholder="z.B. ATU12345678" className="mt-1" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="rechnungAnHI"
+                    checked={invoice.rechnungAnHI || false}
+                    onChange={e => setInvoice(p => ({ ...p, rechnungAnHI: e.target.checked }))}
+                    className="w-4 h-4 rounded"
+                  />
+                  <label htmlFor="rechnungAnHI" className="text-sm text-slate-600 cursor-pointer">RE an HI?</label>
+                </div>
+                {invoice.rechnungAnHI && (
+                  <div>
+                    <Label>UID-Nummer der Hausinhabung</Label>
+                    <Input value={invoice.uidVonHI || ''} onChange={e => setInvoice(p => ({ ...p, uidVonHI: e.target.value }))} placeholder="z.B. ATU12345678" className="mt-1" />
+                  </div>
+                )}
+              </div>
+            </Card>
+
+            <Card className="p-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">Objekt (Baustellenadresse)</h2>
+              <div className="space-y-4">
+                <div>
+                  <Label>Objektbezeichnung</Label>
+                  <Input value={invoice.objektBezeichnung || ''} onChange={e => setInvoice(p => ({ ...p, objektBezeichnung: e.target.value }))} placeholder="z.B. Hauptstraße 50, 2020 Magersdorf" className="mt-1" />
+                </div>
+                <div>
+                  <Label>Objektadresse (Straße und Nummer)</Label>
+                  <Input value={invoice.objektStrasse || ''} onChange={e => setInvoice(p => ({ ...p, objektStrasse: e.target.value }))} placeholder="Hauptstraße 50" className="mt-1" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>Objekt PLZ</Label>
+                    <Input value={invoice.objektPlz || ''} onChange={e => setInvoice(p => ({ ...p, objektPlz: e.target.value }))} placeholder="2020" className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>Objekt Ort</Label>
+                    <Input value={invoice.objektOrt || ''} onChange={e => setInvoice(p => ({ ...p, objektOrt: e.target.value }))} placeholder="Magersdorf" className="mt-1" />
+                  </div>
+                </div>
+                <div>
+                  <Label>Hausinhabung (HI)</Label>
+                  <Input value={invoice.hausinhabung || ''} onChange={e => setInvoice(p => ({ ...p, hausinhabung: e.target.value }))} placeholder="Name des Eigentümers (optional)" className="mt-1" />
+                </div>
+              </div>
+            </Card>
+          </div>
+
+          {/* Right: Rechnungsdaten */}
+          <div className="space-y-6">
+            <Card className="p-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">Rechnungsdaten</h2>
+              <div className="space-y-4">
+                <div>
+                  <Label>Rechnungstyp</Label>
+                  <Select value={invoice.rechnungstyp} onValueChange={v => setInvoice(p => ({ ...p, rechnungstyp: v ?? 'normal' }))}>
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="normal">Normal</SelectItem>
+                      <SelectItem value="teilrechnung">Teilrechnung</SelectItem>
+                      <SelectItem value="schlussrechnung">Schlussrechnung</SelectItem>
+                      <SelectItem value="storno">Storno</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {invoice.rechnungstyp === 'storno' && (
+                  <>
+                    <div>
+                      <Label>Storno von Rechnung</Label>
+                      <Input value={invoice.stornoVonRechnung || ''} onChange={e => setInvoice(p => ({ ...p, stornoVonRechnung: e.target.value }))} placeholder="RE-XXXX-XXXXX" className="mt-1" />
+                    </div>
+                    <div>
+                      <Label>Stornierungsgrund</Label>
+                      <Textarea value={invoice.stornoGrund || ''} onChange={e => setInvoice(p => ({ ...p, stornoGrund: e.target.value }))} placeholder="z.B. Retoure, Preisänderung" rows={3} className="mt-1" />
+                    </div>
+                  </>
+                )}
+
+                <div>
+                  <Label>Rechnungsdatum</Label>
+                  <Input type="date" value={invoice.datum || ''} onChange={e => setInvoice(p => ({ ...p, datum: e.target.value }))} className="mt-1" />
+                </div>
+
+                {/* Leistungszeitraum calendar picker */}
+                <div>
+                  <Label>Leistungszeitraum (Arbeitstage auswählen)</Label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" className="w-full justify-start text-left font-normal mt-1">
+                        <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+                        <span className="truncate">
+                          {selectedDates.length > 0
+                            ? formatSelectedDates(selectedDates)
+                            : <span className="text-slate-500">Tage auswählen...</span>
+                          }
+                        </span>
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="multiple"
+                        selected={selectedDates}
+                        onSelect={(dates) => {
+                          const newDates = dates || []
+                          setSelectedDates(newDates)
+                          if (newDates.length > 0) {
+                            const sorted = [...newDates].sort((a, b) => a.getTime() - b.getTime())
+                            setInvoice(prev => ({
+                              ...prev,
+                              leistungszeitraumVon: format(sorted[0], 'yyyy-MM-dd'),
+                              leistungszeitraumBis: format(sorted[sorted.length - 1], 'yyyy-MM-dd'),
+                            }))
+                          } else {
+                            setInvoice(prev => ({ ...prev, leistungszeitraumVon: '', leistungszeitraumBis: '' }))
+                          }
+                        }}
+                        initialFocus
+                      />
+                      {selectedDates.length > 0 && (
+                        <div className="p-3 border-t">
+                          <p className="text-sm font-medium text-slate-700 mb-2">Ausgewählte Tage ({selectedDates.length}):</p>
+                          <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                            {[...selectedDates].sort((a, b) => a.getTime() - b.getTime()).map((date, idx) => (
+                              <span key={idx} className="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded">
+                                {format(date, 'dd.MM.')}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                <div>
+                  <Label>Zahlungsziel (Tage)</Label>
+                  <Input
+                    type="number"
+                    value={invoice.zahlungszielTage || ''}
+                    onChange={e => setInvoice(p => ({ ...p, zahlungszielTage: parseInt(e.target.value) || 30 }))}
+                    placeholder="30"
+                    className="mt-1 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <Label>Skonto aktivieren</Label>
+                    <Switch checked={invoice.skontoAktiv || false} onCheckedChange={checked => setInvoice(p => ({ ...p, skontoAktiv: checked }))} />
+                  </div>
+                  {invoice.skontoAktiv && (
+                    <div className="grid grid-cols-2 gap-2 mt-1">
+                      <Input
+                        type="number"
+                        step="0.1"
+                        value={invoice.skontoProzent || 3}
+                        onChange={e => setInvoice(p => ({ ...p, skontoProzent: parseFloat(e.target.value) || 3 }))}
+                        placeholder="3 %"
+                      />
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          value={invoice.skontoTage || 14}
+                          onChange={e => setInvoice(p => ({ ...p, skontoTage: parseInt(e.target.value) || 14 }))}
+                          placeholder="14"
+                        />
+                        <span className="text-sm text-slate-600 whitespace-nowrap">Tage</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <Label>Fällig am</Label>
+                  <Input type="date" value={invoice.faelligAm || ''} onChange={e => setInvoice(p => ({ ...p, faelligAm: e.target.value }))} className="mt-1" />
+                </div>
+
+                <div>
+                  <Label>Erstellt durch</Label>
+                  <Select value={invoice.erstelltDurch || ''} onValueChange={v => setInvoice(p => ({ ...p, erstelltDurch: v ?? '' }))}>
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="Mitarbeiter auswählen..." /></SelectTrigger>
+                    <SelectContent>
+                      {(mitarbeiterList as any[]).map((m: any) => (
+                        <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className={invoice.vermittlerId ? 'p-3 bg-orange-50 border-2 border-orange-300 rounded-lg' : ''}>
+                  <Label>Vermittler</Label>
+                  <Select value={invoice.vermittlerId || 'none'} onValueChange={v => setInvoice(p => ({ ...p, vermittlerId: v == null || v === 'none' ? '' : v }))}>
+                    <SelectTrigger className={`mt-1 ${invoice.vermittlerId ? 'border-orange-300 bg-white' : ''}`}>
+                      <SelectValue placeholder="Vermittler auswählen (optional)..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Kein Vermittler</SelectItem>
+                      {(vermittlerList as any[]).map((v: any) => (
+                        <SelectItem key={v.id} value={v.id}>{v.name} ({v.provisionssatz || 10}%)</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedVermittler && (
+                    <p className="text-xs text-orange-700 font-medium mt-2">
+                      Vermittler-Provision: {(selectedVermittler as any).provisionssatz || 10}% wird an Vermittler gezahlt
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <Label>Status</Label>
+                  <div className="p-3 bg-blue-50 border-2 border-blue-300 rounded-lg mt-1">
+                    <Select value={invoice.status || 'entwurf'} onValueChange={(v) => { if (v) handleStatusChange(v) }}>
+                      <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="entwurf">Entwurf</SelectItem>
+                        <SelectItem value="offen">Offen</SelectItem>
+                        <SelectItem value="teilweise_bezahlt">Teilweise bezahlt</SelectItem>
+                        <SelectItem value="bezahlt">Bezahlt</SelectItem>
+                        <SelectItem value="storniert">Storniert</SelectItem>
+                        <SelectItem value="mahnung">Mahnung</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {invoice.referenzAngebotNummer && (
+                  <div>
+                    <Label>Referenz Angebot</Label>
+                    <div className="mt-1">
+                      <Link href={`/angebote/${invoice.referenzAngebotId}`} className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 hover:underline font-medium">
+                        {invoice.referenzAngebotNummer}
+                      </Link>
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <Label>Ticket-Nr.</Label>
+                  <Input value={invoice.ticketNumber || ''} onChange={e => setInvoice(p => ({ ...p, ticketNumber: e.target.value }))} placeholder="Zoho Ticketnummer" className="mt-1" />
+                </div>
+
+                {invoice.pdfUrl && (
+                  <div>
+                    <Label>PDF Link</Label>
+                    <div className="mt-1">
+                      <a href={invoice.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:text-blue-700 underline truncate block">
+                        PDF öffnen
+                      </a>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Card>
+          </div>
+        </div>
+
+        {/* Positionen */}
+        <Card className="p-6 mb-6">
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">Positionen</h2>
+          <InvoicePositionsTable positions={positions} onChange={setPositions} showTeilfaktura={showTeilfaktura} />
+        </Card>
+
+        {/* Summary + Anmerkungen in 2-col grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          <div>
+            <Card className="p-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">Anmerkungen</h2>
+              <Textarea
+                value={invoice.bemerkung || ''}
+                onChange={e => setInvoice(p => ({ ...p, bemerkung: e.target.value }))}
+                rows={6}
+                placeholder="Zahlungshinweise, Bankdaten, etc."
+                className="resize-none"
+              />
+            </Card>
+          </div>
+          <div>
+            <OfferSummary positions={positions} />
+          </div>
+        </div>
+
+        {/* PDF Preview */}
+        <Card className="p-6">
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">PDF Vorschau</h2>
+          <div className="bg-slate-100 rounded-lg flex items-center justify-center p-12 text-slate-500 text-sm">
+            <div className="text-center">
+              <p className="font-medium mb-1">PDF wird über /api/pdf/rechnung/{isNew ? '[id]' : invoiceId} generiert</p>
+              {!isNew && invoice.pdfUrl && (
+                <a href={invoice.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:text-emerald-700 underline text-sm">
+                  Gespeichertes PDF öffnen
+                </a>
+              )}
+              {!isNew && !invoice.pdfUrl && (
+                <p className="text-xs text-slate-400 mt-1">Noch kein PDF generiert — Speichern & in Zoho ablegen um PDF zu erstellen</p>
+              )}
+            </div>
+          </div>
+          {!isNew && (
+            <div className="mt-4">
+              <iframe
+                src={`/api/pdf/rechnung/${invoiceId}`}
+                className="w-full h-[600px] rounded-lg border border-slate-200"
+                title="Rechnungsvorschau"
+              />
+            </div>
+          )}
+        </Card>
+      </div>
+    </div>
+  )
+}
