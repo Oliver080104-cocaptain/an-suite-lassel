@@ -1057,7 +1057,7 @@ export default function OfferDetailPage() {
             objektAdresse={offer.objekt_adresse || offer.objekt_bezeichnung || ''}
             bruttoGesamt={totals.brutto_gesamt}
             erstelltVon={offer.erstellt_von || ''}
-            emailAn={''}
+            emailAn={offer.emailAngebot || offer.kunde_email || ''}
             onSent={() => {
               setOffer({ ...offer, status: 'versendet' })
               queryClient.invalidateQueries({ queryKey: ['offers'] })

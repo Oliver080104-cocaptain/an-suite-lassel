@@ -11,41 +11,35 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
-import { Save, Loader2, ArrowLeft, Download } from 'lucide-react'
+import { Save, Loader2, Download, Plus, Trash2, FileText } from 'lucide-react'
 import { format } from 'date-fns'
 import Link from 'next/link'
-import DeliveryNotePositionsTable from '@/components/deliveryNotes/DeliveryNotePositionsTable'
 
-interface DeliveryNotePosition {
+interface DNPosition {
   id?: string
   pos: number
-  produktId?: string
-  produktName: string
   beschreibung: string
   menge: number | string
   einheit: string
 }
 
-const defaultDeliveryNote = {
-  lieferscheinNummer: '',
-  datum: format(new Date(), 'yyyy-MM-dd'),
+const defaultDN = {
+  lieferscheinnummer: '',
+  lieferdatum: format(new Date(), 'yyyy-MM-dd'),
   status: 'entwurf',
-  kundeName: '',
-  uidnummer: '',
-  kundeStrasse: '',
-  kundePlz: '',
-  kundeOrt: '',
-  kundeAnsprechpartner: '',
-  objektBezeichnung: '',
-  erstelltDurch: '',
-  bemerkung: '',
-  ticketNumber: '',
-  ticketId: '',
-  geschaeftsfallNummer: '',
-  referenzAngebotNummer: '',
-  referenzAngebotId: '',
-  pdfUrl: '',
-  source: 'manual',
+  kunde_name: '',
+  kunde_strasse: '',
+  kunde_plz: '',
+  kunde_ort: '',
+  objekt_bezeichnung: '',
+  objekt_adresse: '',
+  erstellt_von: '',
+  ticket_nummer: '',
+  zoho_ticket_id: '',
+  notizen: '',
+  pdf_url: '',
+  angebot_id: '',
+  referenz_angebot_nummer: '',
 }
 
 export default function DeliveryNoteDetailPage() {
@@ -56,18 +50,16 @@ export default function DeliveryNoteDetailPage() {
   const isNew = rawId === 'neu'
   const deliveryNoteId = isNew ? null : rawId
 
-  const [deliveryNote, setDeliveryNote] = useState({ ...defaultDeliveryNote })
-  const [positions, setPositions] = useState<DeliveryNotePosition[]>([{
-    pos: 1, produktName: '', beschreibung: '', menge: 1, einheit: 'Stk'
-  }])
+  const [dn, setDn] = useState({ ...defaultDN })
+  const [positions, setPositions] = useState<DNPosition[]>([{ pos: 1, beschreibung: '', menge: 1, einheit: 'Stk' }])
   const [saving, setSaving] = useState(false)
   const [uploadingToZoho, setUploadingToZoho] = useState(false)
 
   const dnInitialized = useRef(false)
   const posInitialized = useRef(false)
   const autoSaveLock = useRef(false)
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Load delivery note
   const { data: existingDN, isLoading: loadingDN } = useQuery({
     queryKey: ['deliveryNote', deliveryNoteId],
     queryFn: async () => {
@@ -79,7 +71,6 @@ export default function DeliveryNoteDetailPage() {
     enabled: !!deliveryNoteId,
   })
 
-  // Load positions
   const { data: existingPositions = [] } = useQuery({
     queryKey: ['deliveryNotePositions', deliveryNoteId],
     queryFn: async () => {
@@ -91,7 +82,6 @@ export default function DeliveryNoteDetailPage() {
     enabled: !!deliveryNoteId,
   })
 
-  // Load mitarbeiter for dropdown
   const { data: mitarbeiterList = [] } = useQuery({
     queryKey: ['mitarbeiter'],
     queryFn: async () => {
@@ -101,23 +91,26 @@ export default function DeliveryNoteDetailPage() {
     staleTime: 5 * 60 * 1000,
   })
 
-  // Init from loaded data
   useEffect(() => {
     if (existingDN && !dnInitialized.current) {
-      setDeliveryNote({
-        ...defaultDeliveryNote,
-        lieferscheinNummer: (existingDN as any).lieferscheinnummer || '',
-        datum: (existingDN as any).lieferdatum || defaultDeliveryNote.datum,
-        status: (existingDN as any).status || 'offen',
-        kundeName: (existingDN as any).kunde_name || '',
-        kundeStrasse: (existingDN as any).kunde_strasse || '',
-        kundePlz: (existingDN as any).kunde_plz || '',
-        kundeOrt: (existingDN as any).kunde_ort || '',
-        objektBezeichnung: (existingDN as any).objekt_adresse || '',
-        ticketNumber: (existingDN as any).ticket_nummer || '',
-        bemerkung: (existingDN as any).notizen || '',
-        pdfUrl: (existingDN as any).pdf_url || '',
-        referenzAngebotId: (existingDN as any).angebot_id || '',
+      setDn({
+        ...defaultDN,
+        lieferscheinnummer: (existingDN as any).lieferscheinnummer || '',
+        lieferdatum: (existingDN as any).lieferdatum || defaultDN.lieferdatum,
+        status: (existingDN as any).status || 'entwurf',
+        kunde_name: (existingDN as any).kunde_name || '',
+        kunde_strasse: (existingDN as any).kunde_strasse || '',
+        kunde_plz: (existingDN as any).kunde_plz || '',
+        kunde_ort: (existingDN as any).kunde_ort || '',
+        objekt_bezeichnung: (existingDN as any).objekt_bezeichnung || '',
+        objekt_adresse: (existingDN as any).objekt_adresse || '',
+        erstellt_von: (existingDN as any).erstellt_von || '',
+        ticket_nummer: (existingDN as any).ticket_nummer || '',
+        zoho_ticket_id: (existingDN as any).zoho_ticket_id || '',
+        notizen: (existingDN as any).notizen || '',
+        pdf_url: (existingDN as any).pdf_url || '',
+        angebot_id: (existingDN as any).angebot_id || '',
+        referenz_angebot_nummer: (existingDN as any).referenz_angebot_nummer || '',
       })
       dnInitialized.current = true
     }
@@ -128,8 +121,7 @@ export default function DeliveryNoteDetailPage() {
       setPositions((existingPositions as any[]).map((p: any, i: number) => ({
         id: p.id,
         pos: i + 1,
-        produktName: p.beschreibung || '',
-        beschreibung: '',
+        beschreibung: p.beschreibung || '',
         menge: p.menge || 1,
         einheit: p.einheit || 'Stk',
       })))
@@ -137,149 +129,128 @@ export default function DeliveryNoteDetailPage() {
     }
   }, [existingPositions])
 
-  // Auto-save on visibility change
+  // Debounced autosave
+  useEffect(() => {
+    if (isNew || !deliveryNoteId || !dnInitialized.current) return
+    if (debounceTimer.current) clearTimeout(debounceTimer.current)
+    debounceTimer.current = setTimeout(() => {
+      if (!autoSaveLock.current) {
+        autoSaveLock.current = true
+        performAutoSave().finally(() => { autoSaveLock.current = false })
+      }
+    }, 2000)
+    return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current) }
+  }, [dn, positions])
+
+  // Autosave on visibility change
   useEffect(() => {
     if (isNew) return
     const handleVisibility = () => {
-      if (document.visibilityState === 'hidden' && deliveryNoteId && deliveryNote.kundeName && !autoSaveLock.current) {
+      if (document.visibilityState === 'hidden' && deliveryNoteId && dn.kunde_name && !autoSaveLock.current) {
         autoSaveLock.current = true
         performAutoSave().finally(() => { autoSaveLock.current = false })
       }
     }
     document.addEventListener('visibilitychange', handleVisibility)
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibility)
-      if (deliveryNoteId && deliveryNote.kundeName && !autoSaveLock.current) {
-        autoSaveLock.current = true
-        performAutoSave().finally(() => { autoSaveLock.current = false })
-      }
-    }
-  }, [deliveryNote, positions, isNew, deliveryNoteId])
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [dn, positions, isNew, deliveryNoteId])
 
-  const buildDNData = (dn: typeof defaultDeliveryNote) => ({
-    lieferscheinnummer: dn.lieferscheinNummer,
+  const buildDNData = () => ({
+    lieferscheinnummer: dn.lieferscheinnummer,
     status: dn.status,
-    kunde_name: dn.kundeName,
-    kunde_strasse: dn.kundeStrasse || null,
-    kunde_plz: dn.kundePlz || null,
-    kunde_ort: dn.kundeOrt || null,
-    lieferdatum: dn.datum,
-    objekt_adresse: dn.objektBezeichnung || null,
-    ticket_nummer: dn.ticketNumber || null,
-    notizen: dn.bemerkung || null,
-    pdf_url: dn.pdfUrl || null,
-    angebot_id: (dn as any).referenzAngebotId || null,
+    kunde_name: dn.kunde_name,
+    kunde_strasse: dn.kunde_strasse || null,
+    kunde_plz: dn.kunde_plz || null,
+    kunde_ort: dn.kunde_ort || null,
+    objekt_bezeichnung: dn.objekt_bezeichnung || null,
+    objekt_adresse: dn.objekt_adresse || null,
+    lieferdatum: dn.lieferdatum,
+    erstellt_von: dn.erstellt_von || null,
+    ticket_nummer: dn.ticket_nummer || null,
+    zoho_ticket_id: dn.zoho_ticket_id || null,
+    notizen: dn.notizen || null,
+    pdf_url: dn.pdf_url || null,
+    angebot_id: dn.angebot_id || null,
+    referenz_angebot_nummer: dn.referenz_angebot_nummer || null,
   })
 
-  const buildDNPosData = (p: DeliveryNotePosition, lsId: string) => ({
+  const buildPosData = (p: DNPosition, lsId: string) => ({
     lieferschein_id: lsId,
     position: p.pos,
-    beschreibung: p.produktName || p.beschreibung || '-',
+    beschreibung: p.beschreibung || '',
     menge: parseFloat(p.menge as string) || 1,
-    einheit: p.einheit,
+    einheit: p.einheit || 'Stk',
   })
 
   const performAutoSave = async () => {
-    if (!deliveryNoteId || !deliveryNote.kundeName) return
+    if (!deliveryNoteId || !dn.kunde_name) return
     try {
-      await supabase.from('lieferscheine').update(buildDNData(deliveryNote)).eq('id', deliveryNoteId)
+      await supabase.from('lieferscheine').update(buildDNData()).eq('id', deliveryNoteId)
       await savePositions(deliveryNoteId, positions, existingPositions)
     } catch (err) {
       console.error('Auto-save error:', err)
     }
   }
 
-  const generateLieferscheinNumber = async () => {
+  const savePositions = async (targetId: string, current: DNPosition[], existing: any[]) => {
+    const toDelete = existing.filter(ep => !current.find(p => p.id === ep.id))
+    const toUpdate = current.filter(p => p.id && existing.find(ep => ep.id === p.id))
+    const toCreate = current.filter(p => !p.id)
+    await Promise.all([
+      ...toDelete.map(p => supabase.from('lieferschein_positionen').delete().eq('id', p.id)),
+      ...toUpdate.map(p => supabase.from('lieferschein_positionen').update(buildPosData(p, targetId)).eq('id', p.id!)),
+    ])
+    if (toCreate.length > 0) {
+      await supabase.from('lieferschein_positionen').insert(toCreate.map(p => ({ ...buildPosData(p, targetId), id: undefined })))
+    }
+  }
+
+  const generateNumber = async () => {
     const year = new Date().getFullYear()
     const { data } = await supabase.from('lieferscheine').select('lieferscheinnummer').ilike('lieferscheinnummer', `LI-${year}%`)
     const nextNum = (data?.length || 0) + 1
     return `LI-${year}-${String(nextNum).padStart(5, '0')}`
   }
 
-  const savePositions = async (targetId: string, currentPositions: DeliveryNotePosition[], existingPosData: any[]) => {
-    const toDelete = existingPosData.filter(ep => !currentPositions.find(p => p.id === ep.id))
-    const toUpdate = currentPositions.filter(p => p.id && existingPosData.find(ep => ep.id === p.id))
-    const toCreate = currentPositions.filter(p => !p.id)
-
-    await Promise.all([
-      ...toDelete.map(p => supabase.from('lieferschein_positionen').delete().eq('id', p.id)),
-      ...toUpdate.map(p => supabase.from('lieferschein_positionen').update(buildDNPosData(p, targetId)).eq('id', p.id!)),
-    ])
-    if (toCreate.length > 0) {
-      await supabase.from('lieferschein_positionen').insert(toCreate.map(p => ({ ...buildDNPosData(p, targetId), id: undefined })))
-    }
-  }
-
-  const handleSave = async () => {
-    setSaving(true)
-    try {
-      let savedId = deliveryNoteId
-      const dnCopy = { ...deliveryNote }
-
-      if (isNew) {
-        dnCopy.lieferscheinNummer = await generateLieferscheinNumber()
-        setDeliveryNote(dnCopy)
-        const { data, error } = await supabase.from('lieferscheine').insert([buildDNData(dnCopy)]).select().single()
-        if (error) throw error
-        savedId = data.id
-        router.replace(`/lieferscheine/${savedId}`)
-      } else {
-        const { error } = await supabase.from('lieferscheine').update(buildDNData(dnCopy)).eq('id', deliveryNoteId!)
-        if (error) throw error
-      }
-
-      await savePositions(savedId!, positions, isNew ? [] : existingPositions)
-      queryClient.invalidateQueries({ queryKey: ['deliveryNotes'] })
-      queryClient.invalidateQueries({ queryKey: ['deliveryNote', savedId] })
-      toast.success('Lieferschein gespeichert')
-    } catch (err: any) {
-      toast.error('Fehler: ' + err.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleSaveAndUploadToZoho = async () => {
+  const handleSaveAndZoho = async () => {
     setSaving(true)
     setUploadingToZoho(true)
     try {
       let savedId = deliveryNoteId
-      const dnCopy = { ...deliveryNote }
+      const dnCopy = { ...dn }
 
       if (isNew) {
-        dnCopy.lieferscheinNummer = await generateLieferscheinNumber()
-        dnCopy.status = 'erstellt'
-        setDeliveryNote(dnCopy)
-        const { data, error } = await supabase.from('lieferscheine').insert([buildDNData(dnCopy)]).select().single()
+        dnCopy.lieferscheinnummer = await generateNumber()
+        setDn(dnCopy)
+        const { data, error } = await supabase.from('lieferscheine').insert([buildDNData()]).select().single()
         if (error) throw error
         savedId = data.id
         router.replace(`/lieferscheine/${savedId}`)
       } else {
-        const { error } = await supabase.from('lieferscheine').update(buildDNData(dnCopy)).eq('id', deliveryNoteId!)
+        const { error } = await supabase.from('lieferscheine').update(buildDNData()).eq('id', deliveryNoteId!)
         if (error) throw error
       }
 
       await savePositions(savedId!, positions, isNew ? [] : existingPositions)
 
-      // Trigger Zoho webhook
       await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/b15d8baa-e8ec-4d8a-aa85-0865048b9c31', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           lieferscheinId: savedId,
-          lieferscheinNummer: dnCopy.lieferscheinNummer,
+          lieferscheinNummer: dnCopy.lieferscheinnummer,
           pdfUrl: `${window.location.origin}/api/pdf/lieferschein/${savedId}`,
-          ticketId: dnCopy.ticketId,
-          ticketNumber: dnCopy.ticketNumber,
-          datum: dnCopy.datum,
+          ticketId: dnCopy.zoho_ticket_id,
+          ticketNumber: dnCopy.ticket_nummer,
+          datum: dnCopy.lieferdatum,
           status: dnCopy.status,
-          kundeName: dnCopy.kundeName,
-          objektBezeichnung: dnCopy.objektBezeichnung,
-          erstelltDurch: dnCopy.erstelltDurch,
-          referenzAngebotNummer: dnCopy.referenzAngebotNummer,
+          kundeName: dnCopy.kunde_name,
+          objektBezeichnung: dnCopy.objekt_adresse || dnCopy.objekt_bezeichnung,
+          erstelltDurch: dnCopy.erstellt_von,
+          referenzAngebotNummer: dnCopy.referenz_angebot_nummer,
           timestamp: new Date().toISOString()
         })
-      }).catch(err => console.error('Zoho webhook failed:', err))
+      }).catch(e => console.error('Zoho webhook failed:', e))
 
       queryClient.invalidateQueries({ queryKey: ['deliveryNotes'] })
       queryClient.invalidateQueries({ queryKey: ['deliveryNote', savedId] })
@@ -292,6 +263,18 @@ export default function DeliveryNoteDetailPage() {
     }
   }
 
+  const updatePosition = (i: number, field: keyof DNPosition, value: any) => {
+    setPositions(prev => prev.map((p, idx) => idx === i ? { ...p, [field]: value } : p))
+  }
+
+  const addPosition = () => {
+    setPositions(prev => [...prev, { pos: prev.length + 1, beschreibung: '', menge: 1, einheit: 'Stk' }])
+  }
+
+  const deletePosition = (i: number) => {
+    setPositions(prev => prev.filter((_, idx) => idx !== i).map((p, idx) => ({ ...p, pos: idx + 1 })))
+  }
+
   if (loadingDN) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -302,50 +285,46 @@ export default function DeliveryNoteDetailPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 sm:mb-8">
-          <div className="flex items-center gap-4">
-            <Link href="/lieferscheine">
-              <Button variant="ghost" size="sm" className="text-slate-500 hover:text-slate-900">
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Alle Lieferscheine
-              </Button>
-            </Link>
+        <div className="flex items-center gap-4 mb-8">
+          <div className="flex items-center gap-3">
+            <div className="bg-purple-50 p-3 rounded-lg">
+              <FileText className="w-8 h-8 text-purple-600" />
+            </div>
             <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
-                {isNew ? 'Neuer Lieferschein' : (deliveryNote.lieferscheinNummer || 'Lieferschein')}
-              </h1>
-              {!isNew && (
-                <span className={`inline-flex items-center mt-1 px-2.5 py-0.5 rounded-full text-xs font-medium
-                  ${deliveryNote.status === 'erstellt' ? 'bg-purple-100 text-purple-800' :
-                    deliveryNote.status === 'geliefert' ? 'bg-emerald-100 text-emerald-800' :
-                    'bg-slate-100 text-slate-600'}`}>
-                  {deliveryNote.status}
-                </span>
-              )}
+              <Link href="/lieferscheine" className="text-sm text-slate-500 hover:text-slate-700">← Alle Lieferscheine</Link>
+              <h1 className="text-3xl font-bold text-slate-900">{isNew ? 'Neuer Lieferschein' : dn.lieferscheinnummer || 'Lieferschein'}</h1>
             </div>
           </div>
-          <Button onClick={handleSaveAndUploadToZoho} disabled={saving || uploadingToZoho} className="bg-purple-600 hover:bg-purple-700 text-white">
-            {(saving || uploadingToZoho) ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
-            <span className="hidden sm:inline">Speichern & in Zoho ablegen</span>
-            <span className="sm:hidden">Speichern</span>
-          </Button>
+          <div className="ml-auto flex items-center gap-2">
+            <Button onClick={handleSaveAndZoho} disabled={saving || uploadingToZoho} className="bg-blue-600 hover:bg-blue-700">
+              {(saving || uploadingToZoho) ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+              Speichern & in Zoho ablegen
+            </Button>
+            {!isNew && (
+              <a href={`/api/pdf/lieferschein/${deliveryNoteId}`} target="_blank" rel="noopener noreferrer">
+                <Button variant="outline" className="gap-2">
+                  <Download className="h-4 w-4" />
+                  PDF herunterladen
+                </Button>
+              </a>
+            )}
+          </div>
         </div>
 
-        {/* Main 3-column grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-          {/* Left 2 cols: Empfänger + Objekt */}
-          <div className="lg:col-span-2 space-y-6">
+        {/* 2-column layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+
+          {/* Left */}
+          <div className="space-y-6">
+            {/* Empfänger */}
             <Card className="p-6">
               <div className="flex items-start justify-between mb-4">
                 <h2 className="text-lg font-semibold text-slate-900">Empfänger</h2>
-                {deliveryNote.ticketId && (
-                  <a
-                    href={`https://crm.zoho.eu/crm/org20107446748/tab/CustomModule17/${deliveryNote.ticketId}`}
-                    target="_blank" rel="noopener noreferrer"
-                    className="text-blue-600 hover:text-blue-700" title="In Zoho öffnen"
-                  >
+                {dn.zoho_ticket_id && (
+                  <a href={`https://crm.zoho.eu/crm/org20107446748/tab/CustomModule17/${dn.zoho_ticket_id}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-700" title="In Zoho öffnen">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                     </svg>
@@ -355,67 +334,54 @@ export default function DeliveryNoteDetailPage() {
               <div className="space-y-4">
                 <div>
                   <Label>Name (Hausverwaltung / Kunde)</Label>
-                  <Input value={deliveryNote.kundeName || ''} onChange={e => setDeliveryNote(p => ({ ...p, kundeName: e.target.value }))} placeholder="z.B. PAUL Vienna Office GmbH" className="mt-1" />
+                  <Input value={dn.kunde_name} onChange={e => setDn(p => ({ ...p, kunde_name: e.target.value }))} placeholder="z.B. PAUL Vienna Office GmbH" className="mt-1" />
                 </div>
                 <div>
                   <Label>Straße</Label>
-                  <Input value={deliveryNote.kundeStrasse || ''} onChange={e => setDeliveryNote(p => ({ ...p, kundeStrasse: e.target.value }))} placeholder="Straße und Hausnummer" className="mt-1" />
-                </div>
-                <div>
-                  <Label>UID-Nummer</Label>
-                  <Input value={deliveryNote.uidnummer || ''} onChange={e => setDeliveryNote(p => ({ ...p, uidnummer: e.target.value }))} placeholder="z.B. ATU12345678" className="mt-1" />
+                  <Input value={dn.kunde_strasse} onChange={e => setDn(p => ({ ...p, kunde_strasse: e.target.value }))} placeholder="Straße und Hausnummer" className="mt-1" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>PLZ</Label>
-                    <Input value={deliveryNote.kundePlz || ''} onChange={e => setDeliveryNote(p => ({ ...p, kundePlz: e.target.value }))} placeholder="PLZ" className="mt-1" />
+                    <Input value={dn.kunde_plz} onChange={e => setDn(p => ({ ...p, kunde_plz: e.target.value }))} placeholder="PLZ" className="mt-1" />
                   </div>
                   <div>
                     <Label>Ort</Label>
-                    <Input value={deliveryNote.kundeOrt || ''} onChange={e => setDeliveryNote(p => ({ ...p, kundeOrt: e.target.value }))} placeholder="Ort" className="mt-1" />
+                    <Input value={dn.kunde_ort} onChange={e => setDn(p => ({ ...p, kunde_ort: e.target.value }))} placeholder="Ort" className="mt-1" />
                   </div>
                 </div>
               </div>
             </Card>
 
+            {/* Objekt */}
             <Card className="p-6">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">Objekt (Lieferadresse)</h2>
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">Objekt (Baustellenadresse)</h2>
               <div className="space-y-4">
                 <div>
                   <Label>Objektbezeichnung</Label>
-                  <Input value={deliveryNote.objektBezeichnung || ''} onChange={e => setDeliveryNote(p => ({ ...p, objektBezeichnung: e.target.value }))} placeholder="z.B. Hauptstraße 50, 2020 Magersdorf" className="mt-1" />
+                  <Input value={dn.objekt_bezeichnung} onChange={e => setDn(p => ({ ...p, objekt_bezeichnung: e.target.value }))} placeholder="z.B. Hauptstraße 50, 2020 Magersdorf" className="mt-1" />
                 </div>
                 <div>
-                  <Label>Ansprechpartner</Label>
-                  <Input value={deliveryNote.kundeAnsprechpartner || ''} onChange={e => setDeliveryNote(p => ({ ...p, kundeAnsprechpartner: e.target.value }))} placeholder="Name des Ansprechpartners" className="mt-1" />
+                  <Label>Objektadresse (Straße und Nummer)</Label>
+                  <Input value={dn.objekt_adresse} onChange={e => setDn(p => ({ ...p, objekt_adresse: e.target.value }))} placeholder="z.B. Rauscherstraße 251" className="mt-1" />
                 </div>
               </div>
             </Card>
-
-            <Card className="p-6">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">Anmerkungen</h2>
-              <Textarea
-                value={deliveryNote.bemerkung || ''}
-                onChange={e => setDeliveryNote(p => ({ ...p, bemerkung: e.target.value }))}
-                rows={4}
-                placeholder="Weitere Hinweise zum Lieferschein..."
-                className="resize-none"
-              />
-            </Card>
           </div>
 
-          {/* Right sidebar: Lieferschein-Daten */}
+          {/* Right */}
           <div className="space-y-6">
+            {/* Lieferscheindaten */}
             <Card className="p-6">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">Lieferschein-Daten</h2>
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">Lieferscheindaten</h2>
               <div className="space-y-4">
                 <div>
                   <Label>Lieferdatum</Label>
-                  <Input type="date" value={deliveryNote.datum || ''} onChange={e => setDeliveryNote(p => ({ ...p, datum: e.target.value }))} className="mt-1" />
+                  <Input type="date" value={dn.lieferdatum} onChange={e => setDn(p => ({ ...p, lieferdatum: e.target.value }))} className="mt-1" />
                 </div>
                 <div>
                   <Label>Erstellt durch</Label>
-                  <Select value={deliveryNote.erstelltDurch || ''} onValueChange={v => setDeliveryNote(p => ({ ...p, erstelltDurch: v ?? '' }))}>
+                  <Select value={dn.erstellt_von || ''} onValueChange={v => setDn(p => ({ ...p, erstellt_von: v || '' }))}>
                     <SelectTrigger className="mt-1"><SelectValue placeholder="Mitarbeiter auswählen..." /></SelectTrigger>
                     <SelectContent>
                       {(mitarbeiterList as any[]).map((m: any) => (
@@ -426,71 +392,135 @@ export default function DeliveryNoteDetailPage() {
                 </div>
                 <div>
                   <Label>Status</Label>
-                  <Select value={deliveryNote.status || 'entwurf'} onValueChange={v => setDeliveryNote(p => ({ ...p, status: v ?? 'entwurf' }))}>
+                  <Select value={dn.status || 'entwurf'} onValueChange={v => setDn(p => ({ ...p, status: v || 'entwurf' }))}>
                     <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="entwurf">Entwurf</SelectItem>
                       <SelectItem value="erstellt">Erstellt</SelectItem>
-                      <SelectItem value="geliefert">Geliefert</SelectItem>
+                      <SelectItem value="versendet">Versendet</SelectItem>
+                      <SelectItem value="abgeschlossen">Abgeschlossen</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
                   <Label>Ticket-Nr.</Label>
-                  <Input value={deliveryNote.ticketNumber || ''} onChange={e => setDeliveryNote(p => ({ ...p, ticketNumber: e.target.value }))} placeholder="Ticket-Nummer" className="mt-1" />
+                  <Input value={dn.ticket_nummer} onChange={e => setDn(p => ({ ...p, ticket_nummer: e.target.value }))} placeholder="Ticket-Nummer" className="mt-1" />
                 </div>
-                <div>
-                  <Label>Geschäftsfallnummer</Label>
-                  <Input value={deliveryNote.geschaeftsfallNummer || ''} onChange={e => setDeliveryNote(p => ({ ...p, geschaeftsfallNummer: e.target.value }))} placeholder="Geschäftsfallnummer" className="mt-1" />
-                </div>
-                {deliveryNote.referenzAngebotNummer && (
-                  <div>
-                    <Label>Referenz Angebot</Label>
-                    <div className="mt-1">
-                      <Link href={`/angebote/${deliveryNote.referenzAngebotId}`} className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 hover:underline font-medium">
-                        {deliveryNote.referenzAngebotNummer}
-                      </Link>
-                    </div>
-                  </div>
-                )}
-                {deliveryNote.pdfUrl && (
-                  <div>
-                    <Label>PDF</Label>
-                    <div className="mt-1">
-                      <a href={deliveryNote.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:text-blue-700 underline truncate block">
-                        PDF öffnen
-                      </a>
-                    </div>
-                  </div>
-                )}
               </div>
             </Card>
+
+            {/* Verknüpfte Dokumente */}
+            {dn.angebot_id && (
+              <Card className="p-6">
+                <h2 className="text-lg font-semibold text-slate-900 mb-4">Verknüpfte Dokumente</h2>
+                <Link href={`/angebote/${dn.angebot_id}`} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-slate-50 group">
+                  <span className="text-sm font-medium text-blue-600 group-hover:underline">
+                    {dn.referenz_angebot_nummer || 'Angebot öffnen'}
+                  </span>
+                  <span className="text-xs text-slate-400">Angebot →</span>
+                </Link>
+              </Card>
+            )}
           </div>
         </div>
 
-        {/* Positionen */}
-        <Card className="p-6 mb-6">
+        {/* Positionen – ohne Preise */}
+        <Card className="p-6 mb-8">
           <h2 className="text-lg font-semibold text-slate-900 mb-4">Positionen</h2>
-          <DeliveryNotePositionsTable positions={positions} onChange={setPositions} />
+          <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  <th className="w-12 text-center p-3 text-xs font-semibold text-slate-500">Pos.</th>
+                  <th className="text-left p-3 text-xs font-semibold text-slate-500 min-w-[280px]">Beschreibung</th>
+                  <th className="w-24 text-right p-3 text-xs font-semibold text-slate-500">Menge</th>
+                  <th className="w-24 p-3 text-xs font-semibold text-slate-500">Einheit</th>
+                  <th className="w-12 p-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {positions.map((pos, i) => {
+                  const lines = (pos.beschreibung || '').split('\n')
+                  const titel = lines[0] || ''
+                  const desc = lines.slice(1).join('\n').trim()
+                  return (
+                    <tr key={i} className="border-b border-slate-100 hover:bg-slate-50 group">
+                      <td className="text-center p-3 text-slate-500 font-medium">{i + 1}</td>
+                      <td className="p-3">
+                        <Input
+                          value={titel}
+                          onChange={e => updatePosition(i, 'beschreibung', e.target.value + (desc ? '\n' + desc : ''))}
+                          placeholder="Produktname / Leistung"
+                          className="h-8 text-sm font-medium border-0 border-b border-dashed border-slate-300 rounded-none px-1 focus-visible:ring-0 bg-transparent"
+                        />
+                        <Textarea
+                          value={desc}
+                          onChange={e => updatePosition(i, 'beschreibung', titel + (e.target.value ? '\n' + e.target.value : ''))}
+                          rows={2}
+                          placeholder="Detaillierte Beschreibung..."
+                          className="mt-1 text-xs text-slate-500 border-0 border-b border-dashed border-slate-200 rounded-none px-1 resize-none focus-visible:ring-0 bg-transparent"
+                        />
+                      </td>
+                      <td className="p-3">
+                        <Input
+                          type="number"
+                          value={pos.menge}
+                          onChange={e => updatePosition(i, 'menge', e.target.value)}
+                          className="text-right h-8 border-slate-200 text-sm [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                      </td>
+                      <td className="p-3">
+                        <Input
+                          value={pos.einheit}
+                          onChange={e => updatePosition(i, 'einheit', e.target.value)}
+                          className="h-8 border-slate-200 text-sm"
+                        />
+                      </td>
+                      <td className="p-3 text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => deletePosition(i)}
+                          className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-600 h-8 w-8"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <Button variant="outline" onClick={addPosition} className="w-full mt-3 border-dashed h-10">
+            <Plus className="w-4 h-4 mr-2" />
+            Position hinzufügen
+          </Button>
         </Card>
 
-        {/* PDF Preview */}
+        {/* Anmerkungen */}
+        <Card className="p-6 mb-8">
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">Anmerkungen</h2>
+          <Textarea
+            value={dn.notizen}
+            onChange={e => setDn(p => ({ ...p, notizen: e.target.value }))}
+            rows={4}
+            placeholder="Optionale Anmerkungen zum Lieferschein..."
+          />
+        </Card>
+
+        {/* PDF Vorschau */}
         {!isNew && (
           <div className="rounded-xl border border-slate-200 bg-white shadow p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-slate-900">Lieferschein-Vorschau</h2>
-              <a href={`/api/pdf/lieferschein/${deliveryNoteId}`} target="_blank" rel="noopener noreferrer">
-                <Button variant="outline" size="sm" className="gap-2">
-                  <Download className="h-4 w-4" />
-                  PDF speichern
-                </Button>
-              </a>
             </div>
             <div className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-inner" style={{ aspectRatio: '1 / 1.414' }}>
               <iframe src={`/api/pdf/lieferschein/${deliveryNoteId}`} className="w-full h-full" title="Lieferschein-Vorschau" />
             </div>
           </div>
         )}
+
       </div>
     </div>
   )

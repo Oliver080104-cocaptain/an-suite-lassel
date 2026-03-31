@@ -145,7 +145,7 @@ export default function InvoicePositionsTable({ positions, onChange, readOnly = 
           <TableBody>
             {positions.map((pos, index) => (
               <TableRow key={index} className="group">
-                <TableCell className="text-center font-medium text-slate-500">{pos.pos}</TableCell>
+                <TableCell className="text-center font-medium text-slate-500">{index + 1}</TableCell>
                 <TableCell>
                   {readOnly ? (
                     <div>
