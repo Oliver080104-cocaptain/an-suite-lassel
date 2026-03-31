@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
-import { Save, Loader2, Send, Truck, Receipt, Car, FileText } from 'lucide-react'
+import { Save, Loader2, Send, Truck, Receipt, Car, FileText, Download, ChevronDown, Plus } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { format, addDays } from 'date-fns'
@@ -39,14 +39,13 @@ export default function OfferDetailPage() {
     kunde_ort: '',
     objekt_bezeichnung: '',
     objekt_adresse: '',
-    // UI-only fields (not saved to DB)
-    objektPlz: '',
-    objektOrt: '',
     hausinhabung: '',
+    erstellt_von: '',
+    skizzen_link: '',
+    fusszeile: '',
+    // UI-only fields (not saved to DB)
     ansprechpartner: '',
     geschaeftsfallNummer: '',
-    erstelltDurch: '',
-    Skizzen_Link: '',
     // DB fields
     ticket_nummer: '',
     zoho_ticket_id: '',
@@ -64,6 +63,7 @@ export default function OfferDetailPage() {
     einzelpreisNetto: 0, rabattProzent: 0, ustSatz: 20, gesamtNetto: 0, gesamtBrutto: 0
   }])
 
+  const [vorlagenOpen, setVorlagenOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [creatingDeliveryNote, setCreatingDeliveryNote] = useState(false)
   const [creatingInvoice, setCreatingInvoice] = useState(false)
@@ -131,6 +131,14 @@ export default function OfferDetailPage() {
     queryFn: async () => {
       const { data, error } = await supabase.from('vermittler').select('*').order('name')
       if (error) throw error
+      return data || []
+    }
+  })
+
+  const { data: vorlagenList = [] } = useQuery({
+    queryKey: ['textvorlagen'],
+    queryFn: async () => {
+      const { data } = await supabase.from('textvorlagen').select('*').order('name')
       return data || []
     }
   })
@@ -233,6 +241,10 @@ export default function OfferDetailPage() {
     kunde_ort: offerState.kunde_ort || null,
     objekt_bezeichnung: offerState.objekt_bezeichnung || null,
     objekt_adresse: offerState.objekt_adresse || null,
+    hausinhabung: offerState.hausinhabung || null,
+    erstellt_von: offerState.erstellt_von || null,
+    skizzen_link: offerState.skizzen_link || null,
+    fusszeile: offerState.fusszeile || null,
     ticket_nummer: offerState.ticket_nummer || null,
     zoho_ticket_id: offerState.zoho_ticket_id || null,
     reverse_charge: offerState.reverse_charge || false,
@@ -360,9 +372,9 @@ export default function OfferDetailPage() {
           status: savedOffer.status,
           rechnungsempfaengerName: savedOffer.kunde_name,
           objektBezeichnung: savedOffer.objekt_bezeichnung,
-          erstelltDurch: offer.erstelltDurch,
+          erstellt_von: offer.erstellt_von,
           summen: totals,
-          skizzenLink: offer.Skizzen_Link,
+          skizzenLink: offer.skizzen_link,
           timestamp: new Date().toISOString()
         })
       }).catch(console.error)
@@ -544,6 +556,14 @@ export default function OfferDetailPage() {
                   {(saving || uploadingToZoho) ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
                   Speichern & in Zoho ablegen
                 </Button>
+                {!isNew && (
+                  <a href={`/api/pdf/angebot/${offerId}`} target="_blank" rel="noopener noreferrer">
+                    <Button variant="outline" className="gap-2 w-full sm:w-auto">
+                      <Download className="h-4 w-4" />
+                      PDF herunterladen
+                    </Button>
+                  </a>
+                )}
               </div>
               {!isNew && (
                 <div className="flex flex-col sm:flex-row gap-2 w-full">
@@ -678,12 +698,15 @@ export default function OfferDetailPage() {
                 </div>
                 <div>
                   <Label>Angebot erstellt von</Label>
-                  <Select value={offer.erstelltDurch || ''} onValueChange={(value) => setOffer({ ...offer, erstelltDurch: value })}>
+                  <Select value={offer.erstellt_von || ''} onValueChange={(value) => setOffer({ ...offer, erstellt_von: value })}>
                     <SelectTrigger className="mt-1"><SelectValue placeholder="Mitarbeiter auswählen..." /></SelectTrigger>
                     <SelectContent>
                       {(mitarbeiterList as any[]).map((m: any) => (
                         <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
                       ))}
+                      {offer.erstellt_von && !(mitarbeiterList as any[]).find((m: any) => m.name === offer.erstellt_von) && (
+                        <SelectItem value={offer.erstellt_von}>{offer.erstellt_von}</SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -747,16 +770,9 @@ export default function OfferDetailPage() {
                 </div>
                 <div>
                   <Label>Skizzen Link</Label>
-                  <Input value={offer.Skizzen_Link || ''} onChange={(e) => setOffer({ ...offer, Skizzen_Link: e.target.value })} placeholder="Zoho Workdrive Link" className="mt-1" />
-                  {offer.Skizzen_Link && (
-                    <a href={offer.Skizzen_Link} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-700 underline mt-1 block">Link öffnen</a>
-                  )}
-                </div>
-                <div>
-                  <Label>PDF Link</Label>
-                  <Input value={offer.pdf_url || ''} onChange={(e) => setOffer({ ...offer, pdf_url: e.target.value })} placeholder="PDF Link (wird automatisch gesetzt)" className="mt-1" readOnly />
-                  {offer.pdf_url && (
-                    <a href={offer.pdf_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-700 underline mt-1 block">PDF öffnen</a>
+                  <Input value={offer.skizzen_link || ''} onChange={(e) => setOffer({ ...offer, skizzen_link: e.target.value })} placeholder="Zoho Workdrive Link" className="mt-1" />
+                  {offer.skizzen_link && (
+                    <a href={offer.skizzen_link} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-700 underline mt-1 block">Link öffnen</a>
                   )}
                 </div>
               </div>
@@ -804,8 +820,8 @@ export default function OfferDetailPage() {
           <OfferPositionsTable positions={positions} onChange={setPositions} />
         </Card>
 
-        {/* Anmerkungen + Steueroptionen + Zusammenfassung */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        {/* Anmerkungen + Fußzeile + Steueroptionen + Zusammenfassung */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-4">
           <Card className="p-6">
             <h2 className="text-lg font-semibold text-slate-900 mb-4">Anmerkungen zum Angebot</h2>
             <Textarea
@@ -814,9 +830,51 @@ export default function OfferDetailPage() {
               placeholder="Optionale Anmerkungen, die im Angebot angezeigt werden..."
               rows={4}
             />
-            <p className="text-xs text-slate-500 mt-2">Zeilenumbrüche werden in der PDF übernommen. Feld kann leer bleiben.</p>
+            <p className="text-xs text-slate-500 mt-2">Zeilenumbrüche werden in der PDF übernommen.</p>
           </Card>
 
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-slate-500" />
+                <h2 className="text-lg font-semibold text-slate-900">Fußzeile</h2>
+              </div>
+              <div className="relative">
+                <Button variant="outline" size="sm" onClick={() => setVorlagenOpen(!vorlagenOpen)}>
+                  Weitere Vorlagen <ChevronDown className="ml-1 h-4 w-4" />
+                </Button>
+                {vorlagenOpen && (
+                  <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-slate-200 rounded-lg shadow-lg z-50 overflow-hidden">
+                    {(vorlagenList as any[]).map((v: any) => (
+                      <button
+                        key={v.id}
+                        onClick={() => { setOffer({ ...offer, fusszeile: v.inhalt || v.text || '' }); setVorlagenOpen(false) }}
+                        className="w-full text-left px-4 py-3 hover:bg-slate-50 border-b border-slate-100 last:border-0"
+                      >
+                        <div className="font-medium text-sm">{v.name}</div>
+                        <div className="text-xs text-slate-500 truncate">{(v.inhalt || v.text || '').substring(0, 55)}</div>
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => { router.push('/einstellungen/textvorlagen'); setVorlagenOpen(false) }}
+                      className="w-full text-left px-4 py-3 flex items-center gap-2 text-sm text-slate-600 hover:bg-slate-50"
+                    >
+                      <Plus className="h-4 w-4" /> Neue Vorlage hinzufügen
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+            <Textarea
+              value={offer.fusszeile || ''}
+              onChange={(e) => setOffer({ ...offer, fusszeile: e.target.value })}
+              placeholder="Text für Angebot/Rechnung..."
+              rows={4}
+            />
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           <Card className="p-6">
             <h2 className="text-lg font-semibold text-slate-900 mb-4">Steueroptionen</h2>
             <div className="flex items-center space-x-2">

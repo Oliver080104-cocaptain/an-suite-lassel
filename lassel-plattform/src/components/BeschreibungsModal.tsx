@@ -123,11 +123,11 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
                     {(items as any[]).map((vorlage: any) => (
                       <button
                         key={vorlage.id}
-                        onClick={() => setText(text ? text + '\n' + vorlage.text : vorlage.text)}
-                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100 text-sm transition-colors"
+                        onClick={() => setText(vorlage.inhalt || vorlage.text || '')}
+                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-orange-50 hover:border-orange-200 border border-transparent text-sm transition-colors"
                       >
                         <p className="font-medium text-slate-800">{vorlage.name}</p>
-                        <p className="text-xs text-slate-500 line-clamp-2 mt-0.5">{vorlage.text}</p>
+                        <p className="text-xs text-slate-500 line-clamp-2 mt-0.5">{vorlage.inhalt || vorlage.text}</p>
                       </button>
                     ))}
                   </div>

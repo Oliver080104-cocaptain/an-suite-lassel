@@ -83,33 +83,27 @@ export async function GET(
     return new NextResponse('Angebot nicht gefunden', { status: 404 })
   }
 
-  const [posResult, firmaResult, mitarbeiterResult] = await Promise.all([
-    supabase.from('angebot_positionen').select('*').eq('angebot_id', id).order('position'),
-    supabase.from('einstellungen').select('value').eq('key', 'firma').maybeSingle(),
-    angebot.erstellt_von_id
-      ? supabase.from('mitarbeiter').select('name').eq('id', angebot.erstellt_von_id).maybeSingle()
-      : Promise.resolve({ data: null }),
-  ])
+  const posResult = await supabase.from('angebot_positionen').select('*').eq('angebot_id', id).order('position')
 
   const positionen: Record<string, unknown>[] = posResult.data || []
-  const firma: Record<string, string> = (firmaResult.data?.value as Record<string, string>) || {}
-  const erstelltVon: string = (mitarbeiterResult.data as any)?.name || ''
+  const erstelltVon: string = angebot.erstellt_von || ''
 
-  const firmaName = firma.name || 'Lassel GmbH'
-  const firmaStrasse = firma.strasse || ''
-  const firmaPlz = firma.plz || ''
-  const firmaOrt = firma.ort || ''
-  const firmaLand = firma.land || 'Österreich'
-  const firmaTelefon = firma.telefon || ''
-  const firmaEmail = firma.email || ''
-  const firmaWebsite = firma.website || ''
-  const firmaIban = firma.iban || ''
-  const firmaBic = firma.bic || ''
-  const firmaBank = firma.bank || ''
-  const firmaUstId = firma.uid || ''
-  const firmaSteuernummer = firma.steuernummer || ''
-  const firmaAmtsgericht = firma.amtsgericht || ''
-  const firmaGF = firma.geschaeftsfuehrung || ''
+  // Firmendaten (hardcoded Lassel GmbH)
+  const firmaName = 'Lassel GmbH'
+  const firmaStrasse = 'Hetzmannsdorf 25'
+  const firmaPlz = '2041'
+  const firmaOrt = 'Wullersdorf'
+  const firmaLand = 'Österreich'
+  const firmaTelefon = '+436608060050'
+  const firmaEmail = 'office@hoehenarbeiten-lassel.at'
+  const firmaWebsite = 'www.hoehenarbeiten-lassel.at'
+  const firmaIban = 'AT454300048406028000'
+  const firmaBic = 'VBOEATWWXXX'
+  const firmaBank = 'Volksbank'
+  const firmaUstId = 'ATU78127607'
+  const firmaSteuernummer = '22375/5414'
+  const firmaAmtsgericht = 'Korneuburg'
+  const firmaGF = 'Reinhard Lassel'
 
   const posRows = positionen.map((p, i) => {
     const lines = (p.beschreibung as string || '').split('\n')
@@ -199,10 +193,11 @@ export async function GET(
 
   ${angebot.notizen ? `<div class="notizen-block">${esc(angebot.notizen)}</div>` : ''}
 
+  ${angebot.fusszeile ? `<div class="abschlusstext" style="white-space:pre-wrap">${esc(angebot.fusszeile)}</div>` : `
   <div class="abschlusstext">
     Für Rückfragen stehen wir Ihnen jederzeit gerne zur Verfügung.<br>
     Wir bedanken uns sehr für Ihr Vertrauen.
-  </div>
+  </div>`}
 
   <div class="abschlusstext">
     <strong>Mit freundlichen Grüßen</strong><br><br>
@@ -210,17 +205,9 @@ export async function GET(
   </div>
 
   <div class="footer">
-    ${esc(firmaName)} _ ${esc(firmaStrasse)} _ ${esc(firmaPlz)} ${esc(firmaOrt)} _ ${esc(firmaLand)}
-    ${firmaTelefon ? `&nbsp;&nbsp;TEL. ${esc(firmaTelefon)}` : ''}
-    ${firmaEmail ? `&nbsp;&nbsp;E-MAIL ${esc(firmaEmail)}` : ''}<br>
-    ${firmaWebsite ? `WEB ${esc(firmaWebsite)} &nbsp;` : ''}
-    ${firmaAmtsgericht ? `AMTSGERICHT ${esc(firmaAmtsgericht)} &nbsp;` : ''}
-    ${firmaUstId ? `UST.-ID ${esc(firmaUstId)} &nbsp;` : ''}
-    ${firmaSteuernummer ? `STEUER-NR. ${esc(firmaSteuernummer)}` : ''}<br>
-    ${firmaGF ? `GESCHÄFTSFÜHRUNG ${esc(firmaGF)} &nbsp;` : ''}
-    ${firmaBank ? `BANK ${esc(firmaBank)} &nbsp;` : ''}
-    ${firmaIban ? `IBAN ${esc(firmaIban)} &nbsp;` : ''}
-    ${firmaBic ? `BIC ${esc(firmaBic)}` : ''}
+    ${esc(firmaName)} _ ${esc(firmaStrasse)} _ ${esc(firmaPlz)} ${esc(firmaOrt)} _ ${esc(firmaLand)} &nbsp;&nbsp;TEL. ${esc(firmaTelefon)} &nbsp;&nbsp;E-MAIL ${esc(firmaEmail)}<br>
+    WEB ${esc(firmaWebsite)} &nbsp;&nbsp;AMTSGERICHT ${esc(firmaAmtsgericht)} &nbsp;&nbsp;UST.-ID ${esc(firmaUstId)} &nbsp;&nbsp;STEUER-NR. ${esc(firmaSteuernummer)}<br>
+    GESCHÄFTSFÜHRUNG ${esc(firmaGF)} &nbsp;&nbsp;BANK ${esc(firmaBank)} &nbsp;&nbsp;BLZ 43000 &nbsp;&nbsp;IBAN ${esc(firmaIban)} &nbsp;&nbsp;BIC ${esc(firmaBic)}
   </div>
 
 </div>
