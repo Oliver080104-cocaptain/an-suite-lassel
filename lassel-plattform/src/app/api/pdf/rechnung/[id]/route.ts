@@ -86,6 +86,31 @@ export async function GET(
   const positionen: any[] = posResult.data || []
   const erstelltVon = rechnung.erstellt_von || ''
 
+  // Empfänger bestimmen: Hausinhabung oder direkter Kunde
+  const rechnungAnHI = rechnung.rechnungAnHI || false
+  let empfaengerName = ''
+  let empfaengerAdresseHtml = ''
+  let empfaengerUID = ''
+
+  if (rechnungAnHI && rechnung.hausinhabung) {
+    empfaengerName = rechnung.hausinhabung
+    const hvName = rechnung.hausverwaltungName ? `p.A. ${esc(rechnung.hausverwaltungName)}<br>` : ''
+    const hvStr = rechnung.hausverwaltungStrasse ? `${esc(rechnung.hausverwaltungStrasse)}<br>` : ''
+    const hvPlzOrt = (rechnung.hausverwaltungPlz || rechnung.hausverwaltungOrt)
+      ? `${esc(rechnung.hausverwaltungPlz || '')} ${esc(rechnung.hausverwaltungOrt || '')}<br>`
+      : ''
+    empfaengerAdresseHtml = `${hvName}${hvStr}${hvPlzOrt}Österreich`
+    empfaengerUID = rechnung.uidVonHI || ''
+  } else {
+    empfaengerName = rechnung.kunde_name || ''
+    const str = rechnung.kunde_strasse ? `${esc(rechnung.kunde_strasse)}<br>` : ''
+    const plzOrt = (rechnung.kunde_plz || rechnung.kunde_ort)
+      ? `${esc(rechnung.kunde_plz || '')} ${esc(rechnung.kunde_ort || '')}<br>`
+      : ''
+    empfaengerAdresseHtml = `${str}${plzOrt}Österreich`
+    empfaengerUID = rechnung.kunde_uid || ''
+  }
+
   const posRows = positionen.map((p, i) => {
     const lines = (p.beschreibung as string || '').split('\n')
     const titel = esc(lines[0] || '')
@@ -121,11 +146,9 @@ export async function GET(
     <div class="header-left">
       <div class="sender-line">Lassel GmbH - Hetzmannsdorf 25 - 2041 Wullersdorf</div>
       <div class="customer-address">
-        <div class="customer-name">${esc(rechnung.kunde_name)}</div>
-        ${rechnung.kunde_strasse ? `<div>${esc(rechnung.kunde_strasse)}</div>` : ''}
-        ${(rechnung.kunde_plz || rechnung.kunde_ort) ? `<div>${esc(rechnung.kunde_plz || '')} ${esc(rechnung.kunde_ort || '')}</div>` : ''}
-        <div>Österreich</div>
-        ${rechnung.kunde_uid ? `<div>${esc(rechnung.kunde_uid)}</div>` : ''}
+        <div class="customer-name">${esc(empfaengerName)}</div>
+        <div>${empfaengerAdresseHtml}</div>
+        ${empfaengerUID ? `<div>UID: ${esc(empfaengerUID)}</div>` : ''}
       </div>
     </div>
     <div class="header-right">

@@ -102,7 +102,14 @@ export async function POST(req: NextRequest) {
         zoho_ticket_id: ticketId || null,
         notizen: rechnung?.bemerkung || null,
         erstellt_von: rechnung?.erstelltDurch || null,
+        rechnungAnHI: kunde?.rechnungAnHI || false,
         hausinhabung: meta?.zoho?.hausinhabung || null,
+        hausverwaltungName: meta?.zoho?.hausverwaltungName || null,
+        hausverwaltungStrasse: meta?.zoho?.hausverwaltungStrasse || null,
+        hausverwaltungPlz: meta?.zoho?.hausverwaltungPlz || null,
+        hausverwaltungOrt: meta?.zoho?.hausverwaltungOrt || null,
+        uidVonHI: kunde?.uidVonHI || null,
+        kunde_uid: kunde?.uid || null,
         rechnungsdatum: rechnung?.datum || new Date().toISOString().split('T')[0],
         faellig_bis: rechnung?.zahlungszielTage
           ? new Date(Date.now() + (parseInt(rechnung.zahlungszielTage) || 30) * 86400000).toISOString().split('T')[0]
