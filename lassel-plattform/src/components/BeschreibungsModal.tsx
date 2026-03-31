@@ -96,42 +96,51 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[96vw] w-[96vw] h-[90vh] max-h-[90vh] p-0 overflow-hidden flex flex-col">
-        <DialogHeader className="px-8 pt-6 pb-4 border-b flex-shrink-0">
-          <DialogTitle className="text-xl">{title || 'Beschreibung bearbeiten'}</DialogTitle>
+      <DialogContent
+        className="p-0 overflow-hidden flex flex-col"
+        style={{ width: '98vw', maxWidth: '98vw', height: '92vh', maxHeight: '92vh' }}
+      >
+        {/* Header */}
+        <DialogHeader className="px-6 pt-5 pb-4 border-b flex-shrink-0">
+          <DialogTitle className="text-lg font-semibold">{title || 'Beschreibung bearbeiten'}</DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 grid grid-cols-2 gap-0 overflow-hidden">
+        {/* Body: 2 columns */}
+        <div className="flex-1 flex overflow-hidden min-h-0">
 
-          {/* LINKS: Beschreibungstext + Vorlagen */}
-          <div className="flex flex-col p-6 border-r overflow-hidden">
+          {/* LEFT: Beschreibungstext */}
+          <div className="flex flex-col p-6 border-r overflow-hidden" style={{ width: '50%', minWidth: 0 }}>
+            {/* Label row */}
             <div className="flex items-center justify-between mb-3 flex-shrink-0">
-              <label className="font-medium text-sm">Beschreibungstext</label>
+              <span className="text-sm font-semibold text-slate-800">Beschreibungstext</span>
               <button
                 onClick={() => router.push('/einstellungen/textvorlagen')}
-                className="text-xs text-blue-600 hover:underline"
+                className="text-xs text-blue-600 hover:underline whitespace-nowrap ml-2"
               >
                 Vorlagen verwalten
               </button>
             </div>
 
+            {/* Textarea nimmt restliche Höhe */}
             <Textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
-              className="flex-1 resize-none font-mono text-sm leading-relaxed min-h-0"
+              className="font-mono text-sm leading-relaxed resize-none"
+              style={{ flex: '1 1 0', minHeight: 0 }}
               placeholder="Beschreibungstext eingeben..."
             />
 
+            {/* Schnellvorlagen */}
             <div className="mt-4 flex-shrink-0">
-              <p className="text-xs font-medium text-gray-500 mb-2">Schnellvorlagen:</p>
-              <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Schnellvorlagen</p>
+              <div className="flex flex-wrap gap-2" style={{ maxHeight: '120px', overflowY: 'auto' }}>
                 {(vorlagen as any[]).length === 0 ? (
                   <p className="text-xs text-slate-400">Keine Vorlagen vorhanden</p>
                 ) : (vorlagen as any[]).map((v: any) => (
                   <button
                     key={v.id}
                     onClick={() => setText(v.inhalt || v.text || '')}
-                    className="text-xs px-3 py-1.5 rounded-full border hover:bg-orange-50 hover:border-orange-300 transition-colors text-left"
+                    className="text-xs px-3 py-1.5 rounded-full border border-slate-200 hover:bg-orange-50 hover:border-orange-300 transition-colors whitespace-nowrap"
                   >
                     {v.name}
                   </button>
@@ -140,29 +149,30 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
             </div>
           </div>
 
-          {/* RECHTS: KI-Kalkulator */}
-          <div className="flex flex-col p-6 bg-gray-50 overflow-y-auto">
-            <div className="flex items-center gap-2 mb-4 flex-shrink-0">
-              <div className="bg-[#E85A1B] rounded-lg p-1.5">
+          {/* RIGHT: KI-Kalkulator */}
+          <div className="flex flex-col p-6 bg-slate-50 overflow-y-auto" style={{ width: '50%', minWidth: 0 }}>
+            {/* Header */}
+            <div className="flex items-center gap-2 mb-5 flex-shrink-0">
+              <div className="bg-[#E85A1B] rounded-lg p-1.5 flex-shrink-0">
                 <Sparkles className="h-4 w-4 text-white" />
               </div>
-              <span className="font-semibold">KI-Kalkulator</span>
+              <span className="font-semibold text-slate-900">KI-Kalkulator</span>
             </div>
 
-            {/* Eingabe */}
-            <div className="bg-white rounded-xl border p-4 mb-4 flex-shrink-0">
-              <label className="text-sm font-medium mb-2 block">
+            {/* Eingabe-Box */}
+            <div className="bg-white rounded-xl border border-slate-200 p-5 mb-5 flex-shrink-0">
+              <p className="text-sm font-medium text-slate-700 mb-3">
                 Beschreibe die Arbeit (Sprache oder Text):
-              </label>
+              </p>
               <Textarea
                 value={kiInput}
                 onChange={(e) => setKiInput(e.target.value)}
                 placeholder='z.B. "Taubenabwehr 50m² Netz, 30lfm Spitzen, Anfahrt 15km, 2 Mitarbeiter 3 Stunden"'
-                rows={3}
-                className="text-sm mb-3 resize-none"
+                rows={4}
+                className="text-sm resize-none w-full mb-3"
                 onKeyDown={(e) => { if (e.key === 'Enter' && e.ctrlKey) handleKiKalkulation() }}
               />
-              <div className="flex gap-2">
+              <div className="flex gap-3">
                 <Button
                   variant={isRecording ? 'destructive' : 'outline'}
                   size="sm"
@@ -171,12 +181,12 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
                 >
                   {isRecording ? (
                     <>
-                      <div className="h-2 w-2 rounded-full bg-white animate-pulse" />
+                      <div className="h-2 w-2 rounded-full bg-white animate-pulse flex-shrink-0" />
                       Aufnahme läuft...
                     </>
                   ) : (
                     <>
-                      <Mic className="h-4 w-4" />
+                      <Mic className="h-4 w-4 flex-shrink-0" />
                       Einsprechen
                     </>
                   )}
@@ -188,56 +198,54 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
                   size="sm"
                 >
                   {kiLoading ? (
-                    <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin flex-shrink-0" />
                   ) : (
-                    <Calculator className="h-4 w-4" />
+                    <Calculator className="h-4 w-4 flex-shrink-0" />
                   )}
                   Berechnen
                 </Button>
               </div>
-              <p className="text-xs text-gray-400 mt-2">
-                Strg+Enter zum Berechnen · Spricht Deutsch (Österreich)
-              </p>
+              <p className="text-xs text-slate-400 mt-2">Strg+Enter zum Berechnen · Spricht Deutsch (Österreich)</p>
             </div>
 
             {/* Kalkulations-Ergebnis */}
             {kalkulation && (
-              <div className="bg-white rounded-xl border overflow-hidden flex-shrink-0">
+              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden flex-shrink-0">
                 <div className="bg-[#E85A1B] text-white px-4 py-3 flex items-center gap-2">
-                  <Calculator className="h-4 w-4" />
+                  <Calculator className="h-4 w-4 flex-shrink-0" />
                   <span className="font-semibold text-sm">Kalkulation</span>
                 </div>
                 <div className="p-4">
                   <table className="w-full text-sm mb-3">
                     <thead>
                       <tr className="border-b">
-                        <th className="text-left py-1 text-gray-500 font-medium text-xs">Position</th>
-                        <th className="text-right py-1 text-gray-500 font-medium text-xs">Menge</th>
-                        <th className="text-right py-1 text-gray-500 font-medium text-xs">€/Einh.</th>
-                        <th className="text-right py-1 text-gray-500 font-medium text-xs">Gesamt</th>
+                        <th className="text-left py-1.5 text-xs text-slate-500 font-medium">Position</th>
+                        <th className="text-right py-1.5 text-xs text-slate-500 font-medium">Menge</th>
+                        <th className="text-right py-1.5 text-xs text-slate-500 font-medium">€/Einh.</th>
+                        <th className="text-right py-1.5 text-xs text-slate-500 font-medium">Gesamt</th>
                       </tr>
                     </thead>
                     <tbody>
                       {kalkulation.positionen.map((p, i) => (
                         <tr key={i} className="border-b last:border-0">
-                          <td className="py-2 text-gray-700 text-xs">{p.bezeichnung}</td>
-                          <td className="py-2 text-right text-gray-600 text-xs">{p.menge} {p.einheit}</td>
-                          <td className="py-2 text-right text-gray-600 text-xs">{p.einzelpreis.toFixed(2)} €</td>
-                          <td className="py-2 text-right font-medium text-xs">{p.gesamt.toFixed(2)} €</td>
+                          <td className="py-2 text-xs text-slate-700">{p.bezeichnung}</td>
+                          <td className="py-2 text-right text-xs text-slate-600 whitespace-nowrap">{p.menge} {p.einheit}</td>
+                          <td className="py-2 text-right text-xs text-slate-600 whitespace-nowrap">{p.einzelpreis.toFixed(2)} €</td>
+                          <td className="py-2 text-right text-xs font-semibold whitespace-nowrap">{p.gesamt.toFixed(2)} €</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
 
                   <div className="border-t pt-3 flex justify-between items-center">
-                    <span className="font-semibold text-sm">Gesamt Netto:</span>
-                    <span className="text-xl font-bold text-[#E85A1B]">
+                    <span className="font-semibold text-sm text-slate-800">Gesamt Netto:</span>
+                    <span className="text-2xl font-bold text-[#E85A1B]">
                       {kalkulation.gesamtNetto.toFixed(2)} €
                     </span>
                   </div>
 
                   {kalkulation.aufschluesselung && (
-                    <p className="text-xs text-gray-500 mt-2 bg-gray-50 p-2 rounded leading-relaxed">
+                    <p className="text-xs text-slate-500 mt-3 bg-slate-50 p-3 rounded-lg leading-relaxed">
                       {kalkulation.aufschluesselung}
                     </p>
                   )}
@@ -248,7 +256,7 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
                         onPriceUpdate(kalkulation.gesamtNetto)
                         toast.success(`Preis übernommen: ${kalkulation.gesamtNetto.toFixed(2)} € netto`)
                       }}
-                      className="w-full mt-3 bg-green-600 hover:bg-green-700 gap-2"
+                      className="w-full mt-4 bg-green-600 hover:bg-green-700 gap-2"
                       size="sm"
                     >
                       <Check className="h-4 w-4" />
@@ -262,9 +270,9 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
         </div>
 
         {/* Footer */}
-        <div className="border-t px-8 py-4 flex justify-end gap-3 flex-shrink-0 bg-white">
+        <div className="border-t px-6 py-4 flex justify-end gap-3 flex-shrink-0 bg-white">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Abbrechen</Button>
-          <Button onClick={handleSave} className="bg-[#E85A1B] hover:bg-[#c94d17] text-white px-8">
+          <Button onClick={handleSave} className="bg-[#E85A1B] hover:bg-[#c94d17] text-white px-10">
             Übernehmen
           </Button>
         </div>
