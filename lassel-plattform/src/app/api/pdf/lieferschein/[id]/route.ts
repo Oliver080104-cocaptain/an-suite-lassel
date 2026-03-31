@@ -160,5 +160,8 @@ export async function GET(
 </body>
 </html>`
 
+  // Persist PDF URL
+  supabase.from('lieferscheine').update({ pdf_url: `${APP_URL}/api/pdf/lieferschein/${id}` }).eq('id', id).then(() => {})
+
   return new NextResponse(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
 }

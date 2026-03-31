@@ -510,7 +510,10 @@ export default function InvoiceDetailPage() {
 
       const stornoDbData = {
         rechnungsnummer: stornoNummer,
+        rechnungstyp: 'storno',
         status: 'entwurf',
+        storno_von_rechnung_id: invoiceId,
+        storno_grund: cancelReason,
         kunde_name: invoice.kundeName,
         kunde_strasse: invoice.kundeStrasse || null,
         kunde_plz: invoice.kundePlz || null,
@@ -529,8 +532,12 @@ export default function InvoiceDetailPage() {
       const { data: stornoData, error } = await supabase.from('rechnungen').insert([stornoDbData]).select().single()
       if (error) throw error
 
-      await supabase.from('rechnung_positionen').insert(stornoPositions.map(p => ({ ...p, rechnung_id: stornoData.id })))
+      await Promise.all([
+        supabase.from('rechnung_positionen').insert(stornoPositions.map(p => ({ ...p, rechnung_id: stornoData.id }))),
+        supabase.from('rechnungen').update({ status: 'storniert' }).eq('id', invoiceId),
+      ])
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      queryClient.invalidateQueries({ queryKey: ['invoice', invoiceId] })
       toast.success('Storno-Rechnung erstellt')
       setCancelDialogOpen(false)
       router.push(`/rechnungen/${stornoData.id}`)
