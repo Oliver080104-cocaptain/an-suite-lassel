@@ -863,7 +863,7 @@ export default function OfferDetailPage() {
         {/* Positionen */}
         <Card className="p-6 mb-8">
           <h2 className="text-lg font-semibold text-slate-900 mb-4">Positionen</h2>
-          <OfferPositionsTable positions={positions} onChange={setPositions} />
+          <OfferPositionsTable positions={positions} onChange={setPositions} objektAdresse={offer.objekt_adresse || offer.objekt_bezeichnung || ''} />
         </Card>
 
         {/* Anmerkungen + Steueroptionen + Zusammenfassung */}

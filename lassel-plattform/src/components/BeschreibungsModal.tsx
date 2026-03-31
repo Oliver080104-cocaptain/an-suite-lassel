@@ -4,12 +4,11 @@ import React, { useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Input } from '@/components/ui/input'
-import { Switch } from '@/components/ui/switch'
 import { supabase } from '@/lib/supabase'
 import { useQuery } from '@tanstack/react-query'
-import Link from 'next/link'
-import { Loader2, Wand2 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { Sparkles, Mic, Calculator, Check } from 'lucide-react'
+import { toast } from 'sonner'
 
 interface Props {
   open: boolean
@@ -17,16 +16,28 @@ interface Props {
   value: string
   onSave: (text: string) => void
   title?: string
+  onPriceUpdate?: (preis: number) => void
+  objektAdresse?: string
 }
 
-export default function BeschreibungsModal({ open, onOpenChange, value, onSave, title }: Props) {
+export default function BeschreibungsModal({ open, onOpenChange, value, onSave, title, onPriceUpdate, objektAdresse }: Props) {
+  const router = useRouter()
   const [text, setText] = useState(value)
-  const [aiPrompt, setAiPrompt] = useState('')
-  const [generating, setGenerating] = useState(false)
-  const [aiEnabled, setAiEnabled] = useState(false)
+  const [kiInput, setKiInput] = useState('')
+  const [isRecording, setIsRecording] = useState(false)
+  const [kalkulation, setKalkulation] = useState<{
+    positionen: { bezeichnung: string; menge: number; einheit: string; einzelpreis: number; gesamt: number }[]
+    gesamtNetto: number
+    aufschluesselung: string
+  } | null>(null)
+  const [kiLoading, setKiLoading] = useState(false)
 
   React.useEffect(() => {
-    if (open) setText(value)
+    if (open) {
+      setText(value)
+      setKiInput('')
+      setKalkulation(null)
+    }
   }, [open, value])
 
   const { data: vorlagen = [] } = useQuery({
@@ -43,101 +54,219 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
     onOpenChange(false)
   }
 
-  const handleGenerate = async () => {
-    if (!aiPrompt.trim()) return
-    setGenerating(true)
+  function startRecording() {
+    if (!('webkitSpeechRecognition' in window)) {
+      alert('Spracheingabe nur in Chrome verfügbar')
+      return
+    }
+    const recognition = new (window as any).webkitSpeechRecognition()
+    recognition.lang = 'de-AT'
+    recognition.continuous = false
+    recognition.interimResults = false
+    recognition.onstart = () => setIsRecording(true)
+    recognition.onend = () => setIsRecording(false)
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript
+      setKiInput(transcript)
+      handleKiKalkulation(transcript)
+    }
+    recognition.onerror = () => setIsRecording(false)
+    recognition.start()
+  }
+
+  async function handleKiKalkulation(input?: string) {
+    const eingabe = input || kiInput
+    if (!eingabe.trim()) return
+    setKiLoading(true)
     try {
-      const response = await fetch('/api/ai/generate-description', {
+      const res = await fetch('/api/ki/kalkulation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: aiPrompt, existingText: text })
+        body: JSON.stringify({ eingabe, objektAdresse }),
       })
-      if (response.ok) {
-        const data = await response.json()
-        setText(data.text || text)
-      }
-    } catch (error) {
-      console.error('AI generation error:', error)
+      const data = await res.json()
+      if (data.kalkulation) setKalkulation(data.kalkulation)
+      if (data.beschreibungstext) setText(data.beschreibungstext)
+    } catch (err) {
+      console.error('Kalkulation error:', err)
     } finally {
-      setGenerating(false)
+      setKiLoading(false)
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[92vw] w-[92vw] h-[88vh] max-h-[88vh] p-6 overflow-hidden flex flex-col">
-        <DialogHeader className="flex-shrink-0">
-          <DialogTitle>{title || 'Beschreibung bearbeiten'}</DialogTitle>
+      <DialogContent className="max-w-[96vw] w-[96vw] h-[90vh] max-h-[90vh] p-0 overflow-hidden flex flex-col">
+        <DialogHeader className="px-8 pt-6 pb-4 border-b flex-shrink-0">
+          <DialogTitle className="text-xl">{title || 'Beschreibung bearbeiten'}</DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 grid grid-cols-2 gap-6 overflow-hidden mt-4">
-          {/* Links: Textarea – nimmt volle Höhe ein */}
-          <div className="flex flex-col overflow-hidden">
-            <label className="text-sm font-medium mb-2">Beschreibungstext</label>
+        <div className="flex-1 grid grid-cols-2 gap-0 overflow-hidden">
+
+          {/* LINKS: Beschreibungstext + Vorlagen */}
+          <div className="flex flex-col p-6 border-r overflow-hidden">
+            <div className="flex items-center justify-between mb-3 flex-shrink-0">
+              <label className="font-medium text-sm">Beschreibungstext</label>
+              <button
+                onClick={() => router.push('/einstellungen/textvorlagen')}
+                className="text-xs text-blue-600 hover:underline"
+              >
+                Vorlagen verwalten
+              </button>
+            </div>
+
             <Textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
-              className="flex-1 resize-none font-mono text-sm leading-relaxed"
+              className="flex-1 resize-none font-mono text-sm leading-relaxed min-h-0"
               placeholder="Beschreibungstext eingeben..."
             />
-          </div>
 
-          {/* Rechts: Schnellvorlagen scrollbar */}
-          <div className="flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between mb-2 flex-shrink-0">
-              <label className="text-sm font-medium">Schnellvorlagen</label>
-              <Link href="/einstellungen/textvorlagen" className="text-xs text-blue-600 hover:underline">
-                Verwalten
-              </Link>
-            </div>
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-              {vorlagen.length === 0 ? (
-                <p className="text-sm text-slate-400 text-center mt-8">Keine Vorlagen vorhanden</p>
-              ) : (vorlagen as any[]).map((v: any) => (
-                <button
-                  key={v.id}
-                  onClick={() => setText(v.inhalt || v.text || '')}
-                  className="w-full text-left p-3 rounded-lg border border-gray-200 hover:bg-orange-50 hover:border-orange-300 transition-colors"
-                >
-                  <div className="font-medium text-sm text-gray-900">{v.name}</div>
-                  <div className="text-xs text-gray-500 mt-1 line-clamp-2">{v.inhalt || v.text}</div>
-                </button>
-              ))}
+            <div className="mt-4 flex-shrink-0">
+              <p className="text-xs font-medium text-gray-500 mb-2">Schnellvorlagen:</p>
+              <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+                {(vorlagen as any[]).length === 0 ? (
+                  <p className="text-xs text-slate-400">Keine Vorlagen vorhanden</p>
+                ) : (vorlagen as any[]).map((v: any) => (
+                  <button
+                    key={v.id}
+                    onClick={() => setText(v.inhalt || v.text || '')}
+                    className="text-xs px-3 py-1.5 rounded-full border hover:bg-orange-50 hover:border-orange-300 transition-colors text-left"
+                  >
+                    {v.name}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* KI-Assistent + Übernehmen */}
-        <div className="flex items-center justify-between mt-4 flex-shrink-0 pt-3 border-t">
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-slate-500">KI-Assistent</span>
-            <Switch checked={aiEnabled} onCheckedChange={setAiEnabled} />
-            {aiEnabled && (
-              <div className="flex items-center gap-2">
-                <Input
-                  value={aiPrompt}
-                  onChange={(e) => setAiPrompt(e.target.value)}
-                  placeholder="Was soll generiert werden?"
-                  className="w-64 h-8 text-sm"
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleGenerate() }}
-                />
+          {/* RECHTS: KI-Kalkulator */}
+          <div className="flex flex-col p-6 bg-gray-50 overflow-y-auto">
+            <div className="flex items-center gap-2 mb-4 flex-shrink-0">
+              <div className="bg-[#E85A1B] rounded-lg p-1.5">
+                <Sparkles className="h-4 w-4 text-white" />
+              </div>
+              <span className="font-semibold">KI-Kalkulator</span>
+            </div>
+
+            {/* Eingabe */}
+            <div className="bg-white rounded-xl border p-4 mb-4 flex-shrink-0">
+              <label className="text-sm font-medium mb-2 block">
+                Beschreibe die Arbeit (Sprache oder Text):
+              </label>
+              <Textarea
+                value={kiInput}
+                onChange={(e) => setKiInput(e.target.value)}
+                placeholder='z.B. "Taubenabwehr 50m² Netz, 30lfm Spitzen, Anfahrt 15km, 2 Mitarbeiter 3 Stunden"'
+                rows={3}
+                className="text-sm mb-3 resize-none"
+                onKeyDown={(e) => { if (e.key === 'Enter' && e.ctrlKey) handleKiKalkulation() }}
+              />
+              <div className="flex gap-2">
                 <Button
-                  variant="ghost"
+                  variant={isRecording ? 'destructive' : 'outline'}
                   size="sm"
-                  onClick={handleGenerate}
-                  disabled={generating || !aiPrompt.trim()}
+                  onClick={startRecording}
+                  className="gap-2 flex-1"
                 >
-                  {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                  {isRecording ? (
+                    <>
+                      <div className="h-2 w-2 rounded-full bg-white animate-pulse" />
+                      Aufnahme läuft...
+                    </>
+                  ) : (
+                    <>
+                      <Mic className="h-4 w-4" />
+                      Einsprechen
+                    </>
+                  )}
                 </Button>
+                <Button
+                  onClick={() => handleKiKalkulation()}
+                  disabled={kiLoading || !kiInput.trim()}
+                  className="bg-[#E85A1B] hover:bg-[#c94d17] gap-2 flex-1"
+                  size="sm"
+                >
+                  {kiLoading ? (
+                    <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Calculator className="h-4 w-4" />
+                  )}
+                  Berechnen
+                </Button>
+              </div>
+              <p className="text-xs text-gray-400 mt-2">
+                Strg+Enter zum Berechnen · Spricht Deutsch (Österreich)
+              </p>
+            </div>
+
+            {/* Kalkulations-Ergebnis */}
+            {kalkulation && (
+              <div className="bg-white rounded-xl border overflow-hidden flex-shrink-0">
+                <div className="bg-[#E85A1B] text-white px-4 py-3 flex items-center gap-2">
+                  <Calculator className="h-4 w-4" />
+                  <span className="font-semibold text-sm">Kalkulation</span>
+                </div>
+                <div className="p-4">
+                  <table className="w-full text-sm mb-3">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-1 text-gray-500 font-medium text-xs">Position</th>
+                        <th className="text-right py-1 text-gray-500 font-medium text-xs">Menge</th>
+                        <th className="text-right py-1 text-gray-500 font-medium text-xs">€/Einh.</th>
+                        <th className="text-right py-1 text-gray-500 font-medium text-xs">Gesamt</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {kalkulation.positionen.map((p, i) => (
+                        <tr key={i} className="border-b last:border-0">
+                          <td className="py-2 text-gray-700 text-xs">{p.bezeichnung}</td>
+                          <td className="py-2 text-right text-gray-600 text-xs">{p.menge} {p.einheit}</td>
+                          <td className="py-2 text-right text-gray-600 text-xs">{p.einzelpreis.toFixed(2)} €</td>
+                          <td className="py-2 text-right font-medium text-xs">{p.gesamt.toFixed(2)} €</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  <div className="border-t pt-3 flex justify-between items-center">
+                    <span className="font-semibold text-sm">Gesamt Netto:</span>
+                    <span className="text-xl font-bold text-[#E85A1B]">
+                      {kalkulation.gesamtNetto.toFixed(2)} €
+                    </span>
+                  </div>
+
+                  {kalkulation.aufschluesselung && (
+                    <p className="text-xs text-gray-500 mt-2 bg-gray-50 p-2 rounded leading-relaxed">
+                      {kalkulation.aufschluesselung}
+                    </p>
+                  )}
+
+                  {onPriceUpdate && (
+                    <Button
+                      onClick={() => {
+                        onPriceUpdate(kalkulation.gesamtNetto)
+                        toast.success(`Preis übernommen: ${kalkulation.gesamtNetto.toFixed(2)} € netto`)
+                      }}
+                      className="w-full mt-3 bg-green-600 hover:bg-green-700 gap-2"
+                      size="sm"
+                    >
+                      <Check className="h-4 w-4" />
+                      Preis übernehmen ({kalkulation.gesamtNetto.toFixed(2)} €)
+                    </Button>
+                  )}
+                </div>
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Abbrechen</Button>
-            <Button onClick={handleSave} className="bg-[#E85A1B] hover:bg-[#c94d17] text-white px-8">
-              Übernehmen
-            </Button>
-          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="border-t px-8 py-4 flex justify-end gap-3 flex-shrink-0 bg-white">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Abbrechen</Button>
+          <Button onClick={handleSave} className="bg-[#E85A1B] hover:bg-[#c94d17] text-white px-8">
+            Übernehmen
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

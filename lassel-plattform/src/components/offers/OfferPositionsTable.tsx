@@ -32,9 +32,10 @@ interface Props {
   positions: Position[]
   onChange: (positions: Position[]) => void
   readOnly?: boolean
+  objektAdresse?: string
 }
 
-export default function OfferPositionsTable({ positions, onChange, readOnly = false }: Props) {
+export default function OfferPositionsTable({ positions, onChange, readOnly = false, objektAdresse }: Props) {
   const [openIndex, setOpenIndex] = useState<number | null>(null)
   const [editingDescription, setEditingDescription] = useState<number | null>(null)
 
@@ -106,6 +107,14 @@ export default function OfferPositionsTable({ positions, onChange, readOnly = fa
           value={positions[editingDescription]?.beschreibung || ''}
           onSave={(newText) => { handleChange(editingDescription, 'beschreibung', newText) }}
           title={`Beschreibung: ${positions[editingDescription]?.produktName || 'Position'}`}
+          objektAdresse={objektAdresse}
+          onPriceUpdate={(preis) => {
+            const idx = editingDescription
+            if (idx === null) return
+            const updated = [...positions]
+            updated[idx] = { ...updated[idx], einzelpreisNetto: preis }
+            onChange(updated)
+          }}
         />
       )}
 
