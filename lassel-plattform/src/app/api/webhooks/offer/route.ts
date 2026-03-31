@@ -11,12 +11,22 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://an-suite-lassel.verc
 
 async function generateAngebotsnummer(): Promise<string> {
   const year = new Date().getFullYear()
+  const prefix = `AN-${year}-`
+
   const { data } = await supabase
     .from('angebote')
     .select('angebotsnummer')
-    .like('angebotsnummer', `AN-${year}-%`)
-  const nextNumber = (data?.length || 0) + 1
-  return `AN-${year}-${String(nextNumber).padStart(5, '0')}`
+    .like('angebotsnummer', `${prefix}%`)
+    .order('angebotsnummer', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (data?.angebotsnummer) {
+    const lastNum = parseInt(data.angebotsnummer.replace(prefix, ''), 10)
+    return `${prefix}${String(lastNum + 1).padStart(5, '0')}`
+  }
+
+  return `${prefix}00001`
 }
 
 export async function POST(req: NextRequest) {
