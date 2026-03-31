@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
-import { Save, Loader2, ArrowLeft } from 'lucide-react'
+import { Save, Loader2, ArrowLeft, Download } from 'lucide-react'
 import { format } from 'date-fns'
 import Link from 'next/link'
 import DeliveryNotePositionsTable from '@/components/deliveryNotes/DeliveryNotePositionsTable'
@@ -474,22 +474,20 @@ export default function DeliveryNoteDetailPage() {
 
         {/* PDF Preview */}
         {!isNew && (
-          <Card className="p-6">
-            <h2 className="text-lg font-semibold text-slate-900 mb-4">PDF Vorschau</h2>
-            {deliveryNote.pdfUrl ? (
-              <iframe
-                src={`/api/pdf/lieferschein/${deliveryNoteId}`}
-                className="w-full h-[600px] rounded-lg border border-slate-200"
-                title="Lieferschein Vorschau"
-              />
-            ) : (
-              <div className="bg-slate-100 rounded-lg flex items-center justify-center p-12 text-slate-500 text-sm">
-                <p className="text-center">
-                  Noch kein PDF generiert — Speichern & in Zoho ablegen um PDF zu erstellen
-                </p>
-              </div>
-            )}
-          </Card>
+          <div className="rounded-xl border border-slate-200 bg-white shadow p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-slate-900">Lieferschein-Vorschau</h2>
+              <a href={`/api/pdf/lieferschein/${deliveryNoteId}`} target="_blank" rel="noopener noreferrer">
+                <Button variant="outline" size="sm" className="gap-2">
+                  <Download className="h-4 w-4" />
+                  PDF speichern
+                </Button>
+              </a>
+            </div>
+            <div className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-inner" style={{ aspectRatio: '1 / 1.414' }}>
+              <iframe src={`/api/pdf/lieferschein/${deliveryNoteId}`} className="w-full h-full" title="Lieferschein-Vorschau" />
+            </div>
+          </div>
         )}
       </div>
     </div>

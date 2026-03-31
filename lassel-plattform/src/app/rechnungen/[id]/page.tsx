@@ -1311,13 +1311,18 @@ export default function InvoiceDetailPage() {
 
         {/* PDF Preview */}
         {!isNew && (
-          <div className="overflow-x-auto bg-gray-200 rounded-xl p-6">
-            <div style={{ width: '794px', margin: '0 auto' }}>
-              <iframe
-                src={`/api/pdf/rechnung/${invoiceId}`}
-                style={{ width: '794px', height: '1123px', border: 'none', display: 'block' }}
-                title="Rechnungsvorschau"
-              />
+          <div className="rounded-xl border border-slate-200 bg-white shadow p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-slate-900">Rechnungs-Vorschau</h2>
+              <a href={`/api/pdf/rechnung/${invoiceId}`} target="_blank" rel="noopener noreferrer">
+                <Button variant="outline" size="sm" className="gap-2">
+                  <Download className="h-4 w-4" />
+                  PDF speichern
+                </Button>
+              </a>
+            </div>
+            <div className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-inner" style={{ aspectRatio: '1 / 1.414' }}>
+              <iframe src={`/api/pdf/rechnung/${invoiceId}`} className="w-full h-full" title="Rechnungs-Vorschau" />
             </div>
           </div>
         )}
