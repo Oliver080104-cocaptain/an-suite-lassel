@@ -147,7 +147,7 @@ export default function EmailVorschauModal({
               <Label className="font-semibold">Signatur auswählen: <span className="text-red-500">*</span></Label>
               <Button variant="outline" size="sm">Eigene Signatur</Button>
             </div>
-            <Select value={signaturId} onValueChange={setSignaturId}>
+            <Select value={signaturId} onValueChange={(val) => setSignaturId(val || '')}>
               <SelectTrigger>
                 <SelectValue placeholder="Mitarbeiter auswählen..." />
               </SelectTrigger>
