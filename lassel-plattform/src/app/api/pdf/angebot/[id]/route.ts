@@ -81,16 +81,22 @@ export async function GET(
 ) {
   const { id } = await params
 
-  const [{ data: angebot, error }, posResult, settingsResult] = await Promise.all([
-    supabase.from('angebote').select('*').eq('id', id).single(),
+  const [{ data: angebot, error }, posResult, einstellungenResult] = await Promise.all([
+    supabase.from('angebote').select('*, fusszeile').eq('id', id).single(),
     supabase.from('angebot_positionen').select('*').eq('angebot_id', id).order('position'),
-    supabase.from('company_settings').select('angebotFusstext').limit(1).maybeSingle(),
+    supabase.from('einstellungen').select('key, value'),
   ])
   if (error || !angebot) return new NextResponse('Angebot nicht gefunden', { status: 404 })
 
   const positionen: any[] = posResult.data || []
   const erstelltVon = angebot.erstellt_von || ''
-  const fusstext = angebot.fusszeile || (settingsResult.data as any)?.angebotFusstext || ''
+
+  // Firmen-Fußtext aus einstellungen
+  const eMap: Record<string, string> = {}
+  einstellungenResult.data?.forEach((e: any) => {
+    try { eMap[e.key] = JSON.parse(e.value) } catch { eMap[e.key] = e.value }
+  })
+  const fusstext = angebot.fusszeile || eMap.angebotFusstext || ''
 
   // Empfänger Logik
   let empfaengerName = ''
@@ -204,10 +210,16 @@ export async function GET(
   ${angebot.notizen ? `<div class="remarks">${esc(angebot.notizen)}</div>` : ''}
 
   ${fusstext ? `
-  <div style="margin-top: 15pt; padding: 8pt 12pt;
-    border-left: 3px solid #E85A1B; background: #fafafa;
-    font-size: 8.5pt; color: #444; line-height: 1.6;
-    white-space: pre-wrap; margin-bottom: 15pt;">${esc(fusstext)}</div>` : ''}
+  <div style="
+    margin-top: 20pt;
+    margin-bottom: 15pt;
+    padding: 10pt 14pt;
+    border-left: 3px solid #E85A1B;
+    background: #fafafa;
+    font-size: 9pt;
+    color: #333;
+    line-height: 1.6;
+    white-space: pre-wrap;">${esc(fusstext)}</div>` : ''}
 
   <div class="closing">
     ${!fusstext ? `<p>Für Rückfragen stehen wir Ihnen jederzeit gerne zur Verfügung.</p>
