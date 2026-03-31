@@ -30,6 +30,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'kunde.name ist erforderlich' }, { status: 400 })
     }
 
+    // Prüfen ob bereits ein Angebot für dieses Ticket existiert
+    if (ticketId) {
+      const { data: existing } = await supabase
+        .from('angebote')
+        .select('id, angebotsnummer')
+        .eq('zoho_ticket_id', ticketId)
+        .maybeSingle()
+
+      if (existing) {
+        return NextResponse.json({
+          success: true,
+          angebotId: existing.id,
+          angebotNummer: existing.angebotsnummer,
+          editUrl: `${APP_URL}/angebote/${existing.id}`,
+          action: 'already_exists',
+        })
+      }
+    }
+
     // Totals berechnen
     const posArray = Array.isArray(positionen) ? positionen : []
     const netto_gesamt = posArray.reduce((sum: number, p: any) => {
@@ -48,64 +67,38 @@ export async function POST(req: NextRequest) {
     }, 0)
     const brutto_gesamt = netto_gesamt + mwst_gesamt
 
-    const angebotFelder = {
-      kunde_name: kunde.name,
-      kunde_strasse: kunde.strasse || null,
-      kunde_plz: kunde.plz || null,
-      kunde_ort: kunde.ort || null,
-      kunde_uid: kunde.uidnummer || null,
-      objekt_adresse: angebot?.objektBeschreibung || null,
-      ticket_nummer: ticketNumber || null,
-      zoho_ticket_id: ticketId || null,
-      notizen: angebot?.bemerkung || null,
-      netto_gesamt,
-      mwst_gesamt,
-      brutto_gesamt,
+    // Neues Angebot anlegen
+    const angebotsnummer = await generateAngebotsnummer()
+    const { data: newAngebot, error: angebotError } = await supabase
+      .from('angebote')
+      .insert({
+        angebotsnummer,
+        status: 'entwurf',
+        kunde_name: kunde.name,
+        kunde_strasse: kunde.strasse || null,
+        kunde_plz: kunde.plz || null,
+        kunde_ort: kunde.ort || null,
+        kunde_uid: kunde.uidnummer || null,
+        objekt_adresse: angebot?.objektBeschreibung || null,
+        ticket_nummer: ticketNumber || null,
+        zoho_ticket_id: ticketId || null,
+        notizen: angebot?.bemerkung || null,
+        netto_gesamt,
+        mwst_gesamt,
+        brutto_gesamt,
+      })
+      .select()
+      .single()
+
+    if (angebotError || !newAngebot) {
+      console.error('Angebot insert error:', angebotError)
+      return NextResponse.json({ error: angebotError?.message || 'Fehler beim Anlegen' }, { status: 500 })
     }
 
-    // Prüfen ob bereits ein Angebot für dieses Ticket existiert
-    const { data: existing } = ticketId
-      ? await supabase.from('angebote').select('id, angebotsnummer').eq('zoho_ticket_id', ticketId).maybeSingle()
-      : { data: null }
-
-    let targetId: string
-    let angebotsnummer: string
-    let action: 'created' | 'updated'
-
-    if (existing) {
-      // Angebot existiert → UPDATE
-      await supabase.from('angebote')
-        .update({ ...angebotFelder, updated_at: new Date().toISOString() })
-        .eq('id', existing.id)
-
-      // Positionen ersetzen: alte löschen, neue einfügen
-      await supabase.from('angebot_positionen').delete().eq('angebot_id', existing.id)
-
-      targetId = existing.id
-      angebotsnummer = existing.angebotsnummer
-      action = 'updated'
-    } else {
-      // Neues Angebot anlegen
-      angebotsnummer = await generateAngebotsnummer()
-      const { data: newAngebot, error: angebotError } = await supabase
-        .from('angebote')
-        .insert({ angebotsnummer, status: 'entwurf', ...angebotFelder })
-        .select()
-        .single()
-
-      if (angebotError || !newAngebot) {
-        console.error('Angebot insert error:', angebotError)
-        return NextResponse.json({ error: angebotError?.message || 'Fehler beim Anlegen' }, { status: 500 })
-      }
-
-      targetId = newAngebot.id
-      action = 'created'
-    }
-
-    // Positionen einfügen
+    // Positionen anlegen
     if (posArray.length > 0) {
       const posData = posArray.map((p: any) => ({
-        angebot_id: targetId,
+        angebot_id: newAngebot.id,
         position: p.pos || 1,
         beschreibung: p.produktName
           ? (p.beschreibung ? `${p.produktName}\n${p.beschreibung}` : p.produktName)
@@ -125,14 +118,14 @@ export async function POST(req: NextRequest) {
     }
 
     // Callback an n8n senden
-    const editUrl = `${APP_URL}/angebote/${targetId}`
+    const editUrl = `${APP_URL}/angebote/${newAngebot.id}`
     if (meta?.callbackUrl) {
       try {
         await fetch(meta.callbackUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            angebotId: targetId,
+            angebotId: newAngebot.id,
             angebotNummer: angebotsnummer,
             editUrl,
             ticketId: ticketId || null,
@@ -145,10 +138,10 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      angebotId: targetId,
+      angebotId: newAngebot.id,
       angebotNummer: angebotsnummer,
       editUrl,
-      action,
+      action: 'created',
     })
   } catch (error) {
     console.error('Webhook offer error:', error)
