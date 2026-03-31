@@ -41,7 +41,7 @@ export default function OfferPositionsTable({ positions, onChange, readOnly = fa
   const { data: products = [] } = useQuery({
     queryKey: ['products', 'active'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('produkte').select('*').eq('aktiv', true)
+      const { data, error } = await supabase.from('produkte').select('*').eq('aktiv', true).order('name')
       if (error) throw error
       return data || []
     },

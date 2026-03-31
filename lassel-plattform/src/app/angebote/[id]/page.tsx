@@ -60,8 +60,8 @@ export default function OfferDetailPage() {
   })
 
   const [positions, setPositions] = useState<any[]>([{
-    position: 1, beschreibung: '', menge: 1, einheit: 'Stk',
-    einzelpreis: 0, rabatt_prozent: 0, mwst_satz: 20, gesamtpreis: 0
+    pos: 1, produktName: '', beschreibung: '', menge: 1, einheit: 'Stk',
+    einzelpreisNetto: 0, rabattProzent: 0, ustSatz: 20, gesamtNetto: 0, gesamtBrutto: 0
   }])
 
   const [saving, setSaving] = useState(false)
@@ -71,6 +71,7 @@ export default function OfferDetailPage() {
   const autoSaveLock = useRef(false)
   const positionsInitialized = useRef(false)
   const offerInitialized = useRef(false)
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const { data: existingOffer, isLoading: loadingOffer } = useQuery({
     queryKey: ['offer', offerId],
@@ -152,7 +153,22 @@ export default function OfferDetailPage() {
 
   useEffect(() => {
     if (existingPositions.length > 0 && !positionsInitialized.current) {
-      setPositions(existingPositions)
+      setPositions(existingPositions.map((p: any) => {
+        const lines = (p.beschreibung || '').split('\n')
+        return {
+          id: p.id,
+          pos: p.position,
+          produktName: lines[0] || '',
+          beschreibung: lines.slice(1).join('\n'),
+          menge: p.menge,
+          einheit: p.einheit || 'Stk',
+          einzelpreisNetto: p.einzelpreis,
+          rabattProzent: p.rabatt_prozent,
+          ustSatz: p.mwst_satz,
+          gesamtNetto: p.gesamtpreis,
+          gesamtBrutto: 0,
+        }
+      }))
       positionsInitialized.current = true
     }
   }, [existingPositions])
@@ -175,19 +191,31 @@ export default function OfferDetailPage() {
     }
   }, [offer, positions, isNew, offerId])
 
+  // Debounced autosave: 2 seconds after last change
+  useEffect(() => {
+    if (isNew || !offerId || !offerInitialized.current) return
+    if (debounceTimer.current) clearTimeout(debounceTimer.current)
+    debounceTimer.current = setTimeout(() => {
+      handleAutoSave()
+    }, 2000)
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current)
+    }
+  }, [offer, positions])
+
   const totals = useMemo(() => {
     const netto_gesamt = positions.reduce((sum: number, p: any) => {
       const menge = parseFloat(p.menge) || 0
-      const einzelpreis = parseFloat(p.einzelpreis) || 0
-      const rabatt = parseFloat(p.rabatt_prozent) || 0
+      const einzelpreis = parseFloat(p.einzelpreisNetto) || 0
+      const rabatt = parseFloat(p.rabattProzent) || 0
       return sum + (menge * einzelpreis * (1 - rabatt / 100))
     }, 0)
     const mwst_gesamt = positions.reduce((sum: number, p: any) => {
       const menge = parseFloat(p.menge) || 0
-      const einzelpreis = parseFloat(p.einzelpreis) || 0
-      const rabatt = parseFloat(p.rabatt_prozent) || 0
+      const einzelpreis = parseFloat(p.einzelpreisNetto) || 0
+      const rabatt = parseFloat(p.rabattProzent) || 0
       const nettoPos = menge * einzelpreis * (1 - rabatt / 100)
-      const mwst_satz = parseFloat(p.mwst_satz) || 20
+      const mwst_satz = parseFloat(p.ustSatz) || 20
       return sum + (nettoPos * (mwst_satz / 100))
     }, 0)
     return { netto_gesamt, mwst_gesamt, brutto_gesamt: netto_gesamt + mwst_gesamt }
@@ -237,14 +265,16 @@ export default function OfferDetailPage() {
 
     const buildPosData = (pos: any) => ({
       angebot_id: targetOfferId,
-      position: pos.position,
-      beschreibung: pos.beschreibung || '',
+      position: pos.pos ?? pos.position,
+      beschreibung: pos.produktName
+        ? (pos.beschreibung ? `${pos.produktName}\n${pos.beschreibung}` : pos.produktName)
+        : (pos.beschreibung || ''),
       menge: parseFloat(pos.menge) || 0,
-      einheit: pos.einheit,
-      einzelpreis: parseFloat(pos.einzelpreis) || 0,
-      rabatt_prozent: parseFloat(pos.rabatt_prozent) || 0,
-      mwst_satz: parseFloat(pos.mwst_satz) || 20,
-      gesamtpreis: parseFloat(pos.gesamtpreis) || 0,
+      einheit: pos.einheit || 'Stk',
+      einzelpreis: parseFloat(pos.einzelpreisNetto ?? pos.einzelpreis) || 0,
+      rabatt_prozent: parseFloat(pos.rabattProzent ?? pos.rabatt_prozent) || 0,
+      mwst_satz: parseFloat(pos.ustSatz ?? pos.mwst_satz) || 20,
+      gesamtpreis: parseFloat(pos.gesamtNetto ?? pos.gesamtpreis) || 0,
     })
 
     await Promise.all([
