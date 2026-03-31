@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const PREISLOGIK = `
-Du bist ein Kalkulationsassistent für Lassel GmbH Höhenarbeiten Wien.
-Berechne Preise basierend auf dieser Preislogik:
+const PREISLOGIK = `Du bist ein Kalkulationsassistent für Lassel GmbH Höhenarbeiten Wien.
+Berechne NUR auf Basis dieser exakten Preislogik:
 
 PREISE:
 - Anfahrt: 1€/km × 2 (Hin+Rück)
-- Monteur: 85€/h, Helfer: 75€/h
+- Monteur: 85€/h, Helfer: 75€/h (Partie = 2 Personen)
 - Höhenaufschlag ab 15m: +15%
 - Dachrinne leicht: 4€/m, mittel: 8€/m, schwer: 15€/m
 - Straßensperre: 680€ pauschal
@@ -18,18 +17,25 @@ PREISE:
 - Parkverbot: 680€
 - Entsorgung: 2€/kg
 
-Antworte NUR mit JSON (kein Markdown):
+WICHTIG:
+- Verwende NUR Positionen die der Benutzer erwähnt hat
+- Erfinde KEINE Positionen
+- Falls keine Mengen angegeben → schreibe "0" und erkläre was fehlt
+- Bezeichnungen auf Deutsch, konkret (z.B. "Taubennetz 50m²")
+- Antworte NUR mit JSON, kein Markdown
+
+Format:
 {
-  "beschreibungstext": "Professioneller deutscher Angebotstext für die Leistung...",
+  "beschreibungstext": "Professioneller Angebotstext...",
   "kalkulation": {
     "positionen": [
-      { "bezeichnung": "...", "menge": 50, "einheit": "m²", "einzelpreis": 20, "gesamt": 1000 }
+      { "bezeichnung": "Taubennetz", "menge": 50, "einheit": "m²", "einzelpreis": 20, "gesamt": 1000 }
     ],
-    "gesamtNetto": 1680,
-    "aufschluesselung": "Taubennetz 50m² × 20€ = 1.000€ + Anfahrt 15km × 2 × 1€ = 30€ ..."
-  }
-}
-`
+    "gesamtNetto": 1000,
+    "aufschluesselung": "Taubennetz 50m² × 20€ = 1.000€"
+  },
+  "fehlende_angaben": ["Anfahrt km nicht angegeben", "Arbeitsstunden unklar"]
+}`
 
 const FALLBACK_KALKULATION = {
   beschreibungstext: 'Durchführung der beschriebenen Höhenarbeiten gemäß Leistungsverzeichnis.',
@@ -62,7 +68,7 @@ export async function POST(req: NextRequest) {
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: PREISLOGIK },
-        { role: 'user', content: `Objekt: ${objektAdresse || 'unbekannt'}\nLeistung: ${eingabe}` }
+        { role: 'user', content: `Berechne nur was der Benutzer erwähnt hat.\nObjekt: ${objektAdresse || 'unbekannt'}\nBenutzer sagte: "${eingabe}"` }
       ],
       max_tokens: 1200,
     })

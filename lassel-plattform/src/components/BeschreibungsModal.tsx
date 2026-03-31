@@ -30,6 +30,7 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
     gesamtNetto: number
     aufschluesselung: string
   } | null>(null)
+  const [fehlende, setFehlende] = useState<string[]>([])
   const [kiLoading, setKiLoading] = useState(false)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
@@ -39,6 +40,7 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
       setText(value)
       setKiInput('')
       setKalkulation(null)
+      setFehlende([])
     }
   }, [open, value])
 
@@ -114,6 +116,7 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
       const data = await res.json()
       if (data.kalkulation) setKalkulation(data.kalkulation)
       if (data.beschreibungstext) setText(data.beschreibungstext)
+      setFehlende(data.fehlende_angaben || [])
     } catch (err) {
       console.error('Kalkulation error:', err)
     } finally {
@@ -272,6 +275,15 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
                     <p className="text-xs text-slate-500 mt-3 bg-slate-50 p-3 rounded-lg leading-relaxed">
                       {kalkulation.aufschluesselung}
                     </p>
+                  )}
+
+                  {fehlende.length > 0 && (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mt-3">
+                      <p className="text-xs font-medium text-yellow-700 mb-1">⚠️ Fehlende Angaben:</p>
+                      {fehlende.map((f, i) => (
+                        <p key={i} className="text-xs text-yellow-600">• {f}</p>
+                      ))}
+                    </div>
                   )}
 
                   {onPriceUpdate && (
