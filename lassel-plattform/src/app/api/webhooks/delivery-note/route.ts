@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { validateWebhookSecret, unauthorizedResponse } from '@/lib/webhook-auth'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,6 +21,7 @@ async function generateLieferscheinnummer(): Promise<string> {
 
 // Payload: { ticketId, ticketNumber, kunde, angebot, positionen, meta }
 export async function POST(req: NextRequest) {
+  if (!validateWebhookSecret(req)) return unauthorizedResponse()
   try {
     const payload = await req.json()
     const { ticketId, ticketNumber, kunde, angebot, positionen, meta } = payload

@@ -19,11 +19,12 @@ async function generateRechnungsnummer(): Promise<string> {
   return `RE-${year}-${String(nextNumber).padStart(5, '0')}`
 }
 
+// Payload: { ticketId, ticketNumber, kunde, angebotIds[], positionen[], meta }
 export async function POST(req: NextRequest) {
   if (!validateWebhookSecret(req)) return unauthorizedResponse()
   try {
     const payload = await req.json()
-    const { ticketId, ticketNumber, kunde, angebot, positionen, meta } = payload
+    const { ticketId, ticketNumber, kunde, angebotIds, positionen, meta } = payload
 
     if (!kunde?.name) {
       return NextResponse.json({ error: 'kunde.name ist erforderlich' }, { status: 400 })
@@ -50,13 +51,12 @@ export async function POST(req: NextRequest) {
       .from('rechnungen')
       .insert({
         rechnungsnummer,
-        rechnungstyp: 'normal',
+        rechnungstyp: 'sammel',
         status: 'entwurf',
         kunde_name: kunde.name,
         kunde_strasse: kunde.strasse || null,
         kunde_plz: kunde.plz || null,
         kunde_ort: kunde.ort || null,
-        objekt_adresse: angebot?.objektBeschreibung || null,
         ticket_nummer: ticketNumber || null,
         zoho_ticket_id: ticketId || null,
         netto_gesamt,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { validateWebhookSecret, unauthorizedResponse } from '@/lib/webhook-auth'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -9,6 +10,7 @@ const supabase = createClient(
 // Payload: { ticketId, ticketNumber, angebotId?, status? }
 // Links a Zoho ticket to an existing Angebot, or just stores ticket data
 export async function POST(req: NextRequest) {
+  if (!validateWebhookSecret(req)) return unauthorizedResponse()
   try {
     const payload = await req.json()
     const { ticketId, ticketNumber, angebotId, status } = payload
