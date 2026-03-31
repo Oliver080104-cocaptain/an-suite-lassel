@@ -88,6 +88,9 @@ export async function GET(
   ])
   if (error || !angebot) return new NextResponse('Angebot nicht gefunden', { status: 404 })
 
+  console.log('DEBUG fusszeile:', angebot?.fusszeile)
+  console.log('DEBUG data keys:', Object.keys(angebot || {}))
+
   const positionen: any[] = posResult.data || []
   const erstelltVon = angebot.erstellt_von || ''
 
@@ -208,6 +211,11 @@ export async function GET(
   </div>
 
   ${angebot.notizen ? `<div class="remarks">${esc(angebot.notizen)}</div>` : ''}
+
+  <!-- TEST: Fußzeile debug -->
+  <div style="background:red;color:white;padding:10px;font-size:9pt;">
+    FUSSZEILE TEST: ${fusstext ? esc(fusstext) : 'LEER'}
+  </div>
 
   ${fusstext ? `
   <div style="

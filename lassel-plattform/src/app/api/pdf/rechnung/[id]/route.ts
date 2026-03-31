@@ -89,6 +89,9 @@ export async function GET(
 
   if (error || !rechnung) return new NextResponse('Rechnung nicht gefunden', { status: 404 })
 
+  console.log('DEBUG rechnung fusszeile:', rechnung?.fusszeile)
+  console.log('DEBUG rechnung keys:', Object.keys(rechnung || {}))
+
   const positionen: any[] = positionenRaw || []
 
   // Einstellungen parsen
@@ -236,6 +239,11 @@ export async function GET(
       Bitte überweisen Sie den Rechnungsbetrag unter Angabe der Rechnungsnummer
       auf das unten angegebene Konto.
     </div>
+  </div>
+
+  <!-- TEST: Fußzeile debug -->
+  <div style="background:red;color:white;padding:10px;font-size:9pt;">
+    FUSSZEILE TEST: ${fusstext ? esc(fusstext) : 'LEER'}
   </div>
 
   ${fusstext ? `
