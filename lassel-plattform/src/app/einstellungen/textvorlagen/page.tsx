@@ -17,7 +17,7 @@ import Link from 'next/link'
 const defaultForm = {
   name: '',
   kategorie: '',
-  text: '',
+  inhalt: '',
 }
 
 export default function TextvorlagenPage() {
@@ -84,14 +84,14 @@ export default function TextvorlagenPage() {
 
   const handleEdit = (vorlage: any) => {
     setEditingVorlage(vorlage)
-    setFormData({ name: vorlage.name || '', kategorie: vorlage.kategorie || '', text: vorlage.text || '' })
+    setFormData({ name: vorlage.name || '', kategorie: vorlage.kategorie || '', inhalt: vorlage.inhalt || '' })
     setShowDialog(true)
   }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!formData.name.trim()) { toast.error('Name ist erforderlich'); return }
-    if (!formData.text.trim()) { toast.error('Text ist erforderlich'); return }
+    if (!formData.inhalt.trim()) { toast.error('Text ist erforderlich'); return }
     if (editingVorlage) {
       updateMutation.mutate({ id: editingVorlage.id, data: formData })
     } else {
@@ -151,7 +151,7 @@ export default function TextvorlagenPage() {
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1 min-w-0">
                           <h3 className="font-semibold text-slate-900 mb-1">{vorlage.name}</h3>
-                          <p className="text-sm text-slate-600 line-clamp-3 whitespace-pre-wrap">{vorlage.text}</p>
+                          <p className="text-sm text-slate-600 line-clamp-3 whitespace-pre-wrap">{vorlage.inhalt}</p>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                           <Button variant="ghost" size="sm" onClick={() => handleEdit(vorlage)} className="h-8 w-8 p-0">
@@ -189,8 +189,8 @@ export default function TextvorlagenPage() {
               <div>
                 <Label>Text *</Label>
                 <Textarea
-                  value={formData.text}
-                  onChange={e => setFormData(p => ({ ...p, text: e.target.value }))}
+                  value={formData.inhalt}
+                  onChange={e => setFormData(p => ({ ...p, inhalt: e.target.value }))}
                   placeholder="Der Vorlagentext der beim Klicken in die Beschreibung eingefügt wird..."
                   rows={8}
                   className="mt-1 resize-none font-mono text-sm"

@@ -199,10 +199,11 @@ export async function GET(
 
   ${rechnung.notizen ? `<div class="notizen-block">${esc(rechnung.notizen)}</div>` : ''}
 
+  ${rechnung.fusszeile ? `<div class="abschlusstext" style="white-space:pre-wrap">${esc(rechnung.fusszeile)}</div>` : `
   <div class="abschlusstext">
     Bitte überweisen Sie den Rechnungsbetrag${rechnung.faellig_bis ? ` bis zum ${formatDate(rechnung.faellig_bis)}` : ''} auf das unten angeführte Konto.<br>
     Wir bedanken uns sehr für Ihr Vertrauen.
-  </div>
+  </div>`}
 
   <div class="abschlusstext">
     <strong>Mit freundlichen Grüßen</strong><br><br>

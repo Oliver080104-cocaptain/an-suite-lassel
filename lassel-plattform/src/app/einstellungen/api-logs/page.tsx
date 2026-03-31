@@ -21,7 +21,7 @@ export default function ApiLogsPage() {
         .select('*')
         .order('created_at', { ascending: false })
         .limit(100)
-      if (error) throw error
+      if (error) { console.error('API logs error:', error); return [] }
       return data || []
     },
     refetchInterval: autoRefresh ? 3000 : false,

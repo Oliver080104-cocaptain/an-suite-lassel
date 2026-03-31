@@ -23,7 +23,7 @@ Mit freundlichen Grüßen
 Höhenarbeiten Lassel GmbH`
   }
 
-  const betrag = bruttoGesamt ? euroFormat(Number(bruttoGesamt)) : '[Betrag]'
+  const betrag = (bruttoGesamt !== null && bruttoGesamt !== undefined) ? euroFormat(Number(bruttoGesamt)) : '[Betrag]'
   const zusatz = zusatzAnweisung ? `\n\n[Hinweis: ${zusatzAnweisung}]` : ''
 
   return `Sehr geehrte/r ${kundeName || 'Damen und Herren'},
@@ -63,7 +63,7 @@ ${zusatzAnweisung ? `Zusätzliche Anweisung: ${zusatzAnweisung}` : ''}
 
 Formell, präzise, auf Deutsch. Nur den Text, keine Anredeformel außen.`
     } else {
-      const betrag = bruttoGesamt ? euroFormat(Number(bruttoGesamt)) : ''
+      const betrag = (bruttoGesamt !== null && bruttoGesamt !== undefined) ? euroFormat(Number(bruttoGesamt)) : ''
       prompt = `Schreibe eine professionelle E-Mail auf Deutsch für ein Angebot.
 Angebotsnummer: ${angebotsnummer}
 Kundenname: ${kundeName}
