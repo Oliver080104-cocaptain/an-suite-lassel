@@ -178,11 +178,11 @@ export default function OfferDetailPage() {
   useEffect(() => {
     if (existingPositions.length > 0 && !positionsInitialized.current) {
       const mapped = existingPositions
-        .map((p: any) => {
+        .map((p: any, i: number) => {
           const lines = (p.beschreibung || '').split('\n')
           return {
             id: p.id,
-            pos: p.position,
+            pos: i + 1,
             produktName: lines[0] || '',
             beschreibung: lines.slice(1).join('\n'),
             menge: p.menge,
@@ -387,7 +387,7 @@ export default function OfferDetailPage() {
         body: JSON.stringify({
           offerId: savedOffer.id,
           angebotNummer: savedOffer.angebotsnummer,
-          pdfUrl: savedOffer.pdf_url,
+          pdfUrl: `${window.location.origin}/api/pdf/angebot/${savedOffer.id}`,
           editUrl,
           ticketId: savedOffer.zoho_ticket_id,
           ticketNumber: savedOffer.ticket_nummer,
@@ -464,7 +464,31 @@ export default function OfferDetailPage() {
         await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/5e4e9681-a79e-42be-a1d0-309bfdc36909', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'lieferschein_erstellt', lieferscheinId: deliveryNote.id, editUrl, timestamp: new Date().toISOString() })
+          body: JSON.stringify({
+            type: 'lieferschein_erstellt',
+            lieferscheinId: deliveryNote.id,
+            lieferscheinNummer: lieferscheinnummer,
+            editUrl,
+            angebot: {
+              angebotId: offer.id,
+              angebotNummer: offer.angebotsnummer,
+              ticketNumber: offer.ticket_nummer,
+              ticketId: offer.zoho_ticket_id,
+              geschaeftsfallNummer: offer.geschaeftsfallNummer,
+              skizzenLink: offer.skizzen_link
+            },
+            kunde: { name: offer.kunde_name, strasse: offer.kunde_strasse, plz: offer.kunde_plz, ort: offer.kunde_ort },
+            objekt: { bezeichnung: offer.objekt_bezeichnung || offer.objekt_adresse },
+            erstelltDurch: offer.erstellt_von,
+            positionen: posForLi.map((p: any, i: number) => ({
+              pos: i + 1,
+              produktName: p.beschreibung?.split('\n')[0] || '',
+              beschreibung: p.beschreibung,
+              menge: p.menge,
+              einheit: p.einheit
+            })),
+            timestamp: new Date().toISOString()
+          })
         })
       } catch (e) { console.error('Webhook fehlgeschlagen:', e) }
 
@@ -541,10 +565,41 @@ export default function OfferDetailPage() {
 
       try {
         const editUrl = `${window.location.origin}/rechnungen/${invoice.id}`
-        await fetch('https://lasselgmbh.app.n8n.cloud/webhook/47c3bc5b-17e6-4c07-bd72-71a546d023d5', {
+        await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/47c3bc5b-17e6-4c07-bd72-71a546d023d5', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rechnungsId: invoice.id, editUrl, timestamp: new Date().toISOString() })
+          body: JSON.stringify({
+            rechnungsId: invoice.id,
+            rechnungsNummer: invoice.rechnungsnummer,
+            rechnungstyp: 'normal',
+            editUrl,
+            angebot: {
+              angebotId: offer.id,
+              angebotNummer: offer.angebotsnummer,
+              ticketNumber: offer.ticket_nummer,
+              ticketId: offer.zoho_ticket_id,
+              geschaeftsfallNummer: offer.geschaeftsfallNummer
+            },
+            rechnung: {
+              datum: invoice.rechnungsdatum,
+              faelligAm: invoice.faellig_bis,
+              zahlungskondition: '30 Tage netto',
+              zahlungszielTage: 30
+            },
+            kunde: { name: offer.kunde_name, strasse: offer.kunde_strasse, plz: offer.kunde_plz, ort: offer.kunde_ort },
+            objekt: { bezeichnung: offer.objekt_bezeichnung || offer.objekt_adresse },
+            positionen: (dbPositions || []).map((p: any, i: number) => ({
+              pos: i + 1,
+              produktName: p.beschreibung?.split('\n')[0] || '',
+              menge: p.menge,
+              einheit: p.einheit,
+              einzelpreisNetto: p.einzelpreis,
+              ustSatz: p.mwst_satz,
+              gesamtNetto: p.gesamtpreis
+            })),
+            summen: { netto: totals.netto_gesamt, ust: totals.mwst_gesamt, brutto: totals.brutto_gesamt },
+            timestamp: new Date().toISOString()
+          })
         })
       } catch (e) { console.error('Webhook fehlgeschlagen:', e) }
 
@@ -788,7 +843,19 @@ export default function OfferDetailPage() {
                             await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/2c51d71e-b55d-493d-aafb-1443d1d100cc', {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ angebotId: offerId, angebotNummer: offer.angebotsnummer, status: 'angenommen', timestamp: new Date().toISOString() })
+                              body: JSON.stringify({
+                  angebotId: offerId,
+                  angebotNummer: offer.angebotsnummer,
+                  status: 'angenommen',
+                  ticketId: offer.zoho_ticket_id,
+                  ticketNumber: offer.ticket_nummer,
+                  geschaeftsfallNummer: offer.geschaeftsfallNummer,
+                  rechnungsempfaengerName: offer.kunde_name,
+                  objektBezeichnung: offer.objekt_bezeichnung || offer.objekt_adresse,
+                  summeBrutto: offer.brutto_gesamt,
+                  datum: offer.angebotsdatum,
+                  timestamp: new Date().toISOString()
+                })
                             })
                           } catch (e) { console.error('Webhook Fehler:', e) }
                         }
@@ -971,12 +1038,6 @@ export default function OfferDetailPage() {
           <div className="rounded-xl border border-slate-200 bg-white shadow p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-slate-900">Angebots-Vorschau</h2>
-              <a href={`/api/pdf/angebot/${offerId}`} target="_blank" rel="noopener noreferrer">
-                <Button variant="outline" size="sm" className="gap-2">
-                  <Download className="h-4 w-4" />
-                  PDF speichern
-                </Button>
-              </a>
             </div>
             <div className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-inner p-8" style={{ aspectRatio: '1 / 1.414' }}>
               <iframe src={`/api/pdf/angebot/${offerId}`} className="w-full h-full" title="Angebots-Vorschau" />

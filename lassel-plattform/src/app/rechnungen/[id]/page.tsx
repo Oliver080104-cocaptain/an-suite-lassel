@@ -236,9 +236,9 @@ export default function InvoiceDetailPage() {
   // Init positions
   useEffect(() => {
     if (existingPositions.length > 0 && !positionsInitialized.current) {
-      setPositions((existingPositions as any[]).map((p: any) => ({
+      setPositions((existingPositions as any[]).map((p: any, i: number) => ({
         id: p.id,
-        pos: p.position,
+        pos: i + 1,
         produktName: p.beschreibung || '',
         beschreibung: '',
         menge: p.menge || 1,
@@ -459,15 +459,19 @@ export default function InvoiceDetailPage() {
         body: JSON.stringify({
           rechnungsId: savedId,
           rechnungsNummer: invCopy.rechnungsNummer,
-          pdfUrl: invCopy.pdfUrl,
+          rechnungstyp: invCopy.rechnungstyp || 'normal',
+          pdfUrl: `${window.location.origin}/api/pdf/rechnung/${savedId}`,
+          ticketId: invCopy.ticketId,
           ticketNumber: invCopy.ticketNumber,
           datum: invCopy.datum,
           faelligAm: invCopy.faelligAm,
           status: invCopy.status,
           kundeName: invCopy.kundeName,
           objektBezeichnung: invCopy.objektBezeichnung,
+          erstelltDurch: invCopy.erstelltDurch,
           referenzAngebotId: invCopy.referenzAngebotId,
-          summen: totals,
+          referenzAngebotNummer: invCopy.referenzAngebotNummer,
+          summen: { netto: totals.summeNetto, ust: totals.summeUst, brutto: totals.summeBrutto },
           timestamp: new Date().toISOString()
         })
       }).catch(err => console.error('Zoho webhook failed:', err))

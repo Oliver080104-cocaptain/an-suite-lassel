@@ -125,9 +125,9 @@ export default function DeliveryNoteDetailPage() {
 
   useEffect(() => {
     if (existingPositions.length > 0 && !posInitialized.current) {
-      setPositions((existingPositions as any[]).map((p: any) => ({
+      setPositions((existingPositions as any[]).map((p: any, i: number) => ({
         id: p.id,
-        pos: p.position,
+        pos: i + 1,
         produktName: p.beschreibung || '',
         beschreibung: '',
         menge: p.menge || 1,
@@ -268,13 +268,15 @@ export default function DeliveryNoteDetailPage() {
         body: JSON.stringify({
           lieferscheinId: savedId,
           lieferscheinNummer: dnCopy.lieferscheinNummer,
-          pdfUrl: dnCopy.pdfUrl,
-          fileName: `${dnCopy.lieferscheinNummer}.pdf`,
+          pdfUrl: `${window.location.origin}/api/pdf/lieferschein/${savedId}`,
+          ticketId: dnCopy.ticketId,
           ticketNumber: dnCopy.ticketNumber,
           datum: dnCopy.datum,
           status: dnCopy.status,
           kundeName: dnCopy.kundeName,
           objektBezeichnung: dnCopy.objektBezeichnung,
+          erstelltDurch: dnCopy.erstelltDurch,
+          referenzAngebotNummer: dnCopy.referenzAngebotNummer,
           timestamp: new Date().toISOString()
         })
       }).catch(err => console.error('Zoho webhook failed:', err))

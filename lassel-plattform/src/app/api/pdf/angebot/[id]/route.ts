@@ -203,12 +203,15 @@ export async function GET(
 
   ${angebot.notizen ? `<div class="remarks">${esc(angebot.notizen)}</div>` : ''}
 
+  ${fusstext ? `
+  <div style="margin-top: 15pt; padding: 8pt 12pt;
+    border-left: 3px solid #E85A1B; background: #fafafa;
+    font-size: 8.5pt; color: #444; line-height: 1.6;
+    white-space: pre-wrap; margin-bottom: 15pt;">${esc(fusstext)}</div>` : ''}
+
   <div class="closing">
-    ${fusstext
-      ? `<p style="white-space:pre-wrap">${esc(fusstext)}</p>`
-      : `<p>Für Rückfragen stehen wir Ihnen jederzeit gerne zur Verfügung.</p>
-         <p>Wir bedanken uns sehr für Ihr Vertrauen.</p>`
-    }
+    ${!fusstext ? `<p>Für Rückfragen stehen wir Ihnen jederzeit gerne zur Verfügung.</p>
+         <p>Wir bedanken uns sehr für Ihr Vertrauen.</p>` : ''}
     <div class="signature">
       <p>Mit freundlichen Grüßen</p>
       <p>${esc(erstelltVon || 'Reinhard Lassel')}</p>

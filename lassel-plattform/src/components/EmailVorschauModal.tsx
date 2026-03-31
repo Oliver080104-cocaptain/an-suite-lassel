@@ -25,6 +25,12 @@ interface Props {
   onSent?: () => void
 }
 
+const SIGNATUREN: Record<string, string> = {
+  'Nikolas Schmadlak': `Mit freundlichen Grüßen\nNikolas Schmadlak\nInnendienst\n\nHöhenarbeiten Lassel GmbH\nHetzmannsdorf 25\nTel.: +43 660 3877214\nE-Mail: office@hoehenarbeiten-lassel.at\nInternet: www.hoehenarbeiten-lassel.at`,
+  'Christoph Kribala': `Mit freundlichen Grüßen\nChristoph Kribala\nInnendienst\n\nHöhenarbeiten Lassel GmbH\nHetzmannsdorf 25\nTel.: +43 660 1887474\nE-Mail: office@hoehenarbeiten-lassel.at\nInternet: www.hoehenarbeiten-lassel.at`,
+  'Reinhard Lassel': `Mit freundlichen Grüßen\nReinhard Lassel\nGeschäftsführung\n\nHöhenarbeiten Lassel GmbH\nHetzmannsdorf 25\nTel.: +43 660 8060050\nE-Mail: office@hoehenarbeiten-lassel.at\nInternet: www.hoehenarbeiten-lassel.at`,
+}
+
 export default function EmailVorschauModal({
   open, onClose, offerId, angebotsnummer, kundeName,
   objektAdresse, bruttoGesamt, erstelltVon, emailAn: emailAnProp, onSent
@@ -48,7 +54,7 @@ export default function EmailVorschauModal({
 
   const selectedMitarbeiter = (mitarbeiterList as any[]).find((m: any) => m.id === signaturId)
   const signaturText = selectedMitarbeiter
-    ? `Mit freundlichen Grüßen\n\n${selectedMitarbeiter.name}\nHöhenarbeiten Lassel GmbH\nHetzmannsdorf 25, 2041 Wullersdorf\nTel.: +43 660 8060050\nE-Mail: office@hoehenarbeiten-lassel.at\nInternet: www.hoehenarbeiten-lassel.at`
+    ? (SIGNATUREN[selectedMitarbeiter.name] || `Mit freundlichen Grüßen\n${selectedMitarbeiter.name}\n\nHöhenarbeiten Lassel GmbH\nHetzmannsdorf 25, 2041 Wullersdorf\nE-Mail: office@hoehenarbeiten-lassel.at`)
     : ''
 
   const generateEmail = async (zusatzAnweisung?: string) => {
@@ -89,8 +95,21 @@ export default function EmailVorschauModal({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          offerId, angebotNummer: angebotsnummer, status: 'versendet',
-          emailAn, betreff, nachricht, signatur: signaturText,
+          offerId,
+          angebotNummer: angebotsnummer,
+          pdfUrl: `/api/pdf/angebot/${offerId}`,
+          status: 'versendet',
+          rechnungsempfaenger: { name: kundeName },
+          objekt: { bezeichnung: objektAdresse },
+          erstelltDurch: erstelltVon,
+          email: {
+            sendenAn: emailAn,
+            betreff,
+            nachrichtHtml: `<pre>${nachricht}</pre>`,
+            mitarbeiter: selectedMitarbeiter?.name || '',
+            signatur: signaturText,
+          },
+          summen: { brutto: bruttoGesamt },
           timestamp: new Date().toISOString()
         }),
       }).catch(console.error)
