@@ -21,32 +21,54 @@ async function generateAngebotsnummer(): Promise<string> {
 
 export async function POST(req: NextRequest) {
   if (!validateWebhookSecret(req)) return unauthorizedResponse()
-  try {
-    const payload = await req.json()
 
-    const { source, ticketId, ticketNumber, kunde, angebot, positionen, meta } = payload
+  // Body-Parsing: n8n schickt manchmal doppelt-encoded JSON
+  let body: any
+  try {
+    const raw = await req.text()
+    try {
+      body = JSON.parse(raw)
+      if (typeof body === 'string') {
+        body = JSON.parse(body)
+      }
+    } catch {
+      body = JSON.parse(raw)
+    }
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
+
+  const ticketId = body.ticketId
+
+  console.log('Received ticketId:', ticketId)
+  console.log('Body keys:', Object.keys(body || {}))
+
+  if (!ticketId) {
+    return NextResponse.json({ error: 'ticketId missing', bodyKeys: Object.keys(body || {}) }, { status: 400 })
+  }
+
+  try {
+    const { source, ticketNumber, kunde, angebot, positionen, meta } = body
 
     if (!kunde?.name) {
       return NextResponse.json({ error: 'kunde.name ist erforderlich' }, { status: 400 })
     }
 
     // Prüfen ob bereits ein Angebot für dieses Ticket existiert
-    if (ticketId) {
-      const { data: existing } = await supabase
-        .from('angebote')
-        .select('id, angebotsnummer')
-        .eq('zoho_ticket_id', ticketId)
-        .maybeSingle()
+    const { data: existing } = await supabase
+      .from('angebote')
+      .select('id, angebotsnummer')
+      .eq('zoho_ticket_id', ticketId)
+      .maybeSingle()
 
-      if (existing) {
-        return NextResponse.json({
-          success: true,
-          angebotId: existing.id,
-          angebotNummer: existing.angebotsnummer,
-          editUrl: `${APP_URL}/angebote/${existing.id}`,
-          action: 'already_exists',
-        })
-      }
+    if (existing) {
+      return NextResponse.json({
+        success: true,
+        angebotId: existing.id,
+        angebotNummer: existing.angebotsnummer,
+        editUrl: `${APP_URL}/angebote/${existing.id}`,
+        action: 'already_exists',
+      })
     }
 
     // Totals berechnen
