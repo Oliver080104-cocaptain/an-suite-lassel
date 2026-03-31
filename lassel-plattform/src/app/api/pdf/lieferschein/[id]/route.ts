@@ -24,39 +24,41 @@ function fmtMenge(n: unknown): string {
 }
 
 const CSS = `
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: Arial, Helvetica, sans-serif; font-size: 10px; color: #333; background: #f0f0f0; padding: 20px; }
-.page { width: 210mm; min-height: 297mm; background: white; margin: 0 auto; padding: 15mm 18mm 30mm 18mm; box-shadow: 0 2px 20px rgba(0,0,0,0.15); position: relative; }
-.absender { font-size: 7.5px; color: #666; margin-bottom: 14px; }
-.header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; }
-.empfaenger { flex: 1; }
-.empfaenger .name { font-size: 12px; font-weight: bold; margin-bottom: 3px; }
-.empfaenger .adresse { font-size: 10px; line-height: 1.7; color: #333; }
-.meta-block { text-align: right; min-width: 210px; }
-.logo-img { height: 55px; object-fit: contain; display: block; margin-left: auto; margin-bottom: 10px; }
-.meta-table { font-size: 9.5px; border-collapse: collapse; margin-left: auto; }
-.meta-table td { padding: 1.5px 0; }
-.meta-table td:first-child { color: #888; padding-right: 8px; text-align: right; }
-.meta-table td:last-child { font-weight: bold; color: #111; }
-.doc-title { font-size: 18px; font-weight: bold; color: #111; margin-bottom: 6px; margin-top: 10px; }
-.obj-line { font-size: 10px; font-weight: bold; color: #333; margin-bottom: 2px; }
-.ticket-line { font-size: 9px; color: #666; margin-bottom: 20px; }
-table.positionen { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 9.5px; }
-table.positionen thead tr { border-top: 1px solid #ddd; border-bottom: 1px solid #ddd; }
-table.positionen thead th { padding: 6px 8px; text-align: left; font-weight: bold; font-size: 9px; color: #555; text-transform: uppercase; letter-spacing: 0.3px; }
-table.positionen thead th.right { text-align: right; }
-table.positionen tbody td { padding: 8px; vertical-align: top; border-bottom: 1px solid #f0f0f0; font-size: 9.5px; line-height: 1.5; }
-table.positionen tbody td.right { text-align: right; }
-.pos-name { font-weight: bold; margin-bottom: 3px; }
-.pos-desc { color: #555; font-size: 9px; line-height: 1.5; white-space: pre-wrap; }
-.notizen-block { border-left: 3px solid #E85A1B; padding-left: 10px; margin-bottom: 20px; font-size: 9px; color: #555; white-space: pre-wrap; }
-.abschlusstext { font-size: 9.5px; color: #444; line-height: 1.7; margin-bottom: 16px; }
-.signatur { font-size: 10px; font-weight: bold; }
-.signature-block { margin-top: 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 48px; margin-bottom: 20px; }
-.signature-line { border-top: 1px solid #999; padding-top: 5px; font-size: 8.5px; color: #888; margin-top: 50px; }
-.footer { position: absolute; bottom: 10mm; left: 18mm; right: 18mm; border-top: 1px solid #ddd; padding-top: 6px; font-size: 7.5px; color: #666; text-align: center; line-height: 1.8; }
-.print-btn { position: fixed; top: 16px; right: 16px; background: #E85A1B; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 13px; cursor: pointer; box-shadow: 0 4px 12px rgba(232,90,27,0.4); z-index: 100; }
-@media print { body { background: white; padding: 0; } .page { box-shadow: none; margin: 0; } .print-btn { display: none; } @page { size: A4; margin: 0; } }
+  @page { margin: 12mm 15mm 15mm 15mm; size: A4 portrait; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; font-size: 10.5pt; color: #333; line-height: 1.5; padding: 0; overflow: visible !important; height: auto !important; }
+  .container { width: 100%; max-width: 100%; margin: 0 auto; padding: 0 5mm; padding-bottom: 20mm; overflow: visible !important; height: auto !important; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-top: 30mm; margin-bottom: 10mm; }
+  .header-left { flex: 1; }
+  .header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 12px; width: 40%; }
+  .logo { max-height: 65px; max-width: 150px; object-fit: contain; }
+  .meta-block { text-align: right; font-size: 9pt; line-height: 1.8; }
+  .sender-line { font-size: 7pt; color: #666; margin-bottom: 15px; }
+  .customer-address { margin-bottom: 25px; font-size: 10.5pt; line-height: 1.8; }
+  .customer-name { font-weight: bold; font-size: 10.5pt; margin-bottom: 1px; }
+  .meta-row { margin-bottom: 3px; display: flex; justify-content: flex-end; align-items: baseline; gap: 8px; }
+  .meta-label { color: #888; white-space: nowrap; }
+  .meta-value { font-weight: normal; color: #2d3748; }
+  .doc-title-section { margin-bottom: 20px; }
+  .doc-title { font-size: 18pt; font-weight: bold; color: #2d3748; }
+  .object-line { font-size: 9pt; margin-bottom: 25px; padding: 0; line-height: 1.2; font-weight: 600; }
+  .object-line div { margin-bottom: 5px; }
+  .positions-header { display: flex; background: #f5f5f5; border-top: 1px solid #ccc; border-bottom: 1px solid #ccc; padding: 5px 3px; font-size: 7.5pt; font-weight: 600; color: #2d3748; margin: 6px 0 0 0; }
+  .positions-header .col-desc { width: 75%; padding-right: 10px; }
+  .positions-header .col-menge { width: 25%; text-align: left; }
+  .positions-list { display: block !important; width: 100%; overflow: visible !important; widows: 1 !important; orphans: 1 !important; }
+  .position-item { display: flex !important; width: 100%; height: auto !important; overflow: visible !important; border-bottom: 1pt solid #e5e5e5; padding: 8pt 6pt; margin: 0; gap: 0; }
+  .pos-col-desc { flex: 0 0 75%; padding-right: 10px; vertical-align: top; box-sizing: border-box; }
+  .pos-col-menge { flex: 0 0 25%; font-size: 8.5pt; text-align: left; vertical-align: top; box-sizing: border-box; }
+  .pos-title { font-weight: 600; color: #2d3748; margin: 0 0 3pt 0; font-size: 9pt; }
+  .pos-desc { font-size: 8.5pt; color: #555; line-height: 1.4; white-space: pre-wrap; margin: 2pt 0 0 0; }
+  .closing { page-break-inside: avoid !important; margin-top: 15pt; margin-bottom: 8mm; font-size: 9.5pt; line-height: 1.5; }
+  .closing p { margin-bottom: 4pt; }
+  .signature { margin-top: 8px; font-weight: 600; font-size: 9.5pt; }
+  .footer { position: relative; margin-top: 10mm; padding-top: 8px; border-top: 2px solid #2d3748; font-size: 9.5pt; color: #333; line-height: 1.7; font-weight: 500; }
+  .footer strong { font-weight: 700; }
+  .print-btn { position: fixed; top: 16px; right: 16px; background: #E85A1B; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 13px; cursor: pointer; box-shadow: 0 4px 12px rgba(232,90,27,0.4); z-index: 100; }
+  @media print { .print-btn { display: none; } @page { size: A4; } }
 `
 
 export async function GET(
@@ -65,135 +67,98 @@ export async function GET(
 ) {
   const { id } = await params
 
-  const { data: ls, error } = await supabase
-    .from('lieferscheine')
-    .select('*')
-    .eq('id', id)
-    .single()
+  const { data: ls, error } = await supabase.from('lieferscheine').select('*').eq('id', id).single()
+  if (error || !ls) return new NextResponse('Lieferschein nicht gefunden', { status: 404 })
 
-  if (error || !ls) {
-    return new NextResponse('Lieferschein nicht gefunden', { status: 404 })
-  }
+  const [posResult, angebotResult] = await Promise.all([
+    supabase.from('lieferschein_positionen').select('*').eq('lieferschein_id', id).order('position'),
+    ls.angebot_id
+      ? supabase.from('angebote').select('angebotsnummer').eq('id', ls.angebot_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+  ])
 
-  const posResult = await supabase.from('lieferschein_positionen').select('*').eq('lieferschein_id', id).order('position')
-
-  const positionen: Record<string, unknown>[] = posResult.data || []
-  const erstelltVon: string = ls.erstellt_von || ''
-
-  const firmaName = 'Lassel GmbH'
-  const firmaStrasse = 'Hetzmannsdorf 25'
-  const firmaPlz = '2041'
-  const firmaOrt = 'Wullersdorf'
-  const firmaLand = 'Österreich'
-  const firmaTelefon = '+436608060050'
-  const firmaEmail = 'office@hoehenarbeiten-lassel.at'
-  const firmaWebsite = 'www.hoehenarbeiten-lassel.at'
-  const firmaIban = 'AT454300048406028000'
-  const firmaBic = 'VBOEATWWXXX'
-  const firmaBank = 'Volksbank'
-  const firmaUstId = 'ATU78127607'
-  const firmaSteuernummer = '22375/5414'
-  const firmaAmtsgericht = 'Korneuburg'
-  const firmaGF = 'Reinhard Lassel'
+  const positionen: any[] = posResult.data || []
+  const erstelltVon = ls.erstellt_von || ''
+  const referenzAngebotNummer = (angebotResult.data as any)?.angebotsnummer || ''
 
   const posRows = positionen.map((p, i) => {
     const lines = (p.beschreibung as string || '').split('\n')
-    const firstLine = esc(lines[0] || '')
-    const restLines = lines.slice(1).join('\n')
+    const titel = esc(lines[0] || '')
+    const desc = lines.slice(1).join('\n').trim()
     return `
-    <tr>
-      <td>${i + 1}</td>
-      <td>
-        <div class="pos-name">${firstLine}</div>
-        ${restLines ? `<div class="pos-desc">${esc(restLines)}</div>` : ''}
-      </td>
-      <td class="right">${fmtMenge(p.menge)}</td>
-      <td class="right">${esc(p.einheit || 'Stk')}</td>
-    </tr>`
+    <div class="position-item">
+      <div class="pos-col-desc">
+        <div class="pos-title">${i + 1}. ${titel}</div>
+        ${desc ? `<div class="pos-desc">${esc(desc)}</div>` : ''}
+      </div>
+      <div class="pos-col-menge">${fmtMenge(p.menge)} ${esc(p.einheit || 'Stk')}</div>
+    </div>`
   }).join('')
 
   const html = `<!DOCTYPE html>
 <html lang="de">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>${CSS}</style>
 </head>
 <body>
 <button class="print-btn" onclick="window.print()">⬇ PDF speichern</button>
-<div class="page">
-
-  <div class="absender">${esc(firmaName)} - ${esc(firmaStrasse)} - ${esc(firmaPlz)} ${esc(firmaOrt)}</div>
+<div class="container">
 
   <div class="header">
-    <div class="empfaenger">
-      <div class="name">${esc(ls.kunde_name)}</div>
-      <div class="adresse">
-        ${ls.kunde_strasse ? esc(ls.kunde_strasse) + '<br>' : ''}
-        ${ls.kunde_plz || ''} ${ls.kunde_ort || ''}<br>
-        ${esc(ls.kunde_land || 'Österreich')}
+    <div class="header-left">
+      <div class="sender-line">Lassel GmbH - Hetzmannsdorf 25 - 2041 Wullersdorf</div>
+      <div class="customer-address">
+        <div class="customer-name">${esc(ls.kunde_name)}</div>
+        ${ls.kunde_strasse ? `<div>${esc(ls.kunde_strasse)}</div>` : ''}
+        ${(ls.kunde_plz || ls.kunde_ort) ? `<div>${esc(ls.kunde_plz || '')} ${esc(ls.kunde_ort || '')}</div>` : ''}
+        <div>Österreich</div>
       </div>
     </div>
-    <div class="meta-block">
-      <img class="logo-img" src="${APP_URL}/logo.png" alt="${esc(firmaName)}">
-      <table class="meta-table">
-        <tr><td>Lieferscheinnummer:</td><td>${esc(ls.lieferscheinnummer)}</td></tr>
-        <tr><td>Datum:</td><td>${formatDate(ls.lieferdatum || ls.created_at)}</td></tr>
-        ${erstelltVon ? `<tr><td>Ihr Ansprechpartner:</td><td>${esc(erstelltVon)}</td></tr>` : ''}
-      </table>
+    <div class="header-right">
+      <img src="${APP_URL}/logo.png" alt="Lassel" class="logo" />
+      <div class="meta-block">
+        <div class="meta-row"><span class="meta-label">Lieferschein-Nr.:</span><span class="meta-value">${esc(ls.lieferscheinnummer)}</span></div>
+        <div class="meta-row"><span class="meta-label">Datum:</span><span class="meta-value">${formatDate(ls.lieferdatum || ls.created_at)}</span></div>
+        ${erstelltVon ? `<div class="meta-row"><span class="meta-label">Ihr Ansprechpartner:</span><span class="meta-value">${esc(erstelltVon)}</span></div>` : ''}
+      </div>
     </div>
   </div>
 
-  <div class="doc-title">Lieferschein ${esc(ls.lieferscheinnummer)}</div>
-  ${ls.objekt_adresse ? `<div class="obj-line">OBJ: ${esc(ls.objekt_bezeichnung || ls.objekt_adresse)}</div>` : ''}
-  ${ls.ticket_nummer ? `<div class="ticket-line">Ticket: ${esc(ls.ticket_nummer)}</div>` : '<div class="ticket-line">&nbsp;</div>'}
-
-  <table class="positionen">
-    <thead>
-      <tr>
-        <th style="width:25px">#</th>
-        <th>Beschreibung</th>
-        <th class="right" style="width:55px">Menge</th>
-        <th class="right" style="width:60px">Einheit</th>
-      </tr>
-    </thead>
-    <tbody>${posRows}</tbody>
-  </table>
-
-  ${ls.notizen ? `<div class="notizen-block">${esc(ls.notizen)}</div>` : ''}
-
-  <div class="signature-block">
-    <div>
-      <div class="signature-line">Datum / Unterschrift Auftraggeber</div>
-    </div>
-    <div>
-      <div class="signature-line">Datum / Unterschrift Auftragnehmer</div>
-    </div>
+  <div class="doc-title-section">
+    <div class="doc-title">Lieferschein ${esc(ls.lieferscheinnummer)}</div>
   </div>
 
-  <div class="abschlusstext">
-    <strong>Mit freundlichen Grüßen</strong><br><br>
-    <span class="signatur">${esc(erstelltVon || firmaGF || firmaName)}</span>
+  <div class="object-line">
+    ${ls.objekt_adresse ? `<div>OBJ: ${esc(ls.objekt_adresse)}</div>` : ''}
+    ${ls.ticket_nummer ? `<div style="font-size:8.5pt;color:#666;font-weight:normal">Ticketnummer: ${esc(ls.ticket_nummer)}</div>` : ''}
+    ${referenzAngebotNummer ? `<div style="font-size:8.5pt;color:#666;font-weight:normal">Referenz Angebot: ${esc(referenzAngebotNummer)}</div>` : ''}
+  </div>
+
+  <div class="positions-header">
+    <div class="col-desc">Beschreibung</div>
+    <div class="col-menge">Menge</div>
+  </div>
+  <div class="positions-list">${posRows}</div>
+
+  <div class="closing">
+    <div class="signature">
+      <p>Mit freundlichen Grüßen</p>
+      <p>${esc(erstelltVon || 'Reinhard Lassel')}</p>
+    </div>
   </div>
 
   <div class="footer">
-    ${esc(firmaName)} _ ${esc(firmaStrasse)} _ ${esc(firmaPlz)} ${esc(firmaOrt)} _ ${esc(firmaLand)}
-    ${firmaTelefon ? `&nbsp;&nbsp;TEL. ${esc(firmaTelefon)}` : ''}
-    ${firmaEmail ? `&nbsp;&nbsp;E-MAIL ${esc(firmaEmail)}` : ''}<br>
-    ${firmaWebsite ? `WEB ${esc(firmaWebsite)} &nbsp;` : ''}
-    ${firmaAmtsgericht ? `AMTSGERICHT ${esc(firmaAmtsgericht)} &nbsp;` : ''}
-    ${firmaUstId ? `UST.-ID ${esc(firmaUstId)} &nbsp;` : ''}
-    ${firmaSteuernummer ? `STEUER-NR. ${esc(firmaSteuernummer)}` : ''}<br>
-    ${firmaGF ? `GESCHÄFTSFÜHRUNG ${esc(firmaGF)} &nbsp;` : ''}
-    ${firmaBank ? `BANK ${esc(firmaBank)} &nbsp;` : ''}
-    ${firmaIban ? `IBAN ${esc(firmaIban)} &nbsp;` : ''}
-    ${firmaBic ? `BIC ${esc(firmaBic)}` : ''}
+    <div><strong>Lassel GmbH</strong> _ Hetzmannsdorf 25 _ 2041 Wullersdorf _ Österreich</div>
+    <div><strong>TEL.</strong> +436608060050 &nbsp; <strong>E-MAIL</strong> office@hoehenarbeiten-lassel.at</div>
+    <div><strong>WEB</strong> www.hoehenarbeiten-lassel.at &nbsp; AMTSGERICHT Korneuburg &nbsp; <strong>UST.-ID</strong> ATU78127607 &nbsp; <strong>STEUER-NR.</strong> 22375/5414</div>
+    <div>GESCHÄFTSFÜHRUNG Reinhard Lassel &nbsp; <strong>BANK</strong> Bank Volksbank &nbsp; BLZ 43000 &nbsp; <strong>IBAN</strong> AT454300048406028000 &nbsp; <strong>BIC</strong> VBOEATWWXXX</div>
   </div>
 
 </div>
 </body>
 </html>`
 
-  return new NextResponse(html, {
-    headers: { 'Content-Type': 'text/html; charset=utf-8' },
-  })
+  return new NextResponse(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
 }

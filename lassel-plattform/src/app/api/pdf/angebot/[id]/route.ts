@@ -28,43 +28,51 @@ function fmtMenge(n: unknown): string {
 }
 
 const CSS = `
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: Arial, Helvetica, sans-serif; font-size: 10px; color: #333; background: #f0f0f0; padding: 20px; }
-.page { width: 210mm; min-height: 297mm; background: white; margin: 0 auto; padding: 15mm 18mm 30mm 18mm; box-shadow: 0 2px 20px rgba(0,0,0,0.15); position: relative; }
-.absender { font-size: 7.5px; color: #666; margin-bottom: 14px; }
-.header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; }
-.empfaenger { flex: 1; }
-.empfaenger .name { font-size: 12px; font-weight: bold; margin-bottom: 3px; }
-.empfaenger .adresse { font-size: 10px; line-height: 1.7; color: #333; }
-.meta-block { text-align: right; min-width: 210px; }
-.logo-img { height: 55px; object-fit: contain; display: block; margin-left: auto; margin-bottom: 10px; }
-.meta-table { font-size: 9.5px; border-collapse: collapse; margin-left: auto; }
-.meta-table td { padding: 1.5px 0; }
-.meta-table td:first-child { color: #888; padding-right: 8px; text-align: right; }
-.meta-table td:last-child { font-weight: bold; color: #111; }
-.doc-title { font-size: 18px; font-weight: bold; color: #111; margin-bottom: 6px; margin-top: 10px; }
-.obj-line { font-size: 10px; font-weight: bold; color: #333; margin-bottom: 2px; }
-.ticket-line { font-size: 9px; color: #666; margin-bottom: 20px; }
-table.positionen { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 9.5px; }
-table.positionen thead tr { border-top: 1px solid #ddd; border-bottom: 1px solid #ddd; }
-table.positionen thead th { padding: 6px 8px; text-align: left; font-weight: bold; font-size: 9px; color: #555; text-transform: uppercase; letter-spacing: 0.3px; }
-table.positionen thead th.right { text-align: right; }
-table.positionen tbody td { padding: 8px; vertical-align: top; border-bottom: 1px solid #f0f0f0; font-size: 9.5px; line-height: 1.5; }
-table.positionen tbody td.right { text-align: right; }
-.pos-name { font-weight: bold; margin-bottom: 3px; }
-.pos-desc { color: #555; font-size: 9px; line-height: 1.5; white-space: pre-wrap; }
-.summen-wrapper { display: flex; justify-content: flex-end; margin-bottom: 24px; }
-.summen-block { width: 260px; font-size: 10px; }
-.summen-block table { width: 100%; border-collapse: collapse; }
-.summen-block td { padding: 4px 0; }
-.summen-block td:last-child { text-align: right; }
-.brutto-row td { border-top: 2px solid #111; font-size: 12px; font-weight: bold; padding-top: 8px !important; }
-.notizen-block { border-left: 3px solid #E85A1B; padding-left: 10px; margin-bottom: 20px; font-size: 9px; color: #555; white-space: pre-wrap; }
-.abschlusstext { font-size: 9.5px; color: #444; line-height: 1.7; margin-bottom: 16px; }
-.signatur { font-size: 10px; font-weight: bold; }
-.footer { position: absolute; bottom: 10mm; left: 18mm; right: 18mm; border-top: 1px solid #ddd; padding-top: 6px; font-size: 7.5px; color: #666; text-align: center; line-height: 1.8; }
-.print-btn { position: fixed; top: 16px; right: 16px; background: #E85A1B; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 13px; cursor: pointer; box-shadow: 0 4px 12px rgba(232,90,27,0.4); z-index: 100; }
-@media print { body { background: white; padding: 0; } .page { box-shadow: none; margin: 0; } .print-btn { display: none; } @page { size: A4; margin: 0; } }
+  @page { margin: 15mm 20mm; size: A4 portrait; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; font-size: 10pt; color: #000; line-height: 1.4; padding: 0; margin: 0; overflow: visible !important; height: auto !important; }
+  .container { width: 100%; max-width: 100%; margin: 0 auto; padding: 0; overflow: visible !important; height: auto !important; position: relative; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-top: 30mm; margin-bottom: 10mm; }
+  .header-left { flex: 1; }
+  .header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 12px; width: 40%; }
+  .logo { max-height: 65px; max-width: 150px; object-fit: contain; }
+  .meta-block { text-align: right; font-size: 9pt; line-height: 1.8; }
+  .sender-line { font-size: 8pt; color: #666; margin-bottom: 5mm; }
+  .customer-address { margin-bottom: 25px; font-size: 10pt; line-height: 1.4; }
+  .customer-name { font-weight: bold; font-size: 10pt; margin-bottom: 2px; }
+  .meta-row { margin-bottom: 3px; display: flex; justify-content: flex-end; gap: 8px; }
+  .meta-label { color: #888; white-space: nowrap; }
+  .meta-value { font-weight: normal; color: #000; }
+  .doc-title-section { margin-bottom: 20px; }
+  .doc-title { font-size: 17pt; font-weight: bold; color: #000; }
+  .object-line { font-size: 10pt; margin-bottom: 20px; font-weight: bold; page-break-after: avoid; }
+  .ticket-line { font-size: 8.5pt; color: #666; font-weight: normal; margin-top: 4px; }
+  .positions-header { display: flex; background: #f8f8f8; border-bottom: 1.5px solid #333; padding: 8px 6px; font-size: 9pt; font-weight: bold; color: #000; margin: 0; }
+  .positions-header .col-desc { width: 60%; padding-right: 10px; }
+  .positions-header .col-menge { width: 10%; text-align: center; }
+  .positions-header .col-preis { width: 15%; text-align: right; }
+  .positions-header .col-gesamt { width: 15%; text-align: right; }
+  .positions-list { display: block !important; width: 100%; overflow: visible !important; widows: 1 !important; orphans: 1 !important; }
+  .position-item { display: flex !important; width: 100%; height: auto !important; overflow: visible !important; border-bottom: 0.5pt solid #ddd; padding: 10pt 6pt; margin: 0; gap: 0; }
+  .pos-col-desc { flex: 0 0 60%; padding-right: 10px; vertical-align: top; box-sizing: border-box; }
+  .pos-col-menge { flex: 0 0 10%; font-size: 9.5pt; text-align: center; padding-top: 0; vertical-align: top; box-sizing: border-box; }
+  .pos-col-preis { flex: 0 0 15%; font-size: 9.5pt; text-align: right; padding-top: 0; vertical-align: top; box-sizing: border-box; }
+  .pos-col-gesamt { flex: 0 0 15%; font-size: 9.5pt; text-align: right; padding-top: 0; vertical-align: top; box-sizing: border-box; }
+  .pos-title { font-weight: bold; color: #000; margin: 0 0 4pt 0; font-size: 9.5pt; }
+  .pos-desc { font-size: 9pt; color: #333; line-height: 1.4; white-space: pre-wrap; margin: 2pt 0 0 0; padding-left: 8pt; }
+  .totals { margin-top: 25pt; margin-left: auto; width: 40%; min-width: 280px; }
+  .total-row { display: flex; justify-content: space-between; padding: 5pt 0; font-size: 10pt; }
+  .total-row.main { font-weight: normal; padding-bottom: 5pt; }
+  .total-row.final { font-weight: bold; font-size: 11pt; border-top: 1.5pt solid #000; margin-top: 10pt; padding-top: 10pt; }
+  .remarks { margin-top: 15pt; padding-top: 10pt; border-top: 1px solid #ddd; font-size: 9pt; line-height: 1.5; white-space: pre-wrap; color: #333; }
+  .closing { page-break-inside: avoid !important; margin-top: 18mm; margin-bottom: 15mm; font-size: 9.5pt; line-height: 1.5; }
+  .closing p { margin-bottom: 6pt; }
+  .signature { margin-top: 12pt; font-weight: bold; font-size: 10pt; }
+  .footer { position: relative; margin-top: 15mm; padding-top: 10px; border-top: 1.5px solid #333; font-size: 7.5pt; color: #666; line-height: 1.6; font-weight: normal; }
+  .footer strong { font-weight: 600; }
+  .footer div { margin-bottom: 2px; }
+  .print-btn { position: fixed; top: 16px; right: 16px; background: #E85A1B; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 13px; cursor: pointer; box-shadow: 0 4px 12px rgba(232,90,27,0.4); z-index: 100; }
+  @media print { .print-btn { display: none; } @page { size: A4; } }
 `
 
 export async function GET(
@@ -73,144 +81,121 @@ export async function GET(
 ) {
   const { id } = await params
 
-  const { data: angebot, error } = await supabase
-    .from('angebote')
-    .select('*')
-    .eq('id', id)
-    .single()
-
-  if (error || !angebot) {
-    return new NextResponse('Angebot nicht gefunden', { status: 404 })
-  }
+  const { data: angebot, error } = await supabase.from('angebote').select('*').eq('id', id).single()
+  if (error || !angebot) return new NextResponse('Angebot nicht gefunden', { status: 404 })
 
   const posResult = await supabase.from('angebot_positionen').select('*').eq('angebot_id', id).order('position')
-
-  const positionen: Record<string, unknown>[] = posResult.data || []
-  const erstelltVon: string = angebot.erstellt_von || ''
-
-  // Firmendaten (hardcoded Lassel GmbH)
-  const firmaName = 'Lassel GmbH'
-  const firmaStrasse = 'Hetzmannsdorf 25'
-  const firmaPlz = '2041'
-  const firmaOrt = 'Wullersdorf'
-  const firmaLand = 'Österreich'
-  const firmaTelefon = '+436608060050'
-  const firmaEmail = 'office@hoehenarbeiten-lassel.at'
-  const firmaWebsite = 'www.hoehenarbeiten-lassel.at'
-  const firmaIban = 'AT454300048406028000'
-  const firmaBic = 'VBOEATWWXXX'
-  const firmaBank = 'Volksbank'
-  const firmaUstId = 'ATU78127607'
-  const firmaSteuernummer = '22375/5414'
-  const firmaAmtsgericht = 'Korneuburg'
-  const firmaGF = 'Reinhard Lassel'
+  const positionen: any[] = posResult.data || []
+  const erstelltVon = angebot.erstellt_von || ''
 
   const posRows = positionen.map((p, i) => {
     const lines = (p.beschreibung as string || '').split('\n')
-    const firstLine = esc(lines[0] || '')
-    const restLines = lines.slice(1).join('\n')
+    const titel = esc(lines[0] || '')
+    const desc = lines.slice(1).join('\n').trim()
     return `
-    <tr>
-      <td>${i + 1}</td>
-      <td>
-        <div class="pos-name">${firstLine}</div>
-        ${restLines ? `<div class="pos-desc">${esc(restLines)}</div>` : ''}
-      </td>
-      <td class="right">${fmtMenge(p.menge)}</td>
-      <td class="right">${esc(p.einheit || 'Stk')}</td>
-      <td class="right">${formatEuro(p.einzelpreis)}</td>
-      <td class="right">${formatEuro(p.gesamtpreis)}</td>
-    </tr>`
+    <div class="position-item">
+      <div class="pos-col-desc">
+        <div class="pos-title">${i + 1}. ${titel}</div>
+        ${desc ? `<div class="pos-desc">${esc(desc)}</div>` : ''}
+      </div>
+      <div class="pos-col-menge">${fmtMenge(p.menge)} ${esc(p.einheit || 'Stk')}</div>
+      <div class="pos-col-preis">${formatEuro(p.einzelpreis)}</div>
+      <div class="pos-col-gesamt">${formatEuro(p.gesamtpreis)}</div>
+    </div>`
   }).join('')
+
+  const nettoGesamt = positionen.reduce((s, p) => s + (Number(p.gesamtpreis) || 0), 0)
+  const mwstGesamt = angebot.mwst_gesamt || (nettoGesamt * 0.2)
+  const bruttoGesamt = angebot.brutto_gesamt || (nettoGesamt + mwstGesamt)
 
   const html = `<!DOCTYPE html>
 <html lang="de">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>${CSS}</style>
 </head>
 <body>
 <button class="print-btn" onclick="window.print()">⬇ PDF speichern</button>
-<div class="page">
-
-  <div class="absender">${esc(firmaName)} - ${esc(firmaStrasse)} - ${esc(firmaPlz)} ${esc(firmaOrt)}</div>
+<div class="container">
 
   <div class="header">
-    <div class="empfaenger">
-      <div class="name">${esc(angebot.kunde_name)}</div>
-      <div class="adresse">
-        ${angebot.kunde_strasse ? esc(angebot.kunde_strasse) + '<br>' : ''}
-        ${angebot.kunde_plz || ''} ${angebot.kunde_ort || ''}<br>
-        ${esc(angebot.kunde_land || 'Österreich')}
-        ${angebot.kunde_uid ? '<br>' + esc(angebot.kunde_uid) : ''}
+    <div class="header-left">
+      <div class="sender-line">Lassel GmbH - Hetzmannsdorf 25 - 2041 Wullersdorf</div>
+      <div class="customer-address">
+        <div class="customer-name">${esc(angebot.kunde_name)}</div>
+        ${angebot.kunde_strasse ? `<div>${esc(angebot.kunde_strasse)}</div>` : ''}
+        ${(angebot.kunde_plz || angebot.kunde_ort) ? `<div>${esc(angebot.kunde_plz || '')} ${esc(angebot.kunde_ort || '')}</div>` : ''}
+        <div>Österreich</div>
+        ${angebot.kunde_uid ? `<div>${esc(angebot.kunde_uid)}</div>` : ''}
       </div>
     </div>
-    <div class="meta-block">
-      <img class="logo-img" src="${APP_URL}/logo.png" alt="${esc(firmaName)}">
-      <table class="meta-table">
-        <tr><td>Angebotsnummer:</td><td>${esc(angebot.angebotsnummer)}</td></tr>
-        <tr><td>Datum:</td><td>${formatDate(angebot.angebotsdatum || angebot.created_at)}</td></tr>
-        ${angebot.gueltig_bis ? `<tr><td>Gültig bis:</td><td>${formatDate(angebot.gueltig_bis)}</td></tr>` : ''}
-        ${erstelltVon ? `<tr><td>Ihr Ansprechpartner:</td><td>${esc(erstelltVon)}</td></tr>` : ''}
-      </table>
+    <div class="header-right">
+      <img src="${APP_URL}/logo.png" alt="Lassel" class="logo" />
+      <div class="meta-block">
+        <div class="meta-row"><span class="meta-label">Angebotsnummer:</span><span class="meta-value">${esc(angebot.angebotsnummer)}</span></div>
+        <div class="meta-row"><span class="meta-label">Datum:</span><span class="meta-value">${formatDate(angebot.angebotsdatum || angebot.created_at)}</span></div>
+        ${angebot.gueltig_bis ? `<div class="meta-row"><span class="meta-label">Gültig bis:</span><span class="meta-value">${formatDate(angebot.gueltig_bis)}</span></div>` : ''}
+        ${erstelltVon ? `<div class="meta-row"><span class="meta-label">Ihr Ansprechpartner:</span><span class="meta-value">${esc(erstelltVon)}</span></div>` : ''}
+      </div>
     </div>
   </div>
 
-  <div class="doc-title">Angebot ${esc(angebot.angebotsnummer)}</div>
-  ${angebot.objekt_adresse ? `<div class="obj-line">OBJ: ${esc(angebot.objekt_bezeichnung || angebot.objekt_adresse)}</div>` : ''}
-  ${angebot.ticket_nummer ? `<div class="ticket-line">Ticket: ${esc(angebot.ticket_nummer)}</div>` : '<div class="ticket-line">&nbsp;</div>'}
+  <div class="doc-title-section">
+    <div class="doc-title">Angebot ${esc(angebot.angebotsnummer)}</div>
+  </div>
 
-  <table class="positionen">
-    <thead>
-      <tr>
-        <th style="width:25px">#</th>
-        <th>Beschreibung</th>
-        <th class="right" style="width:55px">Menge</th>
-        <th class="right" style="width:45px">Einh.</th>
-        <th class="right" style="width:85px">Einzelpreis</th>
-        <th class="right" style="width:85px">Gesamtpreis</th>
-      </tr>
-    </thead>
-    <tbody>${posRows}</tbody>
-  </table>
+  <div class="object-line">
+    ${esc(angebot.objekt_bezeichnung || angebot.objekt_adresse || '')}
+    ${angebot.ticket_nummer ? `<div class="ticket-line">Ticket: ${esc(angebot.ticket_nummer)}</div>` : ''}
+  </div>
 
-  <div class="summen-wrapper">
-    <div class="summen-block">
-      <table>
-        <tr><td>Gesamtbetrag netto</td><td>${formatEuro(angebot.netto_gesamt)}</td></tr>
-        ${angebot.reverse_charge
-          ? '<tr><td>zzgl. Umsatzsteuer (Reverse Charge)</td><td>0,00 €</td></tr>'
-          : `<tr><td>zzgl. Umsatzsteuer 20%</td><td>${formatEuro(angebot.mwst_gesamt)}</td></tr>`
-        }
-        <tr class="brutto-row"><td>Gesamtbetrag brutto</td><td>${formatEuro(angebot.brutto_gesamt)}</td></tr>
-      </table>
+  <div class="positions-header">
+    <div class="col-desc">Beschreibung</div>
+    <div class="col-menge">Menge</div>
+    <div class="col-preis">Einzelpreis</div>
+    <div class="col-gesamt">Gesamtpreis</div>
+  </div>
+  <div class="positions-list">${posRows}</div>
+
+  <div class="totals">
+    <div class="total-row main">
+      <span>Gesamtbetrag netto</span>
+      <span>${formatEuro(angebot.netto_gesamt ?? nettoGesamt)}</span>
+    </div>
+    ${angebot.reverse_charge
+      ? '<div class="total-row"><span>zzgl. Umsatzsteuer (Reverse Charge)</span><span>0,00 €</span></div>'
+      : `<div class="total-row"><span>zzgl. Umsatzsteuer 20%</span><span>${formatEuro(mwstGesamt)}</span></div>`
+    }
+    <div class="total-row final">
+      <span>Gesamtbetrag brutto</span>
+      <span>${formatEuro(bruttoGesamt)}</span>
     </div>
   </div>
 
-  ${angebot.notizen ? `<div class="notizen-block">${esc(angebot.notizen)}</div>` : ''}
+  ${angebot.notizen ? `<div class="remarks">${esc(angebot.notizen)}</div>` : ''}
 
-  ${angebot.fusszeile ? `<div class="abschlusstext" style="white-space:pre-wrap">${esc(angebot.fusszeile)}</div>` : `
-  <div class="abschlusstext">
-    Für Rückfragen stehen wir Ihnen jederzeit gerne zur Verfügung.<br>
-    Wir bedanken uns sehr für Ihr Vertrauen.
-  </div>`}
-
-  <div class="abschlusstext">
-    <strong>Mit freundlichen Grüßen</strong><br><br>
-    <span class="signatur">${esc(erstelltVon || firmaGF || firmaName)}</span>
+  <div class="closing">
+    ${angebot.fusszeile
+      ? `<p style="white-space:pre-wrap">${esc(angebot.fusszeile)}</p>`
+      : `<p>Für Rückfragen stehen wir Ihnen jederzeit gerne zur Verfügung.</p>
+         <p>Wir bedanken uns sehr für Ihr Vertrauen.</p>`
+    }
+    <div class="signature">
+      <p>Mit freundlichen Grüßen</p>
+      <p>${esc(erstelltVon || 'Reinhard Lassel')}</p>
+    </div>
   </div>
 
   <div class="footer">
-    ${esc(firmaName)} _ ${esc(firmaStrasse)} _ ${esc(firmaPlz)} ${esc(firmaOrt)} _ ${esc(firmaLand)} &nbsp;&nbsp;TEL. ${esc(firmaTelefon)} &nbsp;&nbsp;E-MAIL ${esc(firmaEmail)}<br>
-    WEB ${esc(firmaWebsite)} &nbsp;&nbsp;AMTSGERICHT ${esc(firmaAmtsgericht)} &nbsp;&nbsp;UST.-ID ${esc(firmaUstId)} &nbsp;&nbsp;STEUER-NR. ${esc(firmaSteuernummer)}<br>
-    GESCHÄFTSFÜHRUNG ${esc(firmaGF)} &nbsp;&nbsp;BANK ${esc(firmaBank)} &nbsp;&nbsp;BLZ 43000 &nbsp;&nbsp;IBAN ${esc(firmaIban)} &nbsp;&nbsp;BIC ${esc(firmaBic)}
+    <div><strong>Lassel GmbH</strong> _ Hetzmannsdorf 25 _ 2041 Wullersdorf _ Österreich &nbsp; <strong>TEL.</strong> +436608060050 &nbsp; <strong>E-MAIL</strong> office@hoehenarbeiten-lassel.at</div>
+    <div><strong>WEB</strong> www.hoehenarbeiten-lassel.at &nbsp; AMTSGERICHT Korneuburg &nbsp; <strong>UST.-ID</strong> ATU78127607 &nbsp; <strong>STEUER-NR.</strong> 22375/5414</div>
+    <div>GESCHÄFTSFÜHRUNG Reinhard Lassel &nbsp; <strong>BANK</strong> Bank Volksbank &nbsp; BLZ 43000 &nbsp; <strong>IBAN</strong> AT454300048406028000 &nbsp; <strong>BIC</strong> VBOEATWWXXX</div>
   </div>
 
 </div>
 </body>
 </html>`
 
-  return new NextResponse(html, {
-    headers: { 'Content-Type': 'text/html; charset=utf-8' },
-  })
+  return new NextResponse(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
 }
