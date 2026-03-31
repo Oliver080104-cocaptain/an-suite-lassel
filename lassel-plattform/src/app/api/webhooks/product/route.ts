@@ -7,36 +7,60 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-// Payload: { produktName, beschreibung, einzelpreisNetto, ustSatz, einheit, kategorie, aktiv }
 export async function POST(req: NextRequest) {
   if (!validateWebhookSecret(req)) return unauthorizedResponse()
+
+  let body: any
   try {
-    const payload = await req.json()
-    const { produktName, beschreibung, einzelpreisNetto, ustSatz, einheit, kategorie, aktiv } = payload
+    const raw = await req.text()
+    try {
+      body = JSON.parse(raw)
+      if (typeof body === 'string') body = JSON.parse(body)
+    } catch { body = JSON.parse(raw) }
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
 
-    if (!produktName) {
-      return NextResponse.json({ error: 'produktName ist erforderlich' }, { status: 400 })
-    }
+  // n8n "Build Product Payload" node wraps data in a body key
+  const d = body.body || body
 
-    const { data, error } = await supabase
+  const name = d.produktname || d.produktName
+  if (!name) {
+    return NextResponse.json({ error: 'produktname ist erforderlich' }, { status: 400 })
+  }
+
+  try {
+    const { data: existing } = await supabase
       .from('produkte')
-      .insert({
-        name: produktName,
-        beschreibung: beschreibung || null,
-        einzelpreis: parseFloat(einzelpreisNetto) || 0,
-        mwst_satz: parseFloat(ustSatz) || 20,
-        einheit: einheit || 'Stk',
-        kategorie: kategorie || null,
-        aktiv: aktiv !== false,
-      })
-      .select()
-      .single()
+      .select('id')
+      .eq('name', name)
+      .maybeSingle()
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
+    if (existing) {
+      const { error } = await supabase.from('produkte').update({
+        einzelpreis: parseFloat(d.standardpreisNetto) || 0,
+        mwst_satz: parseFloat(d.steuersatz) || 20,
+        einheit: d.einheit || 'Stk',
+        kategorie: d.produktKategorie || null,
+        aktiv: d.aktiv !== false,
+        beschreibung: d.beschreibung || null,
+      }).eq('id', existing.id)
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ success: true, action: 'updated', id: existing.id })
     }
 
-    return NextResponse.json({ success: true, produktId: data.id })
+    const { data, error } = await supabase.from('produkte').insert({
+      name,
+      einzelpreis: parseFloat(d.standardpreisNetto) || 0,
+      mwst_satz: parseFloat(d.steuersatz) || 20,
+      einheit: d.einheit || 'Stk',
+      kategorie: d.produktKategorie || null,
+      aktiv: d.aktiv !== false,
+      beschreibung: d.beschreibung || null,
+    }).select().single()
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ success: true, action: 'created', id: data.id })
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 500 })
   }

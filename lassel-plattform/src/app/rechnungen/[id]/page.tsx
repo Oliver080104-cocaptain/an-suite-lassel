@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { toast } from 'sonner'
-import { FileDown, Loader2, CheckCircle2, Ban, Send, Calendar as CalendarIcon, ArrowLeft } from 'lucide-react'
+import { FileDown, Loader2, CheckCircle2, Ban, Send, Calendar as CalendarIcon, ArrowLeft, Download, FileText, ChevronDown, Plus } from 'lucide-react'
 import { format, addDays, parseISO, isValid } from 'date-fns'
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -70,6 +70,7 @@ const defaultInvoice = {
   stornoVonRechnung: '',
   stornoGrund: '',
   pdfUrl: '',
+  fusszeile: '',
   vermittlerId: '',
   leistungszeitraumVon: '',
   leistungszeitraumBis: '',
@@ -100,10 +101,12 @@ export default function InvoiceDetailPage() {
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
   const [uploadingToZoho, setUploadingToZoho] = useState(false)
+  const [vorlagenOpen, setVorlagenOpen] = useState(false)
 
   const invoiceInitialized = useRef(false)
   const positionsInitialized = useRef(false)
   const autoSaveLock = useRef(false)
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Load invoice
   const { data: existingInvoice, isLoading: loadingInvoice } = useQuery({
@@ -159,6 +162,14 @@ export default function InvoiceDetailPage() {
     staleTime: 10 * 60 * 1000,
   })
 
+  const { data: vorlagenList = [] } = useQuery({
+    queryKey: ['textvorlagen'],
+    queryFn: async () => {
+      const { data } = await supabase.from('textvorlagen').select('*').order('name')
+      return data || []
+    }
+  })
+
   // Init invoice from loaded data
   useEffect(() => {
     if (existingInvoice && !invoiceInitialized.current) {
@@ -175,7 +186,10 @@ export default function InvoiceDetailPage() {
         kundeOrt: existingInvoice.kunde_ort || '',
         objektBezeichnung: existingInvoice.objekt_adresse || '',
         ticketNumber: existingInvoice.ticket_nummer || '',
+        ticketId: existingInvoice.zoho_ticket_id || '',
+        erstelltDurch: existingInvoice.erstellt_von || '',
         bemerkung: existingInvoice.notizen || defaultInvoice.bemerkung,
+        fusszeile: existingInvoice.fusszeile || '',
         pdfUrl: existingInvoice.pdf_url || '',
         summeBrutto: existingInvoice.brutto_gesamt || 0,
         referenzAngebotId: existingInvoice.angebot_id || '',
@@ -237,6 +251,19 @@ export default function InvoiceDetailPage() {
       }
     }
   }, [invoice, positions, isNew, invoiceId])
+
+  // Debounced autosave: 2 seconds after last change
+  useEffect(() => {
+    if (isNew || !invoiceId || !invoiceInitialized.current) return
+    if (debounceTimer.current) clearTimeout(debounceTimer.current)
+    debounceTimer.current = setTimeout(() => {
+      if (!autoSaveLock.current) {
+        autoSaveLock.current = true
+        performAutoSave().finally(() => { autoSaveLock.current = false })
+      }
+    }, 2000)
+    return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current) }
+  }, [invoice, positions])
 
   const totals = useMemo(() => {
     const summeNetto = positions.reduce((sum, p) => sum + (parseFloat(p.gesamtNetto as string) || 0), 0)
@@ -300,6 +327,9 @@ export default function InvoiceDetailPage() {
     faellig_bis: inv.faelligAm || null,
     objekt_adresse: inv.objektBezeichnung || null,
     ticket_nummer: inv.ticketNumber || null,
+    zoho_ticket_id: inv.ticketId || null,
+    erstellt_von: inv.erstelltDurch || null,
+    fusszeile: inv.fusszeile || null,
     notizen: inv.bemerkung || null,
     pdf_url: inv.pdfUrl || null,
     angebot_id: inv.referenzAngebotId || null,
@@ -633,6 +663,14 @@ export default function InvoiceDetailPage() {
               <span className="hidden sm:inline">Speichern & in Zoho ablegen</span>
               <span className="sm:hidden">Speichern</span>
             </Button>
+            {!isNew && (
+              <a href={`/api/pdf/rechnung/${invoiceId}`} target="_blank" rel="noopener noreferrer">
+                <Button variant="outline" className="gap-2">
+                  <Download className="h-4 w-4" />
+                  PDF herunterladen
+                </Button>
+              </a>
+            )}
           </div>
         </div>
 
@@ -889,14 +927,7 @@ export default function InvoiceDetailPage() {
 
                 <div>
                   <Label>Erstellt durch</Label>
-                  <Select value={invoice.erstelltDurch || ''} onValueChange={v => setInvoice(p => ({ ...p, erstelltDurch: v ?? '' }))}>
-                    <SelectTrigger className="mt-1"><SelectValue placeholder="Mitarbeiter auswählen..." /></SelectTrigger>
-                    <SelectContent>
-                      {(mitarbeiterList as any[]).map((m: any) => (
-                        <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Input value={invoice.erstelltDurch || ''} onChange={e => setInvoice(p => ({ ...p, erstelltDurch: e.target.value }))} placeholder="z.B. Reinhard Lassel" className="mt-1" />
                 </div>
 
                 <div className={invoice.vermittlerId ? 'p-3 bg-orange-50 border-2 border-orange-300 rounded-lg' : ''}>
@@ -973,51 +1004,74 @@ export default function InvoiceDetailPage() {
           <InvoicePositionsTable positions={positions} onChange={setPositions} showTeilfaktura={showTeilfaktura} />
         </Card>
 
-        {/* Summary + Anmerkungen in 2-col grid */}
+        {/* Anmerkungen + Summary */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-          <div>
-            <Card className="p-6">
-              <h2 className="text-lg font-semibold text-slate-900 mb-4">Anmerkungen</h2>
-              <Textarea
-                value={invoice.bemerkung || ''}
-                onChange={e => setInvoice(p => ({ ...p, bemerkung: e.target.value }))}
-                rows={6}
-                placeholder="Zahlungshinweise, Bankdaten, etc."
-                className="resize-none"
-              />
-            </Card>
-          </div>
-          <div>
-            <OfferSummary positions={positions} />
-          </div>
+          <Card className="p-6">
+            <h2 className="text-lg font-semibold text-slate-900 mb-4">Anmerkungen</h2>
+            <Textarea
+              value={invoice.bemerkung || ''}
+              onChange={e => setInvoice(p => ({ ...p, bemerkung: e.target.value }))}
+              rows={6}
+              placeholder="Zahlungshinweise, Bankdaten, etc."
+              className="resize-none"
+            />
+          </Card>
+          <OfferSummary positions={positions} />
         </div>
 
-        {/* PDF Preview */}
-        <Card className="p-6">
-          <h2 className="text-lg font-semibold text-slate-900 mb-4">PDF Vorschau</h2>
-          <div className="bg-slate-100 rounded-lg flex items-center justify-center p-12 text-slate-500 text-sm">
-            <div className="text-center">
-              <p className="font-medium mb-1">PDF wird über /api/pdf/rechnung/{isNew ? '[id]' : invoiceId} generiert</p>
-              {!isNew && invoice.pdfUrl && (
-                <a href={invoice.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:text-emerald-700 underline text-sm">
-                  Gespeichertes PDF öffnen
-                </a>
-              )}
-              {!isNew && !invoice.pdfUrl && (
-                <p className="text-xs text-slate-400 mt-1">Noch kein PDF generiert — Speichern & in Zoho ablegen um PDF zu erstellen</p>
+        {/* Fußzeile – volle Breite */}
+        <Card className="p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-slate-500" />
+              <h2 className="text-lg font-semibold text-slate-900">Fußzeile</h2>
+            </div>
+            <div className="relative">
+              <Button variant="outline" size="sm" onClick={() => setVorlagenOpen(!vorlagenOpen)}>
+                Weitere Vorlagen <ChevronDown className="ml-1 h-4 w-4" />
+              </Button>
+              {vorlagenOpen && (
+                <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-slate-200 rounded-lg shadow-lg z-50 overflow-hidden">
+                  {(vorlagenList as any[]).map((v: any) => (
+                    <button
+                      key={v.id}
+                      onClick={() => { setInvoice(p => ({ ...p, fusszeile: v.inhalt || v.text || '' })); setVorlagenOpen(false) }}
+                      className="w-full text-left px-4 py-3 hover:bg-slate-50 border-b border-slate-100 last:border-0"
+                    >
+                      <div className="font-medium text-sm">{v.name}</div>
+                      <div className="text-xs text-slate-500 truncate">{(v.inhalt || v.text || '').substring(0, 55)}</div>
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => { router.push('/einstellungen/textvorlagen'); setVorlagenOpen(false) }}
+                    className="w-full text-left px-4 py-3 flex items-center gap-2 text-sm text-slate-600 hover:bg-slate-50"
+                  >
+                    <Plus className="h-4 w-4" /> Neue Vorlage hinzufügen
+                  </button>
+                </div>
               )}
             </div>
           </div>
-          {!isNew && (
-            <div className="mt-4">
+          <Textarea
+            value={invoice.fusszeile || ''}
+            onChange={e => setInvoice(p => ({ ...p, fusszeile: e.target.value }))}
+            placeholder="Text für Rechnung..."
+            rows={4}
+          />
+        </Card>
+
+        {/* PDF Preview */}
+        {!isNew && (
+          <div className="overflow-x-auto bg-gray-200 rounded-xl p-6">
+            <div style={{ width: '794px', margin: '0 auto' }}>
               <iframe
                 src={`/api/pdf/rechnung/${invoiceId}`}
-                className="w-full h-[600px] rounded-lg border border-slate-200"
+                style={{ width: '794px', height: '1123px', border: 'none', display: 'block' }}
                 title="Rechnungsvorschau"
               />
             </div>
-          )}
-        </Card>
+          </div>
+        )}
       </div>
     </div>
   )

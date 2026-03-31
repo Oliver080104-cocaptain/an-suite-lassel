@@ -7,36 +7,54 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-// Payload: { name, email, telefon, provisionssatz, adresse, ort, plz }
 export async function POST(req: NextRequest) {
   if (!validateWebhookSecret(req)) return unauthorizedResponse()
+
+  let body: any
   try {
-    const payload = await req.json()
-    const { name, email, telefon, provisionssatz, adresse, ort, plz } = payload
+    const raw = await req.text()
+    try {
+      body = JSON.parse(raw)
+      if (typeof body === 'string') body = JSON.parse(body)
+    } catch { body = JSON.parse(raw) }
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
 
-    if (!name) {
-      return NextResponse.json({ error: 'name ist erforderlich' }, { status: 400 })
-    }
+  if (!body.name) {
+    return NextResponse.json({ error: 'name ist erforderlich' }, { status: 400 })
+  }
 
-    const { data, error } = await supabase
+  try {
+    const { data: existing } = await supabase
       .from('vermittler')
-      .insert({
-        name,
-        email: email || null,
-        telefon: telefon || null,
-        provisionssatz: parseFloat(provisionssatz) || 10,
-        adresse: adresse || null,
-        ort: ort || null,
-        plz: plz || null,
-      })
-      .select()
-      .single()
+      .select('id')
+      .eq('name', body.name)
+      .maybeSingle()
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
+    if (existing) {
+      const { error } = await supabase.from('vermittler').update({
+        email: body.email || null,
+        telefon: body.telefon || null,
+        provisionssatz: parseFloat(body.provisionssatz) || 10,
+        status: body.status || 'aktiv',
+        notizen: body.notizen || null,
+      }).eq('id', existing.id)
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({ success: true, action: 'updated', id: existing.id })
     }
 
-    return NextResponse.json({ success: true, vermittlerId: data.id })
+    const { data, error } = await supabase.from('vermittler').insert({
+      name: body.name,
+      email: body.email || null,
+      telefon: body.telefon || null,
+      provisionssatz: parseFloat(body.provisionssatz) || 10,
+      status: body.status || 'aktiv',
+      notizen: body.notizen || null,
+    }).select().single()
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ success: true, action: 'created', id: data.id })
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 500 })
   }
