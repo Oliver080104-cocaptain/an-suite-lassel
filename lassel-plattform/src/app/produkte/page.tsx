@@ -187,7 +187,7 @@ export default function ProdukteListePage() {
 
         {/* Create/Edit Dialog */}
         <Dialog open={showDialog} onOpenChange={(open) => { if (!open) resetForm(); setShowDialog(open) }}>
-          <DialogContent className="max-w-2xl w-full p-8 max-h-[90vh] overflow-y-auto">
+          <DialogContent className="p-8 max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingProduct ? 'Produkt bearbeiten' : 'Neues Produkt'}</DialogTitle>
             </DialogHeader>

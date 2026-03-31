@@ -106,7 +106,7 @@ export default function EmailVorschauModal({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-[95vw] w-[95vw] h-[92vh] max-h-[92vh] p-0 overflow-hidden flex flex-col">
+      <DialogContent className="h-[92vh] max-h-[92vh] p-0 overflow-hidden flex flex-col">
         <DialogHeader className="px-8 pt-6 pb-4 flex-shrink-0">
           <DialogTitle className="flex items-center gap-2 text-xl">
             <span className="text-[#E85A1B] text-2xl">✉</span> E-Mail Vorschau

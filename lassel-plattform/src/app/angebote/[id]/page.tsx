@@ -440,15 +440,13 @@ export default function OfferDetailPage() {
         objekt_adresse: offer.objekt_bezeichnung || offer.objekt_adresse,
         lieferdatum: format(new Date(), 'yyyy-MM-dd'),
         ticket_nummer: offer.ticket_nummer,
-        zoho_ticket_id: offer.zoho_ticket_id || null,
-        erstellt_von: offer.erstellt_von || null,
         status: 'entwurf'
       }).select().single()
       if (error) throw error
 
       const { data: dbPositions } = await supabase.from('angebot_positionen')
         .select('*').eq('angebot_id', offerId).order('position')
-      const posForLi = (dbPositions || []).filter((p: any) => p.beschreibung?.trim())
+      const posForLi = (dbPositions || []).filter((p: any) => p.beschreibung?.trim() || p.menge)
       if (posForLi.length > 0) {
         await supabase.from('lieferschein_positionen').insert(
           posForLi.map((p: any) => ({
@@ -497,7 +495,6 @@ export default function OfferDetailPage() {
 
       const { data: invoice, error } = await supabase.from('rechnungen').insert({
         rechnungsnummer,
-        rechnungstyp: 'normal',
         angebot_id: offer.id || offerId,
         kunde_name: offer.kunde_name,
         kunde_strasse: offer.kunde_strasse,
@@ -507,10 +504,7 @@ export default function OfferDetailPage() {
         rechnungsdatum: format(new Date(), 'yyyy-MM-dd'),
         faellig_bis: format(addDays(new Date(), 14), 'yyyy-MM-dd'),
         ticket_nummer: offer.ticket_nummer,
-        zoho_ticket_id: offer.zoho_ticket_id || null,
-        erstellt_von: offer.erstellt_von || null,
         status: 'entwurf',
-        reverse_charge: offer.reverse_charge,
         netto_gesamt: totals.netto_gesamt,
         mwst_gesamt: totals.mwst_gesamt,
         brutto_gesamt: totals.brutto_gesamt,
@@ -519,7 +513,7 @@ export default function OfferDetailPage() {
 
       const { data: dbPositions } = await supabase.from('angebot_positionen')
         .select('*').eq('angebot_id', offerId).order('position')
-      const posForRe = (dbPositions || []).filter((p: any) => p.beschreibung?.trim())
+      const posForRe = (dbPositions || []).filter((p: any) => p.beschreibung?.trim() || p.menge)
       if (posForRe.length > 0) {
         await supabase.from('rechnung_positionen').insert(
           posForRe.map((p: any) => ({

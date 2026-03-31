@@ -123,7 +123,7 @@ export default function OfferPositionsTable({ positions, onChange, readOnly = fa
           <TableHeader>
             <TableRow className="bg-slate-50">
               <TableHead className="w-12 sm:w-16 text-center text-xs sm:text-sm">Pos.</TableHead>
-              <TableHead className="min-w-[150px] sm:min-w-[200px] text-xs sm:text-sm">Produkt</TableHead>
+              <TableHead className="min-w-[150px] sm:min-w-[200px] max-w-[240px] sm:max-w-[300px] text-xs sm:text-sm">Produkt</TableHead>
               <TableHead className="w-16 sm:w-24 text-right text-xs sm:text-sm">Menge</TableHead>
               <TableHead className="w-14 sm:w-20 text-xs sm:text-sm">Einheit</TableHead>
               <TableHead className="w-20 sm:w-32 text-right text-xs sm:text-sm">Preis</TableHead>
@@ -139,9 +139,9 @@ export default function OfferPositionsTable({ positions, onChange, readOnly = fa
                 <TableCell className="text-center font-medium text-slate-500">{pos.pos}</TableCell>
                 <TableCell>
                   {readOnly ? (
-                    <div>
-                      <p className="font-medium text-xs sm:text-base">{pos.produktName}</p>
-                      {pos.beschreibung && <p className="text-xs text-slate-500">{pos.beschreibung}</p>}
+                    <div className="max-w-[240px] sm:max-w-[300px] overflow-hidden">
+                      <p className="font-medium text-xs sm:text-base truncate" title={pos.produktName}>{pos.produktName}</p>
+                      {pos.beschreibung && <p className="text-xs text-slate-500 truncate" title={pos.beschreibung}>{pos.beschreibung}</p>}
                     </div>
                   ) : (
                     <div className="flex flex-col gap-1 w-full">

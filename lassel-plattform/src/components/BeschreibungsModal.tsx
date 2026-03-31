@@ -1,13 +1,13 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { supabase } from '@/lib/supabase'
 import { useQuery } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
-import { Sparkles, Mic, Calculator, Check } from 'lucide-react'
+import { Sparkles, Mic, MicOff, Calculator, Check } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface Props {
@@ -31,6 +31,8 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
     aufschluesselung: string
   } | null>(null)
   const [kiLoading, setKiLoading] = useState(false)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
 
   React.useEffect(() => {
     if (open) {
@@ -54,24 +56,49 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
     onOpenChange(false)
   }
 
-  function startRecording() {
-    if (!('webkitSpeechRecognition' in window)) {
-      alert('Spracheingabe nur in Chrome verfügbar')
+  async function toggleRecording() {
+    if (isRecording) {
+      mediaRecorderRef.current?.stop()
       return
     }
-    const recognition = new (window as any).webkitSpeechRecognition()
-    recognition.lang = 'de-AT'
-    recognition.continuous = false
-    recognition.interimResults = false
-    recognition.onstart = () => setIsRecording(true)
-    recognition.onend = () => setIsRecording(false)
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript
-      setKiInput(transcript)
-      handleKiKalkulation(transcript)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mediaRecorder = new MediaRecorder(stream)
+      mediaRecorderRef.current = mediaRecorder
+      audioChunksRef.current = []
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data)
+      }
+
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop())
+        setIsRecording(false)
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        setKiLoading(true)
+        try {
+          const formData = new FormData()
+          formData.append('audio', blob, 'recording.webm')
+          const res = await fetch('/api/ki/transkription', { method: 'POST', body: formData })
+          const data = await res.json()
+          if (data.text) {
+            setKiInput(data.text)
+            handleKiKalkulation(data.text)
+          }
+        } catch (err) {
+          console.error('Transkription error:', err)
+          toast.error('Spracheingabe fehlgeschlagen')
+        } finally {
+          setKiLoading(false)
+        }
+      }
+
+      mediaRecorder.start()
+      setIsRecording(true)
+    } catch (err) {
+      console.error('Mikrofon error:', err)
+      toast.error('Mikrofon nicht verfügbar')
     }
-    recognition.onerror = () => setIsRecording(false)
-    recognition.start()
   }
 
   async function handleKiKalkulation(input?: string) {
@@ -96,10 +123,7 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="p-0 overflow-hidden flex flex-col"
-        style={{ width: '98vw', maxWidth: '98vw', height: '92vh', maxHeight: '92vh' }}
-      >
+      <DialogContent className="h-[95vh] max-h-[95vh] p-0 overflow-hidden flex flex-col">
         {/* Header */}
         <DialogHeader className="px-6 pt-5 pb-4 border-b flex-shrink-0">
           <DialogTitle className="text-lg font-semibold">{title || 'Beschreibung bearbeiten'}</DialogTitle>
@@ -121,7 +145,6 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
               </button>
             </div>
 
-            {/* Textarea nimmt restliche Höhe */}
             <Textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -176,13 +199,14 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
                 <Button
                   variant={isRecording ? 'destructive' : 'outline'}
                   size="sm"
-                  onClick={startRecording}
+                  onClick={toggleRecording}
+                  disabled={kiLoading}
                   className="gap-2 flex-1"
                 >
                   {isRecording ? (
                     <>
-                      <div className="h-2 w-2 rounded-full bg-white animate-pulse flex-shrink-0" />
-                      Aufnahme läuft...
+                      <MicOff className="h-4 w-4 flex-shrink-0" />
+                      Aufnahme stoppen
                     </>
                   ) : (
                     <>
@@ -205,7 +229,7 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
                   Berechnen
                 </Button>
               </div>
-              <p className="text-xs text-slate-400 mt-2">Strg+Enter zum Berechnen · Spricht Deutsch (Österreich)</p>
+              <p className="text-xs text-slate-400 mt-2">Strg+Enter zum Berechnen · Transkription via Whisper</p>
             </div>
 
             {/* Kalkulations-Ergebnis */}
