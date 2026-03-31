@@ -31,7 +31,7 @@ const CSS = `
   @page { margin: 15mm 20mm; size: A4 portrait; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: Arial, sans-serif; font-size: 10pt; color: #000; line-height: 1.4; padding: 0; margin: 0; overflow: visible !important; height: auto !important; }
-  .container { width: 100%; max-width: 100%; margin: 0 auto; padding: 0; overflow: visible !important; height: auto !important; position: relative; }
+  .container { width: 100%; max-width: 100%; margin: 0 auto; padding: 0 20mm; overflow: visible !important; height: auto !important; position: relative; }
   .header { display: flex; justify-content: space-between; align-items: flex-start; margin-top: 30mm; margin-bottom: 10mm; }
   .header-left { flex: 1; }
   .header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 12px; width: 40%; }

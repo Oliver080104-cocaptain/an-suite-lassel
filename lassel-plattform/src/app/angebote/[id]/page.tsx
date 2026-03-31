@@ -978,7 +978,7 @@ export default function OfferDetailPage() {
                 </Button>
               </a>
             </div>
-            <div className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-inner" style={{ aspectRatio: '1 / 1.414' }}>
+            <div className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-inner p-8" style={{ aspectRatio: '1 / 1.414' }}>
               <iframe src={`/api/pdf/angebot/${offerId}`} className="w-full h-full" title="Angebots-Vorschau" />
             </div>
           </div>
