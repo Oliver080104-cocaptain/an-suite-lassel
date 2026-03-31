@@ -79,28 +79,32 @@ export async function GET(
 ) {
   const { id } = await params
 
-  const { data: rechnung, error } = await supabase.from('rechnungen').select('*').eq('id', id).single()
+  const [{ data: rechnung, error }, posResult, settingsResult] = await Promise.all([
+    supabase.from('rechnungen').select('*').eq('id', id).single(),
+    supabase.from('rechnung_positionen').select('*').eq('rechnung_id', id).order('position'),
+    supabase.from('company_settings').select('rechnungFusstext').limit(1).maybeSingle(),
+  ])
   if (error || !rechnung) return new NextResponse('Rechnung nicht gefunden', { status: 404 })
 
-  const posResult = await supabase.from('rechnung_positionen').select('*').eq('rechnung_id', id).order('position')
   const positionen: any[] = posResult.data || []
   const erstelltVon = rechnung.erstellt_von || ''
+  const fusstext = rechnung.fusszeile || (settingsResult.data as any)?.rechnungFusstext || ''
 
-  // Empfänger bestimmen: Hausinhabung oder direkter Kunde
-  const rechnungAnHI = rechnung.rechnungAnHI || false
+  // Empfänger bestimmen: Hausinhabung oder direkter Kunde (snake_case DB columns)
+  const rechnungAnHI = rechnung.rechnung_an_hi || false
   let empfaengerName = ''
   let empfaengerAdresseHtml = ''
   let empfaengerUID = ''
 
   if (rechnungAnHI && rechnung.hausinhabung) {
     empfaengerName = rechnung.hausinhabung
-    const hvName = rechnung.hausverwaltungName ? `p.A. ${esc(rechnung.hausverwaltungName)}<br>` : ''
-    const hvStr = rechnung.hausverwaltungStrasse ? `${esc(rechnung.hausverwaltungStrasse)}<br>` : ''
-    const hvPlzOrt = (rechnung.hausverwaltungPlz || rechnung.hausverwaltungOrt)
-      ? `${esc(rechnung.hausverwaltungPlz || '')} ${esc(rechnung.hausverwaltungOrt || '')}<br>`
+    const hvName = rechnung.hausverwaltung_name ? `p.A. ${esc(rechnung.hausverwaltung_name)}<br>` : ''
+    const hvStr = rechnung.hausverwaltung_strasse ? `${esc(rechnung.hausverwaltung_strasse)}<br>` : ''
+    const hvPlzOrt = (rechnung.hausverwaltung_plz || rechnung.hausverwaltung_ort)
+      ? `${esc(rechnung.hausverwaltung_plz || '')} ${esc(rechnung.hausverwaltung_ort || '')}<br>`
       : ''
     empfaengerAdresseHtml = `${hvName}${hvStr}${hvPlzOrt}Österreich`
-    empfaengerUID = rechnung.uidVonHI || ''
+    empfaengerUID = rechnung.uid_von_hi || ''
   } else {
     empfaengerName = rechnung.kunde_name || ''
     const str = rechnung.kunde_strasse ? `${esc(rechnung.kunde_strasse)}<br>` : ''
@@ -156,7 +160,8 @@ export async function GET(
       <div class="meta-block">
         <div class="meta-row"><span class="meta-label">Rechnungs-Nr.:</span><span class="meta-value">${esc(rechnung.rechnungsnummer)}</span></div>
         <div class="meta-row"><span class="meta-label">Rechnungsdatum:</span><span class="meta-value">${formatDate(rechnung.rechnungsdatum || rechnung.created_at)}</span></div>
-        <div class="meta-row"><span class="meta-label">Leistungsdatum:</span><span class="meta-value">${formatDate(rechnung.rechnungsdatum || rechnung.created_at)}</span></div>
+        ${(rechnung.leistungszeitraum_von && rechnung.leistungszeitraum_bis) ? `<div class="meta-row"><span class="meta-label">Leistungszeitraum:</span><span class="meta-value">${formatDate(rechnung.leistungszeitraum_von)} – ${formatDate(rechnung.leistungszeitraum_bis)}</span></div>` : `<div class="meta-row"><span class="meta-label">Leistungsdatum:</span><span class="meta-value">${formatDate(rechnung.rechnungsdatum || rechnung.created_at)}</span></div>`}
+        ${rechnung.zahlungskondition ? `<div class="meta-row"><span class="meta-label">Zahlungskondition:</span><span class="meta-value">${esc(rechnung.zahlungskondition)}</span></div>` : ''}
         ${erstelltVon ? `<div class="meta-row"><span class="meta-label">Ihr Ansprechpartner:</span><span class="meta-value">${esc(erstelltVon)}</span></div>` : ''}
       </div>
     </div>
@@ -195,14 +200,14 @@ export async function GET(
   </div>
 
   <div class="payment">
-    <div style="margin-bottom:6px"><strong>Zahlungsbedingungen:</strong> 30 Tage netto</div>
+    <div style="margin-bottom:6px"><strong>Zahlungsbedingungen:</strong> ${esc(rechnung.zahlungskondition || '30 Tage netto')}</div>
     ${rechnung.faellig_bis ? `<div style="margin-bottom:6px"><strong>Fällig am:</strong> ${formatDate(rechnung.faellig_bis)}</div>` : ''}
     <div style="margin-top:12px;font-size:9pt;line-height:1.6">
       ${rechnung.notizen || 'Bitte überweisen Sie den Rechnungsbetrag unter Angabe der Rechnungsnummer auf das unten angegebene Konto.'}
     </div>
   </div>
 
-  ${rechnung.fusszeile ? `<div style="margin-top:15pt;font-size:9pt;white-space:pre-wrap">${esc(rechnung.fusszeile)}</div>` : ''}
+  ${fusstext ? `<div style="margin-top:15pt;font-size:9pt;white-space:pre-wrap">${esc(fusstext)}</div>` : ''}
 
   <div class="closing">
     <div class="signature">

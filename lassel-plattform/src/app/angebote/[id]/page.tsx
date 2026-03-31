@@ -495,14 +495,23 @@ export default function OfferDetailPage() {
 
       const { data: invoice, error } = await supabase.from('rechnungen').insert({
         rechnungsnummer,
+        rechnungstyp: 'normal',
         angebot_id: offer.id || offerId,
+        referenz_angebot_id: offer.id || offerId,
+        referenz_angebot_nummer: offer.angebotsnummer || null,
         kunde_name: offer.kunde_name,
         kunde_strasse: offer.kunde_strasse,
         kunde_plz: offer.kunde_plz,
         kunde_ort: offer.kunde_ort,
+        rechnung_an_hi: offer.rechnungAnHI || false,
+        hausinhabung: offer.hausinhabung || null,
         objekt_adresse: offer.objekt_bezeichnung || offer.objekt_adresse,
         rechnungsdatum: format(new Date(), 'yyyy-MM-dd'),
-        faellig_bis: format(addDays(new Date(), 14), 'yyyy-MM-dd'),
+        faellig_bis: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
+        zahlungskondition: '30 Tage netto',
+        zahlungsziel_tage: 30,
+        leistungszeitraum_von: null,
+        leistungszeitraum_bis: null,
         ticket_nummer: offer.ticket_nummer,
         status: 'entwurf',
         netto_gesamt: totals.netto_gesamt,
@@ -951,9 +960,10 @@ export default function OfferDetailPage() {
           <Textarea
             value={offer.fusszeile || ''}
             onChange={(e) => setOffer({ ...offer, fusszeile: e.target.value })}
-            placeholder="Text für Angebot/Rechnung..."
+            placeholder="Leer lassen für Standard-Fußtext aus Einstellungen..."
             rows={4}
           />
+          <p className="text-xs text-slate-400 mt-1">Leer = Standard-Fußtext aus Einstellungen wird verwendet</p>
         </Card>
 
         {/* PDF Preview */}

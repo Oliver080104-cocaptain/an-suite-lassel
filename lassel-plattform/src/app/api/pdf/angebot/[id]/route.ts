@@ -81,12 +81,16 @@ export async function GET(
 ) {
   const { id } = await params
 
-  const { data: angebot, error } = await supabase.from('angebote').select('*').eq('id', id).single()
+  const [{ data: angebot, error }, posResult, settingsResult] = await Promise.all([
+    supabase.from('angebote').select('*').eq('id', id).single(),
+    supabase.from('angebot_positionen').select('*').eq('angebot_id', id).order('position'),
+    supabase.from('company_settings').select('angebotFusstext').limit(1).maybeSingle(),
+  ])
   if (error || !angebot) return new NextResponse('Angebot nicht gefunden', { status: 404 })
 
-  const posResult = await supabase.from('angebot_positionen').select('*').eq('angebot_id', id).order('position')
   const positionen: any[] = posResult.data || []
   const erstelltVon = angebot.erstellt_von || ''
+  const fusstext = angebot.fusszeile || (settingsResult.data as any)?.angebotFusstext || ''
 
   const posRows = positionen.map((p, i) => {
     const lines = (p.beschreibung as string || '').split('\n')
@@ -176,8 +180,8 @@ export async function GET(
   ${angebot.notizen ? `<div class="remarks">${esc(angebot.notizen)}</div>` : ''}
 
   <div class="closing">
-    ${angebot.fusszeile
-      ? `<p style="white-space:pre-wrap">${esc(angebot.fusszeile)}</p>`
+    ${fusstext
+      ? `<p style="white-space:pre-wrap">${esc(fusstext)}</p>`
       : `<p>Für Rückfragen stehen wir Ihnen jederzeit gerne zur Verfügung.</p>
          <p>Wir bedanken uns sehr für Ihr Vertrauen.</p>`
     }

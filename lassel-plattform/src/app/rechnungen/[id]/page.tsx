@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { toast } from 'sonner'
-import { FileDown, Loader2, CheckCircle2, Ban, Send, Calendar as CalendarIcon, ArrowLeft, Download, FileText, ChevronDown, Plus } from 'lucide-react'
+import { FileDown, Loader2, CheckCircle2, Ban, Send, Calendar as CalendarIcon, ArrowLeft, Download, FileText, ChevronDown, Plus, Trash2 } from 'lucide-react'
 import { format, addDays, parseISO, isValid } from 'date-fns'
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -67,6 +67,10 @@ const defaultInvoice = {
   source: 'manual',
   rechnungAnHI: false,
   uidVonHI: '',
+  hausverwaltungName: '',
+  hausverwaltungStrasse: '',
+  hausverwaltungPlz: '',
+  hausverwaltungOrt: '',
   stornoVonRechnung: '',
   stornoGrund: '',
   pdfUrl: '',
@@ -75,6 +79,8 @@ const defaultInvoice = {
   leistungszeitraumVon: '',
   leistungszeitraumBis: '',
   arbeitstage: [] as string[],
+  zahlungskondition: '30 Tage netto',
+  geschaeftsfallnummer: '',
   summeBrutto: 0,
   bezahltBetrag: 0,
 }
@@ -102,6 +108,8 @@ export default function InvoiceDetailPage() {
   const [cancelReason, setCancelReason] = useState('')
   const [uploadingToZoho, setUploadingToZoho] = useState(false)
   const [vorlagenOpen, setVorlagenOpen] = useState(false)
+  const [teilzahlungModalOpen, setTeilzahlungModalOpen] = useState(false)
+  const [newTeilzahlung, setNewTeilzahlung] = useState({ betrag: '', datum: format(new Date(), 'yyyy-MM-dd'), zahlungsart: 'überweisung', notizen: '' })
 
   const invoiceInitialized = useRef(false)
   const positionsInitialized = useRef(false)
@@ -170,6 +178,16 @@ export default function InvoiceDetailPage() {
     }
   })
 
+  const { data: teilzahlungen = [], refetch: refetchTeilzahlungen } = useQuery({
+    queryKey: ['teilzahlungen', invoiceId],
+    queryFn: async () => {
+      if (!invoiceId) return []
+      const { data } = await supabase.from('teilzahlungen').select('*').eq('rechnung_id', invoiceId).order('datum')
+      return data || []
+    },
+    enabled: !!invoiceId,
+  })
+
   // Init invoice from loaded data
   useEffect(() => {
     if (existingInvoice && !invoiceInitialized.current) {
@@ -192,8 +210,24 @@ export default function InvoiceDetailPage() {
         fusszeile: existingInvoice.fusszeile || '',
         pdfUrl: existingInvoice.pdf_url || '',
         summeBrutto: existingInvoice.brutto_gesamt || 0,
-        referenzAngebotId: existingInvoice.angebot_id || '',
+        referenzAngebotId: existingInvoice.angebot_id || existingInvoice.referenz_angebot_id || '',
+        referenzAngebotNummer: existingInvoice.referenz_angebot_nummer || '',
         vermittlerId: existingInvoice.vermittler_id || '',
+        rechnungAnHI: existingInvoice.rechnung_an_hi || false,
+        hausinhabung: existingInvoice.hausinhabung || '',
+        hausverwaltungName: existingInvoice.hausverwaltung_name || '',
+        hausverwaltungStrasse: existingInvoice.hausverwaltung_strasse || '',
+        hausverwaltungPlz: existingInvoice.hausverwaltung_plz || '',
+        hausverwaltungOrt: existingInvoice.hausverwaltung_ort || '',
+        uidVonHI: existingInvoice.uid_von_hi || '',
+        leistungszeitraumVon: existingInvoice.leistungszeitraum_von || '',
+        leistungszeitraumBis: existingInvoice.leistungszeitraum_bis || '',
+        zahlungskondition: existingInvoice.zahlungskondition || '30 Tage netto',
+        zahlungszielTage: existingInvoice.zahlungsziel_tage || 30,
+        geschaeftsfallnummer: existingInvoice.geschaeftsfallnummer || '',
+        rechnungstyp: existingInvoice.rechnungstyp || 'normal',
+        stornoGrund: existingInvoice.storno_grund || '',
+        bezahltBetrag: existingInvoice.bezahlt_betrag || 0,
       })
       invoiceInitialized.current = true
     }
@@ -317,23 +351,39 @@ export default function InvoiceDetailPage() {
 
   const buildRechnungData = (inv: typeof defaultInvoice, t: typeof totals) => ({
     rechnungsnummer: inv.rechnungsNummer,
+    rechnungstyp: inv.rechnungstyp || 'normal',
     status: inv.status,
     kunde_name: inv.kundeName,
     kunde_strasse: inv.kundeStrasse || null,
     kunde_plz: inv.kundePlz || null,
     kunde_ort: inv.kundeOrt || null,
     kunde_uid: inv.uidnummer || null,
+    rechnung_an_hi: inv.rechnungAnHI || false,
+    hausinhabung: inv.hausinhabung || null,
+    hausverwaltung_name: inv.hausverwaltungName || null,
+    hausverwaltung_strasse: inv.hausverwaltungStrasse || null,
+    hausverwaltung_plz: inv.hausverwaltungPlz || null,
+    hausverwaltung_ort: inv.hausverwaltungOrt || null,
+    uid_von_hi: inv.uidVonHI || null,
     rechnungsdatum: inv.datum,
     faellig_bis: inv.faelligAm || null,
+    zahlungskondition: inv.zahlungskondition || '30 Tage netto',
+    zahlungsziel_tage: inv.zahlungszielTage || 30,
+    leistungszeitraum_von: inv.leistungszeitraumVon || null,
+    leistungszeitraum_bis: inv.leistungszeitraumBis || null,
     objekt_adresse: inv.objektBezeichnung || null,
     ticket_nummer: inv.ticketNumber || null,
     zoho_ticket_id: inv.ticketId || null,
+    geschaeftsfallnummer: inv.geschaeftsfallnummer || null,
     erstellt_von: inv.erstelltDurch || null,
     fusszeile: inv.fusszeile || null,
     notizen: inv.bemerkung || null,
     pdf_url: inv.pdfUrl || null,
     angebot_id: inv.referenzAngebotId || null,
+    referenz_angebot_id: inv.referenzAngebotId || null,
+    referenz_angebot_nummer: inv.referenzAngebotNummer || null,
     vermittler_id: inv.vermittlerId || null,
+    storno_grund: inv.stornoGrund || null,
     netto_gesamt: t.summeNetto || 0,
     mwst_gesamt: t.summeUst || 0,
     brutto_gesamt: t.summeBrutto || 0,
@@ -541,6 +591,50 @@ export default function InvoiceDetailPage() {
       toast.success('Storno-Rechnung erstellt')
       setCancelDialogOpen(false)
       router.push(`/rechnungen/${stornoData.id}`)
+    } catch (err: any) {
+      toast.error('Fehler: ' + err.message)
+    }
+  }
+
+  const handleAddTeilzahlung = async () => {
+    if (!invoiceId || !newTeilzahlung.betrag) { toast.error('Betrag eingeben'); return }
+    const betrag = parseFloat(newTeilzahlung.betrag)
+    if (isNaN(betrag) || betrag <= 0) { toast.error('Ungültiger Betrag'); return }
+    try {
+      await supabase.from('teilzahlungen').insert({
+        rechnung_id: invoiceId,
+        betrag,
+        datum: newTeilzahlung.datum,
+        zahlungsart: newTeilzahlung.zahlungsart,
+        notizen: newTeilzahlung.notizen || null,
+      })
+      const allTz = [...(teilzahlungen as any[]), { betrag }]
+      const bezahltGesamt = allTz.reduce((s: number, t: any) => s + (Number(t.betrag) || 0), 0)
+      const newStatus = bezahltGesamt >= totals.summeBrutto ? 'bezahlt' : 'teilweise_bezahlt'
+      await supabase.from('rechnungen').update({ bezahlt_betrag: bezahltGesamt, status: newStatus }).eq('id', invoiceId)
+      setInvoice(p => ({ ...p, status: newStatus, bezahltBetrag: bezahltGesamt }))
+      setTeilzahlungModalOpen(false)
+      setNewTeilzahlung({ betrag: '', datum: format(new Date(), 'yyyy-MM-dd'), zahlungsart: 'überweisung', notizen: '' })
+      refetchTeilzahlungen()
+      queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      toast.success('Zahlung erfasst')
+    } catch (err: any) {
+      toast.error('Fehler: ' + err.message)
+    }
+  }
+
+  const deleteTeilzahlung = async (tzId: string) => {
+    if (!invoiceId) return
+    try {
+      await supabase.from('teilzahlungen').delete().eq('id', tzId)
+      const remaining = (teilzahlungen as any[]).filter((t: any) => t.id !== tzId)
+      const bezahltGesamt = remaining.reduce((s: number, t: any) => s + (Number(t.betrag) || 0), 0)
+      const newStatus = bezahltGesamt <= 0 ? 'offen' : bezahltGesamt >= totals.summeBrutto ? 'bezahlt' : 'teilweise_bezahlt'
+      await supabase.from('rechnungen').update({ bezahlt_betrag: bezahltGesamt, status: newStatus }).eq('id', invoiceId)
+      setInvoice(p => ({ ...p, status: newStatus, bezahltBetrag: bezahltGesamt }))
+      refetchTeilzahlungen()
+      queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      toast.success('Zahlung gelöscht')
     } catch (err: any) {
       toast.error('Fehler: ' + err.message)
     }
@@ -754,7 +848,7 @@ export default function InvoiceDetailPage() {
                   <Label>UID-Nummer</Label>
                   <Input value={invoice.uidnummer || ''} onChange={e => setInvoice(p => ({ ...p, uidnummer: e.target.value }))} placeholder="z.B. ATU12345678" className="mt-1" />
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 pt-1">
                   <input
                     type="checkbox"
                     id="rechnungAnHI"
@@ -762,12 +856,37 @@ export default function InvoiceDetailPage() {
                     onChange={e => setInvoice(p => ({ ...p, rechnungAnHI: e.target.checked }))}
                     className="w-4 h-4 rounded"
                   />
-                  <label htmlFor="rechnungAnHI" className="text-sm text-slate-600 cursor-pointer">RE an HI?</label>
+                  <label htmlFor="rechnungAnHI" className="text-sm font-medium text-slate-700 cursor-pointer">Rechnung an Hausinhabung (HI)</label>
                 </div>
                 {invoice.rechnungAnHI && (
-                  <div>
-                    <Label>UID-Nummer der Hausinhabung</Label>
-                    <Input value={invoice.uidVonHI || ''} onChange={e => setInvoice(p => ({ ...p, uidVonHI: e.target.value }))} placeholder="z.B. ATU12345678" className="mt-1" />
+                  <div className="space-y-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Hausinhabungs-Adresse</p>
+                    <div>
+                      <Label>Hausinhabung (Name)</Label>
+                      <Input value={invoice.hausinhabung || ''} onChange={e => setInvoice(p => ({ ...p, hausinhabung: e.target.value }))} placeholder="Name des Eigentümers" className="mt-1" />
+                    </div>
+                    <div>
+                      <Label>Hausverwaltung (p.A.)</Label>
+                      <Input value={invoice.hausverwaltungName || ''} onChange={e => setInvoice(p => ({ ...p, hausverwaltungName: e.target.value }))} placeholder="Hausverwaltungs-Name" className="mt-1" />
+                    </div>
+                    <div>
+                      <Label>Straße</Label>
+                      <Input value={invoice.hausverwaltungStrasse || ''} onChange={e => setInvoice(p => ({ ...p, hausverwaltungStrasse: e.target.value }))} placeholder="Straße und Hausnummer" className="mt-1" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label>PLZ</Label>
+                        <Input value={invoice.hausverwaltungPlz || ''} onChange={e => setInvoice(p => ({ ...p, hausverwaltungPlz: e.target.value }))} placeholder="PLZ" className="mt-1" />
+                      </div>
+                      <div>
+                        <Label>Ort</Label>
+                        <Input value={invoice.hausverwaltungOrt || ''} onChange={e => setInvoice(p => ({ ...p, hausverwaltungOrt: e.target.value }))} placeholder="Ort" className="mt-1" />
+                      </div>
+                    </div>
+                    <div>
+                      <Label>UID der Hausinhabung</Label>
+                      <Input value={invoice.uidVonHI || ''} onChange={e => setInvoice(p => ({ ...p, uidVonHI: e.target.value }))} placeholder="z.B. ATU12345678" className="mt-1" />
+                    </div>
                   </div>
                 )}
               </div>
@@ -836,6 +955,37 @@ export default function InvoiceDetailPage() {
                 <div>
                   <Label>Rechnungsdatum</Label>
                   <Input type="date" value={invoice.datum || ''} onChange={e => setInvoice(p => ({ ...p, datum: e.target.value }))} className="mt-1" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Leistungszeitraum Von</Label>
+                    <Input type="date" value={invoice.leistungszeitraumVon || ''} onChange={e => setInvoice(p => ({ ...p, leistungszeitraumVon: e.target.value }))} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>Leistungszeitraum Bis</Label>
+                    <Input type="date" value={invoice.leistungszeitraumBis || ''} onChange={e => setInvoice(p => ({ ...p, leistungszeitraumBis: e.target.value }))} className="mt-1" />
+                  </div>
+                </div>
+
+                <div>
+                  <Label>Zahlungskondition</Label>
+                  <Select value={invoice.zahlungskondition || '30 Tage netto'} onValueChange={v => {
+                    const days = v === 'sofort' ? 0 : v === '14 Tage netto' ? 14 : 30
+                    setInvoice(p => ({ ...p, zahlungskondition: v, zahlungszielTage: days }))
+                  }}>
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="14 Tage netto">14 Tage netto</SelectItem>
+                      <SelectItem value="30 Tage netto">30 Tage netto</SelectItem>
+                      <SelectItem value="sofort">Sofort fällig</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label>Geschäftsfallnummer</Label>
+                  <Input value={invoice.geschaeftsfallnummer || ''} onChange={e => setInvoice(p => ({ ...p, geschaeftsfallnummer: e.target.value }))} placeholder="Geschäftsfallnummer (optional)" className="mt-1" />
                 </div>
 
                 {/* Leistungszeitraum calendar picker */}
@@ -1011,6 +1161,96 @@ export default function InvoiceDetailPage() {
           <InvoicePositionsTable positions={positions} onChange={setPositions} showTeilfaktura={showTeilfaktura} />
         </Card>
 
+        {/* Teilzahlungen */}
+        {!isNew && (
+          <Card className="p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-slate-900">Teilzahlungen</h2>
+              <Button size="sm" onClick={() => setTeilzahlungModalOpen(true)} className="bg-emerald-600 hover:bg-emerald-700 gap-1">
+                <Plus className="h-4 w-4" /> Zahlung erfassen
+              </Button>
+            </div>
+
+            {teilzahlungModalOpen && (
+              <div className="mb-4 p-4 border border-emerald-200 bg-emerald-50 rounded-lg space-y-3">
+                <p className="text-sm font-semibold text-emerald-800">Neue Zahlung</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Betrag (€)</Label>
+                    <Input type="number" step="0.01" value={newTeilzahlung.betrag} onChange={e => setNewTeilzahlung(p => ({ ...p, betrag: e.target.value }))} placeholder="0.00" className="mt-1" autoFocus />
+                  </div>
+                  <div>
+                    <Label>Datum</Label>
+                    <Input type="date" value={newTeilzahlung.datum} onChange={e => setNewTeilzahlung(p => ({ ...p, datum: e.target.value }))} className="mt-1" />
+                  </div>
+                </div>
+                <div>
+                  <Label>Zahlungsart</Label>
+                  <Select value={newTeilzahlung.zahlungsart} onValueChange={v => setNewTeilzahlung(p => ({ ...p, zahlungsart: v }))}>
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="überweisung">Überweisung</SelectItem>
+                      <SelectItem value="bar">Bar</SelectItem>
+                      <SelectItem value="sonstiges">Sonstiges</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Notiz (optional)</Label>
+                  <Input value={newTeilzahlung.notizen} onChange={e => setNewTeilzahlung(p => ({ ...p, notizen: e.target.value }))} placeholder="z.B. Anzahlung" className="mt-1" />
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <Button size="sm" variant="outline" onClick={() => setTeilzahlungModalOpen(false)}>Abbrechen</Button>
+                  <Button size="sm" onClick={handleAddTeilzahlung} className="bg-emerald-600 hover:bg-emerald-700">Speichern</Button>
+                </div>
+              </div>
+            )}
+
+            {(teilzahlungen as any[]).length === 0 && !teilzahlungModalOpen && (
+              <p className="text-sm text-slate-400">Noch keine Zahlungen erfasst.</p>
+            )}
+
+            <div className="space-y-1">
+              {(teilzahlungen as any[]).map((t: any) => (
+                <div key={t.id} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-slate-50 border-b border-slate-100 last:border-0">
+                  <div className="flex items-center gap-3">
+                    <span className="font-semibold text-emerald-700">
+                      {new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR' }).format(t.betrag)}
+                    </span>
+                    <span className="text-sm text-slate-500">{t.datum ? new Date(t.datum).toLocaleDateString('de-AT') : ''}</span>
+                    {t.zahlungsart && <span className="text-xs px-2 py-0.5 bg-slate-100 rounded-full text-slate-500">{t.zahlungsart}</span>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {t.notizen && <span className="text-xs text-slate-400">{t.notizen}</span>}
+                    <Button variant="ghost" size="sm" onClick={() => deleteTeilzahlung(t.id)} className="text-red-400 hover:text-red-600 h-7 w-7 p-0">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {(teilzahlungen as any[]).length > 0 && (() => {
+              const bezahltGesamt = (teilzahlungen as any[]).reduce((s: number, t: any) => s + (Number(t.betrag) || 0), 0)
+              const offen = totals.summeBrutto - bezahltGesamt
+              return (
+                <div className="border-t pt-3 mt-3 space-y-1">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Bereits bezahlt:</span>
+                    <span className="font-semibold text-emerald-600">{new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR' }).format(bezahltGesamt)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-bold text-slate-800">Offener Betrag:</span>
+                    <span className={`font-bold text-xl ${offen <= 0 ? 'text-emerald-600' : 'text-[#E85A1B]'}`}>
+                      {new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR' }).format(offen)}
+                    </span>
+                  </div>
+                </div>
+              )
+            })()}
+          </Card>
+        )}
+
         {/* Anmerkungen + Summary */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
           <Card className="p-6">
@@ -1062,9 +1302,10 @@ export default function InvoiceDetailPage() {
           <Textarea
             value={invoice.fusszeile || ''}
             onChange={e => setInvoice(p => ({ ...p, fusszeile: e.target.value }))}
-            placeholder="Text für Rechnung..."
+            placeholder="Leer lassen für Standard-Fußtext aus Einstellungen..."
             rows={4}
           />
+          <p className="text-xs text-slate-400 mt-1">Leer = Standard-Fußtext aus Einstellungen wird verwendet</p>
         </Card>
 
         {/* PDF Preview */}
