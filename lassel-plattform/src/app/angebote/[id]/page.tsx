@@ -18,6 +18,8 @@ import { format, addDays } from 'date-fns'
 import OfferPositionsTable from '@/components/offers/OfferPositionsTable'
 import OfferSummary from '@/components/offers/OfferSummary'
 import StatusBadge from '@/components/shared/StatusBadge'
+import EmailVorschauModal from '@/components/EmailVorschauModal'
+import ParksperreModal from '@/components/ParksperreModal'
 
 export default function OfferDetailPage() {
   const params = useParams()
@@ -66,6 +68,8 @@ export default function OfferDetailPage() {
   }])
 
   const [vorlagenOpen, setVorlagenOpen] = useState(false)
+  const [emailModalOpen, setEmailModalOpen] = useState(false)
+  const [parksperreModalOpen, setParksperreModalOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [creatingDeliveryNote, setCreatingDeliveryNote] = useState(false)
   const [creatingInvoice, setCreatingInvoice] = useState(false)
@@ -416,7 +420,16 @@ export default function OfferDetailPage() {
     setCreatingDeliveryNote(true)
     toast.loading('Lieferschein wird erstellt...')
     try {
-      const lieferscheinnummer = offer.angebotsnummer?.replace('AN-', 'LI-')
+      const year = new Date().getFullYear()
+      const liPrefix = `LI-${year}-`
+      const { data: lastLi } = await supabase.from('lieferscheine').select('lieferscheinnummer')
+        .like('lieferscheinnummer', `${liPrefix}%`)
+        .order('lieferscheinnummer', { ascending: false })
+        .limit(1).maybeSingle()
+      const lieferscheinnummer = lastLi?.lieferscheinnummer
+        ? `${liPrefix}${String(parseInt(lastLi.lieferscheinnummer.replace(liPrefix, ''), 10) + 1).padStart(5, '0')}`
+        : `${liPrefix}00001`
+
       const { data: deliveryNote, error } = await supabase.from('lieferscheine').insert({
         lieferscheinnummer,
         angebot_id: offer.id || offerId,
@@ -427,19 +440,26 @@ export default function OfferDetailPage() {
         objekt_adresse: offer.objekt_bezeichnung || offer.objekt_adresse,
         lieferdatum: format(new Date(), 'yyyy-MM-dd'),
         ticket_nummer: offer.ticket_nummer,
+        zoho_ticket_id: offer.zoho_ticket_id || null,
+        erstellt_von: offer.erstellt_von || null,
         status: 'entwurf'
       }).select().single()
       if (error) throw error
 
-      await supabase.from('lieferschein_positionen').insert(
-        positions.map((pos: any) => ({
-          lieferschein_id: deliveryNote.id,
-          position: pos.position,
-          beschreibung: pos.beschreibung || '',
-          menge: pos.menge,
-          einheit: pos.einheit
-        }))
-      )
+      const { data: dbPositions } = await supabase.from('angebot_positionen')
+        .select('*').eq('angebot_id', offerId).order('position')
+      const posForLi = (dbPositions || []).filter((p: any) => p.beschreibung?.trim())
+      if (posForLi.length > 0) {
+        await supabase.from('lieferschein_positionen').insert(
+          posForLi.map((p: any) => ({
+            lieferschein_id: deliveryNote.id,
+            position: p.position,
+            beschreibung: p.beschreibung || '',
+            menge: p.menge,
+            einheit: p.einheit || 'Stk'
+          }))
+        )
+      }
 
       try {
         const editUrl = `${window.location.origin}/lieferscheine/${deliveryNote.id}`
@@ -465,7 +485,16 @@ export default function OfferDetailPage() {
     setCreatingInvoice(true)
     toast.loading('Rechnung wird erstellt...')
     try {
-      const rechnungsnummer = offer.angebotsnummer?.replace('AN-', 'RE-')
+      const year = new Date().getFullYear()
+      const rePrefix = `RE-${year}-`
+      const { data: lastRe } = await supabase.from('rechnungen').select('rechnungsnummer')
+        .like('rechnungsnummer', `${rePrefix}%`)
+        .order('rechnungsnummer', { ascending: false })
+        .limit(1).maybeSingle()
+      const rechnungsnummer = lastRe?.rechnungsnummer
+        ? `${rePrefix}${String(parseInt(lastRe.rechnungsnummer.replace(rePrefix, ''), 10) + 1).padStart(5, '0')}`
+        : `${rePrefix}00001`
+
       const { data: invoice, error } = await supabase.from('rechnungen').insert({
         rechnungsnummer,
         rechnungstyp: 'normal',
@@ -478,6 +507,8 @@ export default function OfferDetailPage() {
         rechnungsdatum: format(new Date(), 'yyyy-MM-dd'),
         faellig_bis: format(addDays(new Date(), 14), 'yyyy-MM-dd'),
         ticket_nummer: offer.ticket_nummer,
+        zoho_ticket_id: offer.zoho_ticket_id || null,
+        erstellt_von: offer.erstellt_von || null,
         status: 'entwurf',
         reverse_charge: offer.reverse_charge,
         netto_gesamt: totals.netto_gesamt,
@@ -486,19 +517,24 @@ export default function OfferDetailPage() {
       }).select().single()
       if (error) throw error
 
-      await supabase.from('rechnung_positionen').insert(
-        positions.map((pos: any) => ({
-          rechnung_id: invoice.id,
-          position: pos.position,
-          beschreibung: pos.beschreibung || '',
-          menge: parseFloat(pos.menge) || 0,
-          einheit: pos.einheit,
-          einzelpreis: parseFloat(pos.einzelpreis) || 0,
-          rabatt_prozent: parseFloat(pos.rabatt_prozent) || 0,
-          mwst_satz: parseFloat(pos.mwst_satz) || 20,
-          gesamtpreis: parseFloat(pos.gesamtpreis) || 0,
-        }))
-      )
+      const { data: dbPositions } = await supabase.from('angebot_positionen')
+        .select('*').eq('angebot_id', offerId).order('position')
+      const posForRe = (dbPositions || []).filter((p: any) => p.beschreibung?.trim())
+      if (posForRe.length > 0) {
+        await supabase.from('rechnung_positionen').insert(
+          posForRe.map((p: any) => ({
+            rechnung_id: invoice.id,
+            position: p.position,
+            beschreibung: p.beschreibung || '',
+            menge: parseFloat(p.menge) || 0,
+            einheit: p.einheit || 'Stk',
+            einzelpreis: parseFloat(p.einzelpreis) || 0,
+            rabatt_prozent: parseFloat(p.rabatt_prozent) || 0,
+            mwst_satz: parseFloat(p.mwst_satz) || 20,
+            gesamtpreis: parseFloat(p.gesamtpreis) || 0,
+          }))
+        )
+      }
 
       try {
         const editUrl = `${window.location.origin}/rechnungen/${invoice.id}`
@@ -591,9 +627,7 @@ export default function OfferDetailPage() {
                 <div className="flex flex-col sm:flex-row gap-2 w-full">
                   <Button
                     variant="outline"
-                    onClick={() => {
-                      toast.info('Parksperre-Dialog wird geöffnet...')
-                    }}
+                    onClick={() => setParksperreModalOpen(true)}
                     className="border-blue-200 text-blue-700 hover:bg-blue-50 flex-1 sm:flex-none"
                     size="sm"
                   >
@@ -622,7 +656,7 @@ export default function OfferDetailPage() {
                   </Button>
                   <Button
                     variant="outline"
-                    onClick={handleSendOffer}
+                    onClick={() => setEmailModalOpen(true)}
                     className="border-green-200 text-green-700 hover:bg-green-50 flex-1 sm:flex-none"
                     size="sm"
                   >
@@ -915,6 +949,32 @@ export default function OfferDetailPage() {
           </div>
         )}
       </div>
+
+      {offerId && (
+        <>
+          <EmailVorschauModal
+            open={emailModalOpen}
+            onClose={() => setEmailModalOpen(false)}
+            offerId={offerId}
+            angebotsnummer={offer.angebotsnummer || ''}
+            kundeName={offer.kunde_name || ''}
+            objektAdresse={offer.objekt_adresse || offer.objekt_bezeichnung || ''}
+            bruttoGesamt={totals.brutto_gesamt}
+            erstelltVon={offer.erstellt_von || ''}
+            emailAn={''}
+            onSent={() => {
+              setOffer({ ...offer, status: 'versendet' })
+              queryClient.invalidateQueries({ queryKey: ['offers'] })
+            }}
+          />
+          <ParksperreModal
+            open={parksperreModalOpen}
+            onClose={() => setParksperreModalOpen(false)}
+            angebotsnummer={offer.angebotsnummer || ''}
+            objektAdresse={offer.objekt_adresse || offer.objekt_bezeichnung || ''}
+          />
+        </>
+      )}
     </div>
   )
 }

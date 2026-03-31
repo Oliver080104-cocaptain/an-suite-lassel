@@ -39,6 +39,7 @@ export default function AngebotePage() {
       const { data, error } = await supabase
         .from('angebote')
         .select('*')
+        .is('geloescht_am', null)
         .order('created_at', { ascending: false })
       if (error) throw error
       return data || []

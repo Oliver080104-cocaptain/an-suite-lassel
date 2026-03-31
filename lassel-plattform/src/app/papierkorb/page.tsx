@@ -24,7 +24,7 @@ export default function PapierkorbPage() {
   const { data: deletedOffers = [], isLoading: loadingOffers } = useQuery({
     queryKey: ['deletedOffers'],
     queryFn: async () => {
-      const { data } = await supabase.from('offers').select('*').not('deleted_at', 'is', null)
+      const { data } = await supabase.from('angebote').select('*').not('geloescht_am', 'is', null)
       return data || []
     },
   })
@@ -32,7 +32,7 @@ export default function PapierkorbPage() {
   const { data: deletedInvoices = [], isLoading: loadingInvoices } = useQuery({
     queryKey: ['deletedInvoices'],
     queryFn: async () => {
-      const { data } = await supabase.from('invoices').select('*').not('deleted_at', 'is', null)
+      const { data } = await supabase.from('rechnungen').select('*').not('geloescht_am', 'is', null)
       return data || []
     },
   })
@@ -40,15 +40,15 @@ export default function PapierkorbPage() {
   const { data: deletedDeliveryNotes = [], isLoading: loadingDeliveryNotes } = useQuery({
     queryKey: ['deletedDeliveryNotes'],
     queryFn: async () => {
-      const { data } = await supabase.from('delivery_notes').select('*').not('deleted_at', 'is', null)
+      const { data } = await supabase.from('lieferscheine').select('*').not('geloescht_am', 'is', null)
       return data || []
     },
   })
 
   const restoreMutation = useMutation({
     mutationFn: async ({ id, type }: { id: string; type: DocType }) => {
-      const table = type === 'offer' ? 'offers' : type === 'invoice' ? 'invoices' : 'delivery_notes'
-      await supabase.from(table).update({ deleted_at: null }).eq('id', id)
+      const table = type === 'offer' ? 'angebote' : type === 'invoice' ? 'rechnungen' : 'lieferscheine'
+      await supabase.from(table).update({ geloescht_am: null }).eq('id', id)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deletedOffers'] })
@@ -66,14 +66,14 @@ export default function PapierkorbPage() {
   const permanentDeleteMutation = useMutation({
     mutationFn: async ({ id, type }: { id: string; type: DocType }) => {
       if (type === 'offer') {
-        await supabase.from('offer_positions').delete().eq('offer_id', id)
-        await supabase.from('offers').delete().eq('id', id)
+        await supabase.from('angebot_positionen').delete().eq('angebot_id', id)
+        await supabase.from('angebote').delete().eq('id', id)
       } else if (type === 'invoice') {
-        await supabase.from('invoice_positions').delete().eq('invoice_id', id)
-        await supabase.from('invoices').delete().eq('id', id)
+        await supabase.from('rechnung_positionen').delete().eq('rechnung_id', id)
+        await supabase.from('rechnungen').delete().eq('id', id)
       } else {
-        await supabase.from('delivery_note_positions').delete().eq('delivery_note_id', id)
-        await supabase.from('delivery_notes').delete().eq('id', id)
+        await supabase.from('lieferschein_positionen').delete().eq('lieferschein_id', id)
+        await supabase.from('lieferscheine').delete().eq('id', id)
       }
     },
     onSuccess: () => {
@@ -102,16 +102,16 @@ export default function PapierkorbPage() {
   const deleteAllMutation = useMutation({
     mutationFn: async () => {
       for (const o of deletedOffers as any[]) {
-        await supabase.from('offer_positions').delete().eq('offer_id', o.id)
-        await supabase.from('offers').delete().eq('id', o.id)
+        await supabase.from('angebot_positionen').delete().eq('angebot_id', o.id)
+        await supabase.from('angebote').delete().eq('id', o.id)
       }
       for (const i of deletedInvoices as any[]) {
-        await supabase.from('invoice_positions').delete().eq('invoice_id', i.id)
-        await supabase.from('invoices').delete().eq('id', i.id)
+        await supabase.from('rechnung_positionen').delete().eq('rechnung_id', i.id)
+        await supabase.from('rechnungen').delete().eq('id', i.id)
       }
       for (const d of deletedDeliveryNotes as any[]) {
-        await supabase.from('delivery_note_positions').delete().eq('delivery_note_id', d.id)
-        await supabase.from('delivery_notes').delete().eq('id', d.id)
+        await supabase.from('lieferschein_positionen').delete().eq('lieferschein_id', d.id)
+        await supabase.from('lieferscheine').delete().eq('id', d.id)
       }
     },
     onSuccess: () => {
@@ -125,9 +125,9 @@ export default function PapierkorbPage() {
     onError: () => toast.error('Fehler beim Leeren des Papierkorbs'),
   })
 
-  const getDaysRemaining = (deletedAt: string | null) => {
-    if (!deletedAt) return 10
-    const daysPassed = differenceInDays(new Date(), new Date(deletedAt))
+  const getDaysRemaining = (geloeschtAm: string | null) => {
+    if (!geloeschtAm) return 10
+    const daysPassed = differenceInDays(new Date(), new Date(geloeschtAm))
     return Math.max(0, 10 - daysPassed)
   }
 
@@ -141,9 +141,11 @@ export default function PapierkorbPage() {
   const isSelected = (id: string, type: DocType) => selectedItems.some(item => item.id === id && item.type === type)
 
   const renderDocumentCard = (doc: any, type: DocType, icon: React.ReactNode) => {
-    const daysRemaining = getDaysRemaining(doc.deleted_at)
+    const daysRemaining = getDaysRemaining(doc.geloescht_am)
     const isExpiringSoon = daysRemaining <= 3
     const selected = isSelected(doc.id, type)
+    const nummer = type === 'offer' ? doc.angebotsnummer : type === 'invoice' ? doc.rechnungsnummer : doc.lieferscheinnummer
+    const datum = type === 'offer' ? doc.angebotsdatum : type === 'invoice' ? doc.rechnungsdatum : doc.lieferdatum
 
     return (
       <Card key={doc.id} className={`p-4 hover:shadow-md transition-all ${selected ? 'ring-2 ring-orange-500' : ''}`}>
@@ -160,9 +162,7 @@ export default function PapierkorbPage() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-center gap-2 mb-1">
-                <h3 className="font-semibold text-slate-900 truncate">
-                  {type === 'offer' ? doc.angebotNummer : type === 'invoice' ? doc.rechnungsNummer : doc.lieferscheinNummer}
-                </h3>
+                <h3 className="font-semibold text-slate-900 truncate">{nummer || '—'}</h3>
                 {isExpiringSoon && (
                   <Badge variant="destructive" className="flex items-center gap-1 shrink-0">
                     <AlertCircle className="w-3 h-3" />
@@ -171,23 +171,23 @@ export default function PapierkorbPage() {
                 )}
               </div>
               <p className="text-sm text-slate-600 mb-2 truncate">
-                {doc.objektBezeichnung || doc.rechnungsempfaengerName || doc.kundeName || 'Kein Name'}
+                {doc.objekt_bezeichnung || doc.kunde_name || 'Kein Name'}
               </p>
               <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
-                {doc.datum && (
+                {datum && (
                   <span className="flex items-center gap-1">
                     <Calendar className="w-3 h-3" />
-                    {format(new Date(doc.datum), 'dd.MM.yyyy', { locale: de })}
+                    {format(new Date(datum), 'dd.MM.yyyy', { locale: de })}
                   </span>
                 )}
-                {doc.summeBrutto != null && (
+                {doc.brutto_gesamt != null && (
                   <span className="font-medium">
-                    {new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(doc.summeBrutto)}
+                    {new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(doc.brutto_gesamt)}
                   </span>
                 )}
-                {doc.deleted_at && (
+                {doc.geloescht_am && (
                   <span className="text-rose-600">
-                    Gelöscht: {format(new Date(doc.deleted_at), 'dd.MM.yyyy HH:mm', { locale: de })}
+                    Gelöscht: {format(new Date(doc.geloescht_am), 'dd.MM.yyyy HH:mm', { locale: de })}
                   </span>
                 )}
               </div>

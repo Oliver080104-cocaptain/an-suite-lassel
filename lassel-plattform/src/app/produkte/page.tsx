@@ -187,23 +187,23 @@ export default function ProdukteListePage() {
 
         {/* Create/Edit Dialog */}
         <Dialog open={showDialog} onOpenChange={(open) => { if (!open) resetForm(); setShowDialog(open) }}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-2xl w-full p-8 max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingProduct ? 'Produkt bearbeiten' : 'Neues Produkt'}</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4 mt-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div className="sm:col-span-2">
                   <Label>Produktname *</Label>
-                  <Input value={formData.name} onChange={e => setFormData(p => ({ ...p, name: e.target.value }))} required className="mt-1" />
+                  <Input value={formData.name} onChange={e => setFormData(p => ({ ...p, name: e.target.value }))} required className="mt-1 h-12" />
                 </div>
                 <div>
                   <Label>Kategorie</Label>
-                  <Input value={formData.kategorie} onChange={e => setFormData(p => ({ ...p, kategorie: e.target.value }))} className="mt-1" />
+                  <Input value={formData.kategorie} onChange={e => setFormData(p => ({ ...p, kategorie: e.target.value }))} className="mt-1 h-12" />
                 </div>
                 <div>
                   <Label>Einheit</Label>
-                  <Input value={formData.einheit} onChange={e => setFormData(p => ({ ...p, einheit: e.target.value }))} className="mt-1" />
+                  <Input value={formData.einheit} onChange={e => setFormData(p => ({ ...p, einheit: e.target.value }))} className="mt-1 h-12" />
                 </div>
                 <div>
                   <Label>Preis (netto)</Label>
@@ -211,7 +211,7 @@ export default function ProdukteListePage() {
                     type="number" step="0.01"
                     value={formData.einzelpreis}
                     onChange={e => setFormData(p => ({ ...p, einzelpreis: parseFloat(e.target.value) || 0 }))}
-                    className="mt-1"
+                    className="mt-1 h-12"
                   />
                 </div>
                 <div>
@@ -220,13 +220,13 @@ export default function ProdukteListePage() {
                     type="number" step="0.01"
                     value={formData.mwst_satz}
                     onChange={e => setFormData(p => ({ ...p, mwst_satz: parseFloat(e.target.value) || 20 }))}
-                    className="mt-1"
+                    className="mt-1 h-12"
                   />
                 </div>
                 <div className="sm:col-span-2">
                   <Label>Beschreibung</Label>
                   <Textarea
-                    rows={3}
+                    rows={5}
                     value={formData.beschreibung}
                     onChange={e => setFormData(p => ({ ...p, beschreibung: e.target.value }))}
                     className="mt-1 resize-none"
