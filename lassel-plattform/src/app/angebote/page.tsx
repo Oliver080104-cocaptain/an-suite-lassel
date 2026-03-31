@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
@@ -67,6 +67,16 @@ export default function AngebotePage() {
       return data || []
     },
   })
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('angebote-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'angebote' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['offers'] })
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [queryClient])
 
   const deleteOfferMutation = useMutation({
     mutationFn: async (offerId: string) => {
@@ -195,7 +205,13 @@ export default function AngebotePage() {
               <FileText className="w-6 sm:w-8 h-6 sm:h-8 text-orange-600" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Angebote</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Angebote</h1>
+                <div className="flex items-center gap-1.5 px-2 py-1 bg-green-50 border border-green-200 rounded-full">
+                  <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                  <span className="text-xs text-green-700 font-medium">Live</span>
+                </div>
+              </div>
               <p className="text-xs sm:text-sm text-slate-600 mt-1">Angebotsverwaltung</p>
             </div>
           </div>

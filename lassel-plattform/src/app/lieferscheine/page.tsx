@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
@@ -49,6 +49,16 @@ export default function LieferscheinePage() {
       return data || []
     }
   })
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('lieferscheine-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'lieferscheine' }, () => {
+        queryClient.invalidateQueries({ queryKey: ['lieferscheine'] })
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [queryClient])
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -147,7 +157,13 @@ export default function LieferscheinePage() {
               <Truck className="w-8 h-8 text-purple-600" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-slate-900">Lieferscheine</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-3xl font-bold text-slate-900">Lieferscheine</h1>
+                <div className="flex items-center gap-1.5 px-2 py-1 bg-green-50 border border-green-200 rounded-full">
+                  <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                  <span className="text-xs text-green-700 font-medium">Live</span>
+                </div>
+              </div>
               <p className="text-sm text-slate-600 mt-1">Übersicht aller Lieferscheine</p>
             </div>
           </div>
