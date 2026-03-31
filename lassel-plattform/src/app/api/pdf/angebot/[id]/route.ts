@@ -119,8 +119,6 @@ export async function GET(
       <td class="right">${fmtMenge(p.menge)}</td>
       <td class="right">${esc(p.einheit || 'Stk')}</td>
       <td class="right">${formatEuro(p.einzelpreis)}</td>
-      <td class="right">${p.rabatt_prozent ? esc(p.rabatt_prozent) + ' %' : '-'}</td>
-      <td class="right">${esc(p.mwst_satz || 20)},00%</td>
       <td class="right">${formatEuro(p.gesamtpreis)}</td>
     </tr>`
   }).join('')
@@ -170,8 +168,6 @@ export async function GET(
         <th class="right" style="width:55px">Menge</th>
         <th class="right" style="width:45px">Einh.</th>
         <th class="right" style="width:85px">Einzelpreis</th>
-        <th class="right" style="width:50px">Rabatt</th>
-        <th class="right" style="width:50px">Ust.</th>
         <th class="right" style="width:85px">Gesamtpreis</th>
       </tr>
     </thead>

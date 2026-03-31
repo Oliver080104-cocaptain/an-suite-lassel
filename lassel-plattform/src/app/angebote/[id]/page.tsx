@@ -39,6 +39,8 @@ export default function OfferDetailPage() {
     kunde_ort: '',
     objekt_bezeichnung: '',
     objekt_adresse: '',
+    objekt_plz: '',
+    objekt_ort: '',
     hausinhabung: '',
     erstellt_von: '',
     skizzen_link: '',
@@ -154,29 +156,45 @@ export default function OfferDetailPage() {
 
   useEffect(() => {
     if (existingOffer && !offerInitialized.current) {
-      setOffer(existingOffer)
+      setOffer({
+        ...existingOffer,
+        gueltig_bis: existingOffer.gueltig_bis || format(addDays(new Date(), 30), 'yyyy-MM-dd'),
+        objekt_plz: existingOffer.objekt_plz || '',
+        objekt_ort: existingOffer.objekt_ort || '',
+        erstellt_von: existingOffer.erstellt_von || '',
+        skizzen_link: existingOffer.skizzen_link || '',
+        hausinhabung: existingOffer.hausinhabung || '',
+        fusszeile: existingOffer.fusszeile || '',
+        objekt_bezeichnung: existingOffer.objekt_bezeichnung || '',
+      })
       offerInitialized.current = true
     }
   }, [existingOffer])
 
   useEffect(() => {
     if (existingPositions.length > 0 && !positionsInitialized.current) {
-      setPositions(existingPositions.map((p: any) => {
-        const lines = (p.beschreibung || '').split('\n')
-        return {
-          id: p.id,
-          pos: p.position,
-          produktName: lines[0] || '',
-          beschreibung: lines.slice(1).join('\n'),
-          menge: p.menge,
-          einheit: p.einheit || 'Stk',
-          einzelpreisNetto: p.einzelpreis,
-          rabattProzent: p.rabatt_prozent,
-          ustSatz: p.mwst_satz,
-          gesamtNetto: p.gesamtpreis,
-          gesamtBrutto: 0,
-        }
-      }))
+      const mapped = existingPositions
+        .map((p: any) => {
+          const lines = (p.beschreibung || '').split('\n')
+          return {
+            id: p.id,
+            pos: p.position,
+            produktName: lines[0] || '',
+            beschreibung: lines.slice(1).join('\n'),
+            menge: p.menge,
+            einheit: p.einheit || 'Stk',
+            einzelpreisNetto: p.einzelpreis,
+            rabattProzent: p.rabatt_prozent,
+            ustSatz: p.mwst_satz,
+            gesamtNetto: p.gesamtpreis,
+            gesamtBrutto: 0,
+          }
+        })
+        .filter((p: any) => p.produktName?.trim() || parseFloat(p.einzelpreisNetto) > 0)
+      setPositions(mapped.length > 0 ? mapped : [{
+        pos: 1, produktName: '', beschreibung: '', menge: 1, einheit: 'Stk',
+        einzelpreisNetto: 0, rabattProzent: 0, ustSatz: 20, gesamtNetto: 0, gesamtBrutto: 0
+      }])
       positionsInitialized.current = true
     }
   }, [existingPositions])
@@ -241,6 +259,8 @@ export default function OfferDetailPage() {
     kunde_ort: offerState.kunde_ort || null,
     objekt_bezeichnung: offerState.objekt_bezeichnung || null,
     objekt_adresse: offerState.objekt_adresse || null,
+    objekt_plz: offerState.objekt_plz || null,
+    objekt_ort: offerState.objekt_ort || null,
     hausinhabung: offerState.hausinhabung || null,
     erstellt_von: offerState.erstellt_von || null,
     skizzen_link: offerState.skizzen_link || null,
@@ -261,7 +281,8 @@ export default function OfferDetailPage() {
     autoSaveLock.current = true
     try {
       await supabase.from('angebote').update(buildOfferData({ ...offer, ...totals })).eq('id', offerId)
-      await savePositions(offerId, positions, existingPositions)
+      const posToSave = positions.filter((p: any) => p.produktName?.trim() || p.beschreibung?.trim())
+      await savePositions(offerId, posToSave, existingPositions)
     } catch (error) {
       console.error('Auto-save error:', error)
     } finally {
@@ -318,7 +339,8 @@ export default function OfferDetailPage() {
         if (error) throw error
         savedOffer = { ...offerData, id: offerId }
       }
-      await savePositions(savedOffer.id, positions, isNew ? [] : existingPositions)
+      const posToSave = positions.filter((p: any) => p.produktName?.trim() || p.beschreibung?.trim())
+      await savePositions(savedOffer.id, posToSave, isNew ? [] : existingPositions)
       queryClient.invalidateQueries({ queryKey: ['offers'] })
       queryClient.invalidateQueries({ queryKey: ['offer', savedOffer.id] })
       queryClient.invalidateQueries({ queryKey: ['offerPositions', savedOffer.id] })
@@ -668,11 +690,11 @@ export default function OfferDetailPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>Objekt PLZ</Label>
-                    <Input value={offer.objektPlz || ''} onChange={(e) => setOffer({ ...offer, objektPlz: e.target.value })} placeholder="PLZ" className="mt-1" />
+                    <Input value={offer.objekt_plz || ''} onChange={(e) => setOffer({ ...offer, objekt_plz: e.target.value })} placeholder="PLZ" className="mt-1" />
                   </div>
                   <div>
                     <Label>Objekt Ort</Label>
-                    <Input value={offer.objektOrt || ''} onChange={(e) => setOffer({ ...offer, objektOrt: e.target.value })} placeholder="Ort" className="mt-1" />
+                    <Input value={offer.objekt_ort || ''} onChange={(e) => setOffer({ ...offer, objekt_ort: e.target.value })} placeholder="Ort" className="mt-1" />
                   </div>
                 </div>
                 <div>
@@ -698,17 +720,7 @@ export default function OfferDetailPage() {
                 </div>
                 <div>
                   <Label>Angebot erstellt von</Label>
-                  <Select value={offer.erstellt_von || ''} onValueChange={(value) => setOffer({ ...offer, erstellt_von: value })}>
-                    <SelectTrigger className="mt-1"><SelectValue placeholder="Mitarbeiter auswählen..." /></SelectTrigger>
-                    <SelectContent>
-                      {(mitarbeiterList as any[]).map((m: any) => (
-                        <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
-                      ))}
-                      {offer.erstellt_von && !(mitarbeiterList as any[]).find((m: any) => m.name === offer.erstellt_von) && (
-                        <SelectItem value={offer.erstellt_von}>{offer.erstellt_von}</SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
+                  <Input value={offer.erstellt_von || ''} onChange={(e) => setOffer({ ...offer, erstellt_von: e.target.value })} placeholder="z.B. Reinhard Lassel" className="mt-1" />
                 </div>
                 <div className={offer.vermittler_id ? 'p-3 bg-orange-50 border-2 border-orange-300 rounded-lg' : ''}>
                   <Label>Vermittler</Label>
@@ -820,8 +832,8 @@ export default function OfferDetailPage() {
           <OfferPositionsTable positions={positions} onChange={setPositions} />
         </Card>
 
-        {/* Anmerkungen + Fußzeile + Steueroptionen + Zusammenfassung */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-4">
+        {/* Anmerkungen + Steueroptionen + Zusammenfassung */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-4">
           <Card className="p-6">
             <h2 className="text-lg font-semibold text-slate-900 mb-4">Anmerkungen zum Angebot</h2>
             <Textarea
@@ -833,48 +845,6 @@ export default function OfferDetailPage() {
             <p className="text-xs text-slate-500 mt-2">Zeilenumbrüche werden in der PDF übernommen.</p>
           </Card>
 
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-slate-500" />
-                <h2 className="text-lg font-semibold text-slate-900">Fußzeile</h2>
-              </div>
-              <div className="relative">
-                <Button variant="outline" size="sm" onClick={() => setVorlagenOpen(!vorlagenOpen)}>
-                  Weitere Vorlagen <ChevronDown className="ml-1 h-4 w-4" />
-                </Button>
-                {vorlagenOpen && (
-                  <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-slate-200 rounded-lg shadow-lg z-50 overflow-hidden">
-                    {(vorlagenList as any[]).map((v: any) => (
-                      <button
-                        key={v.id}
-                        onClick={() => { setOffer({ ...offer, fusszeile: v.inhalt || v.text || '' }); setVorlagenOpen(false) }}
-                        className="w-full text-left px-4 py-3 hover:bg-slate-50 border-b border-slate-100 last:border-0"
-                      >
-                        <div className="font-medium text-sm">{v.name}</div>
-                        <div className="text-xs text-slate-500 truncate">{(v.inhalt || v.text || '').substring(0, 55)}</div>
-                      </button>
-                    ))}
-                    <button
-                      onClick={() => { router.push('/einstellungen/textvorlagen'); setVorlagenOpen(false) }}
-                      className="w-full text-left px-4 py-3 flex items-center gap-2 text-sm text-slate-600 hover:bg-slate-50"
-                    >
-                      <Plus className="h-4 w-4" /> Neue Vorlage hinzufügen
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-            <Textarea
-              value={offer.fusszeile || ''}
-              onChange={(e) => setOffer({ ...offer, fusszeile: e.target.value })}
-              placeholder="Text für Angebot/Rechnung..."
-              rows={4}
-            />
-          </Card>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           <Card className="p-6">
             <h2 className="text-lg font-semibold text-slate-900 mb-4">Steueroptionen</h2>
             <div className="flex items-center space-x-2">
@@ -891,6 +861,47 @@ export default function OfferDetailPage() {
 
           <OfferSummary positions={positions} reverseCharge={offer.reverse_charge} />
         </div>
+
+        {/* Fußzeile – volle Breite */}
+        <Card className="p-6 mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-slate-500" />
+              <h2 className="text-lg font-semibold text-slate-900">Fußzeile</h2>
+            </div>
+            <div className="relative">
+              <Button variant="outline" size="sm" onClick={() => setVorlagenOpen(!vorlagenOpen)}>
+                Weitere Vorlagen <ChevronDown className="ml-1 h-4 w-4" />
+              </Button>
+              {vorlagenOpen && (
+                <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-slate-200 rounded-lg shadow-lg z-50 overflow-hidden">
+                  {(vorlagenList as any[]).map((v: any) => (
+                    <button
+                      key={v.id}
+                      onClick={() => { setOffer({ ...offer, fusszeile: v.inhalt || v.text || '' }); setVorlagenOpen(false) }}
+                      className="w-full text-left px-4 py-3 hover:bg-slate-50 border-b border-slate-100 last:border-0"
+                    >
+                      <div className="font-medium text-sm">{v.name}</div>
+                      <div className="text-xs text-slate-500 truncate">{(v.inhalt || v.text || '').substring(0, 55)}</div>
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => { router.push('/einstellungen/textvorlagen'); setVorlagenOpen(false) }}
+                    className="w-full text-left px-4 py-3 flex items-center gap-2 text-sm text-slate-600 hover:bg-slate-50"
+                  >
+                    <Plus className="h-4 w-4" /> Neue Vorlage hinzufügen
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+          <Textarea
+            value={offer.fusszeile || ''}
+            onChange={(e) => setOffer({ ...offer, fusszeile: e.target.value })}
+            placeholder="Text für Angebot/Rechnung..."
+            rows={4}
+          />
+        </Card>
 
         {/* PDF Preview */}
         {offerId && (

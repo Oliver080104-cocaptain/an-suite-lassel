@@ -115,6 +115,8 @@ export async function POST(req: NextRequest) {
         kunde_uid: kunde.uidnummer || null,
         objekt_adresse: angebot?.objektBeschreibung || null,
         objekt_bezeichnung: angebot?.objektBeschreibung || null,
+        objekt_plz: kunde?.objektAdresse?.plz || null,
+        objekt_ort: kunde?.objektAdresse?.ort || null,
         ticket_nummer: ticketNumber || null,
         zoho_ticket_id: ticketId || null,
         notizen: angebot?.bemerkung || null,
