@@ -971,8 +971,9 @@ export default function InvoiceDetailPage() {
                 <div>
                   <Label>Zahlungskondition</Label>
                   <Select value={invoice.zahlungskondition || '30 Tage netto'} onValueChange={v => {
-                    const days = v === 'sofort' ? 0 : v === '14 Tage netto' ? 14 : 30
-                    setInvoice(p => ({ ...p, zahlungskondition: v, zahlungszielTage: days }))
+                    const val = v || '30 Tage netto'
+                    const days = val === 'sofort' ? 0 : val === '14 Tage netto' ? 14 : 30
+                    setInvoice(p => ({ ...p, zahlungskondition: val, zahlungszielTage: days }))
                   }}>
                     <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -1186,7 +1187,7 @@ export default function InvoiceDetailPage() {
                 </div>
                 <div>
                   <Label>Zahlungsart</Label>
-                  <Select value={newTeilzahlung.zahlungsart} onValueChange={v => setNewTeilzahlung(p => ({ ...p, zahlungsart: v }))}>
+                  <Select value={newTeilzahlung.zahlungsart} onValueChange={v => setNewTeilzahlung(p => ({ ...p, zahlungsart: v || 'überweisung' }))}>
                     <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="überweisung">Überweisung</SelectItem>
