@@ -92,6 +92,29 @@ export async function GET(
   const erstelltVon = angebot.erstellt_von || ''
   const fusstext = angebot.fusszeile || (settingsResult.data as any)?.angebotFusstext || ''
 
+  // Empfänger Logik
+  let empfaengerName = ''
+  let empfaengerZeile2 = ''
+  let empfaengerStrasse = ''
+  let empfaengerPlz = ''
+  let empfaengerOrt = ''
+  let empfaengerUID = ''
+
+  if (angebot.rechnung_an_hi && angebot.hausinhabung) {
+    empfaengerName = angebot.hausinhabung
+    empfaengerZeile2 = `p.A. ${angebot.hausverwaltung_name || ''}`
+    empfaengerStrasse = angebot.kunde_strasse || ''
+    empfaengerPlz = angebot.kunde_plz || ''
+    empfaengerOrt = angebot.kunde_ort || ''
+    empfaengerUID = ''
+  } else {
+    empfaengerName = angebot.kunde_name || ''
+    empfaengerStrasse = angebot.kunde_strasse || ''
+    empfaengerPlz = angebot.kunde_plz || ''
+    empfaengerOrt = angebot.kunde_ort || ''
+    empfaengerUID = angebot.kunde_uid || ''
+  }
+
   const posRows = positionen.map((p, i) => {
     const lines = (p.beschreibung as string || '').split('\n')
     const titel = esc(lines[0] || '')
@@ -127,11 +150,12 @@ export async function GET(
     <div class="header-left">
       <div class="sender-line">Lassel GmbH - Hetzmannsdorf 25 - 2041 Wullersdorf</div>
       <div class="customer-address">
-        <div class="customer-name">${esc(angebot.kunde_name)}</div>
-        ${angebot.kunde_strasse ? `<div>${esc(angebot.kunde_strasse)}</div>` : ''}
-        ${(angebot.kunde_plz || angebot.kunde_ort) ? `<div>${esc(angebot.kunde_plz || '')} ${esc(angebot.kunde_ort || '')}</div>` : ''}
+        <div class="customer-name">${esc(empfaengerName)}</div>
+        ${empfaengerZeile2 ? `<div>${esc(empfaengerZeile2)}</div>` : ''}
+        ${empfaengerStrasse ? `<div>${esc(empfaengerStrasse)}</div>` : ''}
+        ${(empfaengerPlz || empfaengerOrt) ? `<div>${esc(empfaengerPlz)} ${esc(empfaengerOrt)}</div>` : ''}
         <div>Österreich</div>
-        ${angebot.kunde_uid ? `<div>${esc(angebot.kunde_uid)}</div>` : ''}
+        ${empfaengerUID ? `<div>${esc(empfaengerUID)}</div>` : ''}
       </div>
     </div>
     <div class="header-right">
