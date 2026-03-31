@@ -59,16 +59,6 @@ export async function POST(req: NextRequest) {
       .eq('zoho_ticket_id', ticketId)
       .maybeSingle()
 
-    if (existing) {
-      return NextResponse.json({
-        success: true,
-        rechnungId: existing.id,
-        rechnungNummer: existing.rechnungsnummer,
-        editUrl: `${APP_URL}/rechnungen/${existing.id}`,
-        action: 'already_exists',
-      })
-    }
-
     const posArray = Array.isArray(positionen) ? positionen : []
     const netto_gesamt = posArray.reduce((sum: number, p: any) => {
       const menge = parseFloat(p.menge) || 0
@@ -84,81 +74,105 @@ export async function POST(req: NextRequest) {
       return sum + (netto * ((parseFloat(p.ustSatz) || 20) / 100))
     }, 0)
 
-    const rechnungsnummer = await generateRechnungsnummer()
-    const { data: newRechnung, error } = await supabase
-      .from('rechnungen')
-      .insert({
-        rechnungsnummer,
-        rechnungstyp: body.rechnungstyp || 'normal',
-        status: 'entwurf',
-        kunde_name: kunde.name,
-        kunde_strasse: kunde.strasse || null,
-        kunde_plz: kunde.plz || null,
-        kunde_ort: kunde.ort || null,
-        objekt_adresse: rechnung?.objektBeschreibung || null,
-        objekt_plz: kunde?.objektAdresse?.plz || null,
-        objekt_ort: kunde?.objektAdresse?.ort || null,
-        ticket_nummer: ticketNumber || null,
-        zoho_ticket_id: ticketId || null,
-        notizen: rechnung?.bemerkung || null,
-        erstellt_von: rechnung?.erstelltDurch || null,
-        rechnung_an_hi: kunde?.rechnungAnHI || false,
-        hausinhabung: meta?.zoho?.hausinhabung || null,
-        hausverwaltung_name: meta?.zoho?.hausverwaltungName || null,
-        hausverwaltung_strasse: meta?.zoho?.hausverwaltungStrasse || null,
-        hausverwaltung_plz: meta?.zoho?.hausverwaltungPlz || null,
-        hausverwaltung_ort: meta?.zoho?.hausverwaltungOrt || null,
-        uid_von_hi: kunde?.uidVonHI || null,
-        kunde_uid: kunde?.uid || null,
-        leistungszeitraum_von: rechnung?.leistungszeitraumVon || null,
-        leistungszeitraum_bis: rechnung?.leistungszeitraumBis || null,
-        zahlungskondition: rechnung?.zahlungskondition || '30 Tage netto',
-        zahlungsziel_tage: parseInt(rechnung?.zahlungszielTage) || 30,
-        referenz_angebot_nummer: body.referenzAngebotNummer || null,
-        geschaeftsfallnummer: body.geschaeftsfallnummer || null,
-        rechnungsdatum: rechnung?.datum || new Date().toISOString().split('T')[0],
-        faellig_bis: rechnung?.zahlungszielTage
-          ? new Date(Date.now() + (parseInt(rechnung.zahlungszielTage) || 30) * 86400000).toISOString().split('T')[0]
-          : null,
-        netto_gesamt,
-        mwst_gesamt,
-        brutto_gesamt: netto_gesamt + mwst_gesamt,
-      })
-      .select()
-      .single()
+    const buildData = (rechnungsnummer?: string) => ({
+      ...(rechnungsnummer ? { rechnungsnummer } : {}),
+      rechnungstyp: body.rechnungstyp || 'normal',
+      kunde_name: kunde.name || '',
+      kunde_strasse: kunde.strasse || null,
+      kunde_plz: kunde.plz || null,
+      kunde_ort: kunde.ort || null,
+      objekt_adresse: rechnung?.objektBeschreibung || null,
+      objekt_bezeichnung: rechnung?.objektBeschreibung || null,
+      objekt_plz: kunde?.objektAdresse?.plz || null,
+      objekt_ort: kunde?.objektAdresse?.ort || null,
+      ticket_nummer: ticketNumber || null,
+      zoho_ticket_id: ticketId || null,
+      notizen: rechnung?.bemerkung || null,
+      erstellt_von: rechnung?.erstelltDurch || null,
+      rechnung_an_hi: kunde?.rechnungAnHI || false,
+      hausinhabung: meta?.zoho?.hausinhabung || null,
+      hausverwaltung_name: meta?.zoho?.hausverwaltungName || null,
+      hausverwaltung_strasse: meta?.zoho?.hausverwaltungStrasse || null,
+      hausverwaltung_plz: meta?.zoho?.hausverwaltungPlz || null,
+      hausverwaltung_ort: meta?.zoho?.hausverwaltungOrt || null,
+      uid_von_hi: kunde?.uidVonHI || null,
+      kunde_uid: kunde?.uid || null,
+      email_rechnung: kunde?.emailRechnung || null,
+      leistungszeitraum_von: rechnung?.leistungszeitraumVon || null,
+      leistungszeitraum_bis: rechnung?.leistungszeitraumBis || null,
+      zahlungskondition: rechnung?.zahlungskondition || '30 Tage netto',
+      zahlungsziel_tage: parseInt(rechnung?.zahlungszielTage) || 30,
+      referenz_angebot_nummer: body.referenzAngebotNummer || null,
+      geschaeftsfallnummer: body.geschaeftsfallnummer || null,
+      rechnungsdatum: rechnung?.datum || new Date().toISOString().split('T')[0],
+      faellig_bis: rechnung?.zahlungszielTage
+        ? new Date(Date.now() + (parseInt(rechnung.zahlungszielTage) || 30) * 86400000).toISOString().split('T')[0]
+        : null,
+      fotos_link: rechnung?.fotosLink || null,
+      fotodoku_link: rechnung?.fotodokuOrdnerlink || null,
+      workdrive_folder_id: meta?.workdriveFolderId || null,
+      callback_url: meta?.callbackUrl || null,
+      netto_gesamt,
+      mwst_gesamt,
+      brutto_gesamt: netto_gesamt + mwst_gesamt,
+    })
 
-    if (error || !newRechnung) {
-      return NextResponse.json({ error: error?.message || 'Fehler' }, { status: 500 })
+    const buildPositionen = (rechnungId: string) => posArray.map((p: any, i: number) => ({
+      rechnung_id: rechnungId,
+      position: i + 1,
+      beschreibung: p.produktName
+        ? (p.beschreibung ? `${p.produktName}\n${p.beschreibung}` : p.produktName)
+        : (p.beschreibung || ''),
+      menge: parseFloat(p.menge) || 1,
+      einheit: p.einheit || 'Stk',
+      einzelpreis: parseFloat(p.einzelpreisNetto) || 0,
+      rabatt_prozent: parseFloat(p.rabattProzent) || 0,
+      mwst_satz: parseFloat(p.ustSatz) || 20,
+      gesamtpreis: (parseFloat(p.menge) || 1) * (parseFloat(p.einzelpreisNetto) || 0),
+    }))
+
+    let rechnungId: string
+    let rechnungsnummer: string
+    let action: string
+
+    if (existing) {
+      // UPDATE existing — overwrite with fresh payload
+      await supabase.from('rechnungen').update(buildData()).eq('id', existing.id)
+      if (posArray.length > 0) {
+        await supabase.from('rechnung_positionen').delete().eq('rechnung_id', existing.id)
+        await supabase.from('rechnung_positionen').insert(buildPositionen(existing.id))
+      }
+      rechnungId = existing.id
+      rechnungsnummer = existing.rechnungsnummer
+      action = 'updated'
+    } else {
+      // INSERT new
+      rechnungsnummer = await generateRechnungsnummer()
+      const { data: newRechnung, error } = await supabase
+        .from('rechnungen')
+        .insert({ ...buildData(rechnungsnummer), status: 'entwurf' })
+        .select()
+        .single()
+      if (error || !newRechnung) {
+        return NextResponse.json({ error: error?.message || 'Fehler' }, { status: 500 })
+      }
+      if (posArray.length > 0) {
+        await supabase.from('rechnung_positionen').insert(buildPositionen(newRechnung.id))
+      }
+      rechnungId = newRechnung.id
+      action = 'created'
     }
 
-    if (posArray.length > 0) {
-      await supabase.from('rechnung_positionen').insert(
-        posArray.map((p: any) => ({
-          rechnung_id: newRechnung.id,
-          position: p.pos || 1,
-          beschreibung: p.produktName
-            ? (p.beschreibung ? `${p.produktName}\n${p.beschreibung}` : p.produktName)
-            : (p.beschreibung || ''),
-          menge: parseFloat(p.menge) || 0,
-          einheit: p.einheit || 'Stk',
-          einzelpreis: parseFloat(p.einzelpreisNetto) || 0,
-          rabatt_prozent: parseFloat(p.rabattProzent) || 0,
-          mwst_satz: parseFloat(p.ustSatz) || 20,
-          gesamtpreis: (parseFloat(p.menge) || 0) * (parseFloat(p.einzelpreisNetto) || 0),
-        }))
-      )
-    }
-
-    const editUrl = `${APP_URL}/rechnungen/${newRechnung.id}`
+    const editUrl = `${APP_URL}/rechnungen/${rechnungId}`
     if (meta?.callbackUrl) {
       await fetch(meta.callbackUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rechnungId: newRechnung.id, rechnungNummer: rechnungsnummer, editUrl, ticketId }),
+        body: JSON.stringify({ rechnungId, rechnungNummer: rechnungsnummer, editUrl, ticketId }),
       }).catch(console.error)
     }
 
-    return NextResponse.json({ success: true, rechnungId: newRechnung.id, rechnungNummer: rechnungsnummer, editUrl, action: 'created' })
+    return NextResponse.json({ success: true, rechnungId, rechnungNummer: rechnungsnummer, editUrl, action })
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 500 })
   }

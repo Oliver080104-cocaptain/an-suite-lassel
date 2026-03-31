@@ -236,11 +236,13 @@ export default function InvoiceDetailPage() {
   // Init positions
   useEffect(() => {
     if (existingPositions.length > 0 && !positionsInitialized.current) {
-      setPositions((existingPositions as any[]).map((p: any, i: number) => ({
+      setPositions((existingPositions as any[]).map((p: any, i: number) => {
+        const lines = (p.beschreibung || '').split('\n')
+        return {
         id: p.id,
         pos: i + 1,
-        produktName: p.beschreibung || '',
-        beschreibung: '',
+        produktName: lines[0] || '',
+        beschreibung: lines.slice(1).join('\n').trim(),
         menge: p.menge || 1,
         einheit: p.einheit || 'Stk',
         einzelpreisNetto: p.einzelpreis || 0,
@@ -250,7 +252,8 @@ export default function InvoiceDetailPage() {
         bereitsFakturiert: 0,
         gesamtNetto: p.gesamtpreis || 0,
         gesamtBrutto: p.gesamtpreis || 0,
-      })))
+        }
+      }))
       positionsInitialized.current = true
     }
   }, [existingPositions])

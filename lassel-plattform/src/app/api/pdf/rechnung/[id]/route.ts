@@ -240,9 +240,11 @@ export async function GET(
 
   ${fusstext ? `
   <div style="margin-top: 15pt; padding: 8pt 12pt;
-    border-left: 3px solid #ccc;
+    border-left: 3px solid #999;
+    background: #fafafa;
     font-size: 8.5pt; color: #444; line-height: 1.6;
-    white-space: pre-wrap;">${esc(fusstext)}</div>` : ''}
+    white-space: pre-wrap;
+    margin-bottom: 15pt;">${esc(fusstext)}</div>` : ''}
 
   <div class="closing">
     <div class="signature">
