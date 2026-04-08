@@ -214,9 +214,6 @@ export async function GET(
   <div style="
     margin-top: 20pt;
     margin-bottom: 15pt;
-    padding: 10pt 14pt;
-    border-left: 3px solid #E85A1B;
-    background: #fafafa;
     font-size: 9pt;
     color: #333;
     line-height: 1.6;

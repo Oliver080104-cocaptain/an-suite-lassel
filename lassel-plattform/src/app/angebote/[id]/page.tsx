@@ -1061,7 +1061,7 @@ export default function OfferDetailPage() {
                       onClick={() => { setOffer({ ...offer, fusszeile: v.inhalt || v.text || '' }); setVorlagenOpen(false) }}
                       className="w-full text-left px-4 py-3 hover:bg-slate-50 border-b border-slate-100 last:border-0"
                     >
-                      <div className="font-medium text-sm">{v.titel || v.name}</div>
+                      <div className="font-medium text-sm">{v.name || v.titel}</div>
                       <div className="text-xs text-slate-500 truncate">{(v.inhalt || v.text || '').substring(0, 55)}</div>
                     </button>
                   ))}
