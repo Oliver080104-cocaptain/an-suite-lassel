@@ -15,7 +15,7 @@ import { Plus, Pencil, Trash2, ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 
 const defaultForm = {
-  name: '',
+  titel: '',
   kategorie: '',
   inhalt: '',
 }
@@ -30,7 +30,7 @@ export default function TextvorlagenPage() {
   const { data: vorlagen = [], isLoading } = useQuery({
     queryKey: ['textvorlagen'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('textvorlagen').select('*').order('kategorie').order('name')
+      const { data, error } = await supabase.from('textvorlagen').select('*').order('kategorie').order('titel')
       if (error) throw error
       return data || []
     },
@@ -84,13 +84,13 @@ export default function TextvorlagenPage() {
 
   const handleEdit = (vorlage: any) => {
     setEditingVorlage(vorlage)
-    setFormData({ name: vorlage.name || '', kategorie: vorlage.kategorie || '', inhalt: vorlage.inhalt || '' })
+    setFormData({ titel: vorlage.titel || vorlage.name || '', kategorie: vorlage.kategorie || '', inhalt: vorlage.inhalt || '' })
     setShowDialog(true)
   }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!formData.name.trim()) { toast.error('Name ist erforderlich'); return }
+    if (!formData.titel.trim()) { toast.error('Name ist erforderlich'); return }
     if (!formData.inhalt.trim()) { toast.error('Text ist erforderlich'); return }
     if (editingVorlage) {
       updateMutation.mutate({ id: editingVorlage.id, data: formData })
@@ -150,7 +150,7 @@ export default function TextvorlagenPage() {
                     <Card key={vorlage.id} className="p-4 hover:shadow-md transition-shadow">
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1 min-w-0">
-                          <h3 className="font-semibold text-slate-900 mb-1">{vorlage.name}</h3>
+                          <h3 className="font-semibold text-slate-900 mb-1">{vorlage.titel || vorlage.name}</h3>
                           <p className="text-sm text-slate-600 line-clamp-3 whitespace-pre-wrap">{vorlage.inhalt}</p>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
@@ -179,7 +179,7 @@ export default function TextvorlagenPage() {
             <form onSubmit={handleSubmit} className="space-y-4 mt-2">
               <div>
                 <Label>Name *</Label>
-                <Input value={formData.name} onChange={e => setFormData(p => ({ ...p, name: e.target.value }))} placeholder="z.B. Standardbeschreibung Dachreparatur" required className="mt-1" />
+                <Input value={formData.titel} onChange={e => setFormData(p => ({ ...p, titel: e.target.value }))} placeholder="z.B. Standardbeschreibung Dachreparatur" required className="mt-1" />
               </div>
               <div>
                 <Label>Kategorie</Label>
@@ -213,7 +213,7 @@ export default function TextvorlagenPage() {
             <AlertDialogHeader>
               <AlertDialogTitle>Vorlage löschen?</AlertDialogTitle>
               <AlertDialogDescription>
-                Möchten Sie die Vorlage <strong>{deleteDialog.item?.name}</strong> wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.
+                Möchten Sie die Vorlage <strong>{deleteDialog.item?.titel || deleteDialog.item?.name}</strong> wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

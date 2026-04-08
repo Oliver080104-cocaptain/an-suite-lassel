@@ -73,6 +73,7 @@ export default function OfferDetailPage() {
   const [parksperreModalOpen, setParksperreModalOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [previewVersion, setPreviewVersion] = useState(0)
   const [creatingDeliveryNote, setCreatingDeliveryNote] = useState(false)
   const [creatingInvoice, setCreatingInvoice] = useState(false)
   const [uploadingToZoho, setUploadingToZoho] = useState(false)
@@ -257,34 +258,41 @@ export default function OfferDetailPage() {
     return { netto_gesamt, mwst_gesamt, brutto_gesamt: netto_gesamt + mwst_gesamt }
   }, [positions])
 
-  const buildOfferData = (offerState: any) => ({
-    angebotsnummer: offerState.angebotsnummer,
-    angebotsdatum: offerState.angebotsdatum,
-    gueltig_bis: offerState.gueltig_bis,
-    status: offerState.status || 'entwurf',
-    kunde_name: offerState.kunde_name || '',
-    kunde_uid: offerState.kunde_uid || null,
-    kunde_strasse: offerState.kunde_strasse || null,
-    kunde_plz: offerState.kunde_plz || null,
-    kunde_ort: offerState.kunde_ort || null,
-    objekt_bezeichnung: offerState.objekt_bezeichnung || null,
-    objekt_adresse: offerState.objekt_adresse || null,
-    objekt_plz: offerState.objekt_plz || null,
-    objekt_ort: offerState.objekt_ort || null,
-    hausinhabung: offerState.hausinhabung || null,
-    erstellt_von: offerState.erstellt_von || null,
-    skizzen_link: offerState.skizzen_link || null,
-    fusszeile: offerState.fusszeile || null,
-    ticket_nummer: offerState.ticket_nummer || null,
-    zoho_ticket_id: offerState.zoho_ticket_id || null,
-    reverse_charge: offerState.reverse_charge || false,
-    notizen: offerState.notizen || null,
-    pdf_url: offerState.pdf_url || null,
-    vermittler_id: offerState.vermittler_id || null,
-    netto_gesamt: offerState.netto_gesamt || 0,
-    mwst_gesamt: offerState.mwst_gesamt || 0,
-    brutto_gesamt: offerState.brutto_gesamt || 0,
-  })
+  const buildOfferData = (offerState: any) => {
+    const data: Record<string, unknown> = {
+      angebotsnummer: offerState.angebotsnummer,
+      angebotsdatum: offerState.angebotsdatum,
+      gueltig_bis: offerState.gueltig_bis,
+      status: offerState.status || 'entwurf',
+      kunde_name: offerState.kunde_name || '',
+      kunde_uid: offerState.kunde_uid || null,
+      kunde_strasse: offerState.kunde_strasse || null,
+      kunde_plz: offerState.kunde_plz || null,
+      kunde_ort: offerState.kunde_ort || null,
+      objekt_bezeichnung: offerState.objekt_bezeichnung || null,
+      objekt_adresse: offerState.objekt_adresse || null,
+      objekt_plz: offerState.objekt_plz || null,
+      objekt_ort: offerState.objekt_ort || null,
+      hausinhabung: offerState.hausinhabung || null,
+      erstellt_von: offerState.erstellt_von || null,
+      skizzen_link: offerState.skizzen_link || null,
+      fusszeile: offerState.fusszeile || null,
+      ticket_nummer: offerState.ticket_nummer || null,
+      zoho_ticket_id: offerState.zoho_ticket_id || null,
+      reverse_charge: offerState.reverse_charge || false,
+      notizen: offerState.notizen || null,
+      pdf_url: offerState.pdf_url || null,
+      netto_gesamt: offerState.netto_gesamt || 0,
+      mwst_gesamt: offerState.mwst_gesamt || 0,
+      brutto_gesamt: offerState.brutto_gesamt || 0,
+    }
+    // vermittler_id nur senden wenn gesetzt — vermeidet PGRST204 wenn Spalte im
+    // Schema-Cache fehlt und User keinen Vermittler ausgewählt hat.
+    if (offerState.vermittler_id) {
+      data.vermittler_id = offerState.vermittler_id
+    }
+    return data
+  }
 
   const handleAutoSave = async () => {
     if (isNew || !offerId || autoSaveLock.current) return
@@ -297,7 +305,10 @@ export default function OfferDetailPage() {
         .eq('id', offerId)
       if (offerErr) throw offerErr
       const posToSave = positions.filter((p: any) => p.produktName?.trim() || p.beschreibung?.trim())
-      await savePositions(offerId, posToSave, existingPositions)
+      await savePositions(offerId, posToSave)
+      // Query invalidieren damit existingPositions die neuen IDs lädt
+      queryClient.invalidateQueries({ queryKey: ['offerPositions', offerId] })
+      setPreviewVersion((v) => v + 1)
       setSaveStatus('saved')
     } catch (error) {
       console.error('Auto-save error:', error)
@@ -309,15 +320,12 @@ export default function OfferDetailPage() {
     }
   }
 
-  const savePositions = async (targetOfferId: string, currentPositions: any[], currentExistingPositions: any[]) => {
-    const existingPosIds = currentExistingPositions.map((p: any) => p.id)
-    const toDelete = currentExistingPositions.filter((ep: any) => !currentPositions.find((p: any) => p.id === ep.id))
-    const toUpdate = currentPositions.filter((p: any) => p.id && existingPosIds.includes(p.id))
-    const toCreate = currentPositions.filter((p: any) => !p.id)
-
-    const buildPosData = (pos: any) => ({
+  // Delete-then-insert: DB-Zustand wird in einem Rutsch durch local state ersetzt.
+  // Vermeidet die Duplikat-Race wo Inserts über N Autosaves nicht mit local IDs synced wurden.
+  const savePositions = async (targetOfferId: string, currentPositions: any[]) => {
+    const buildPosData = (pos: any, index: number) => ({
       angebot_id: targetOfferId,
-      position: pos.pos ?? pos.position,
+      position: index + 1,
       beschreibung: pos.produktName
         ? (pos.beschreibung ? `${pos.produktName}\n${pos.beschreibung}` : pos.produktName)
         : (pos.beschreibung || ''),
@@ -329,11 +337,18 @@ export default function OfferDetailPage() {
       gesamtpreis: parseFloat(pos.gesamtNetto ?? pos.gesamtpreis) || 0,
     })
 
-    await Promise.all([
-      ...toDelete.map((p: any) => supabase.from('angebot_positionen').delete().eq('id', p.id)),
-      ...toUpdate.map((p: any) => supabase.from('angebot_positionen').update(buildPosData(p)).eq('id', p.id)),
-      ...(toCreate.length > 0 ? [supabase.from('angebot_positionen').insert(toCreate.map(buildPosData))] : [])
-    ])
+    const { error: delErr } = await supabase
+      .from('angebot_positionen')
+      .delete()
+      .eq('angebot_id', targetOfferId)
+    if (delErr) throw delErr
+
+    if (currentPositions.length > 0) {
+      const { error: insErr } = await supabase
+        .from('angebot_positionen')
+        .insert(currentPositions.map(buildPosData))
+      if (insErr) throw insErr
+    }
   }
 
   const generateOfferNumber = async () => {
@@ -359,7 +374,7 @@ export default function OfferDetailPage() {
         savedOffer = { ...offerData, id: offerId }
       }
       const posToSave = positions.filter((p: any) => p.produktName?.trim() || p.beschreibung?.trim())
-      await savePositions(savedOffer.id, posToSave, isNew ? [] : existingPositions)
+      await savePositions(savedOffer.id, posToSave)
       queryClient.invalidateQueries({ queryKey: ['offers'] })
       queryClient.invalidateQueries({ queryKey: ['offer', savedOffer.id] })
       queryClient.invalidateQueries({ queryKey: ['offerPositions', savedOffer.id] })
@@ -393,7 +408,8 @@ export default function OfferDetailPage() {
         if (error) throw error
         savedOffer = { ...offerData, id: offerId }
       }
-      await savePositions(savedOffer.id, positions, isNew ? [] : existingPositions)
+      const posToSave = positions.filter((p: any) => p.produktName?.trim() || p.beschreibung?.trim())
+      await savePositions(savedOffer.id, posToSave)
 
       const editUrl = `${window.location.origin}/angebote/${savedOffer.id}`
       await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/fccf5130-51b2-4e66-8aa2-84d29da4862a', {
@@ -1045,7 +1061,7 @@ export default function OfferDetailPage() {
                       onClick={() => { setOffer({ ...offer, fusszeile: v.inhalt || v.text || '' }); setVorlagenOpen(false) }}
                       className="w-full text-left px-4 py-3 hover:bg-slate-50 border-b border-slate-100 last:border-0"
                     >
-                      <div className="font-medium text-sm">{v.name}</div>
+                      <div className="font-medium text-sm">{v.titel || v.name}</div>
                       <div className="text-xs text-slate-500 truncate">{(v.inhalt || v.text || '').substring(0, 55)}</div>
                     </button>
                   ))}
@@ -1075,7 +1091,7 @@ export default function OfferDetailPage() {
               <h2 className="text-lg font-semibold text-slate-900">Angebots-Vorschau</h2>
             </div>
             <div className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-inner p-8" style={{ aspectRatio: '1 / 1.414' }}>
-              <iframe src={`/api/pdf/angebot/${offerId}`} className="w-full h-full" title="Angebots-Vorschau" />
+              <iframe src={`/api/pdf/angebot/${offerId}?v=${previewVersion}`} className="w-full h-full" title="Angebots-Vorschau" />
             </div>
           </div>
         )}
