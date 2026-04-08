@@ -81,25 +81,23 @@ export async function GET(
 ) {
   const { id } = await params
 
-  const [{ data: angebot, error }, posResult, einstellungenResult] = await Promise.all([
-    supabase.from('angebote').select('*, fusszeile').eq('id', id).single(),
+  const [{ data: angebot, error }, posResult, companyResult] = await Promise.all([
+    supabase.from('angebote').select('*').eq('id', id).single(),
     supabase.from('angebot_positionen').select('*').eq('angebot_id', id).order('position'),
-    supabase.from('einstellungen').select('key, value'),
+    supabase.from('company_settings').select('*').limit(1).single(),
   ])
   if (error || !angebot) return new NextResponse('Angebot nicht gefunden', { status: 404 })
 
-  console.log('DEBUG fusszeile:', angebot?.fusszeile)
-  console.log('DEBUG data keys:', Object.keys(angebot || {}))
+  if (posResult.error) {
+    console.error('Positionen Query Fehler:', posResult.error)
+  }
 
   const positionen: any[] = posResult.data || []
   const erstelltVon = angebot.erstellt_von || ''
 
-  // Firmen-Fußtext aus einstellungen
-  const eMap: Record<string, string> = {}
-  einstellungenResult.data?.forEach((e: any) => {
-    try { eMap[e.key] = JSON.parse(e.value) } catch { eMap[e.key] = e.value }
-  })
-  const fusstext = angebot.fusszeile || eMap.angebotFusstext || ''
+  // Firmen-Fußtext: Angebot-spezifisch hat Vorrang, sonst globaler Default aus company_settings
+  const companySettings: any = companyResult.data || {}
+  const fusstext = angebot.fusszeile || companySettings.angebotFusstext || ''
 
   // Empfänger Logik
   let empfaengerName = ''
@@ -211,11 +209,6 @@ export async function GET(
   </div>
 
   ${angebot.notizen ? `<div class="remarks">${esc(angebot.notizen)}</div>` : ''}
-
-  <!-- TEST: Fußzeile debug -->
-  <div style="background:red;color:white;padding:10px;font-size:9pt;">
-    FUSSZEILE TEST: ${fusstext ? esc(fusstext) : 'LEER'}
-  </div>
 
   ${fusstext ? `
   <div style="

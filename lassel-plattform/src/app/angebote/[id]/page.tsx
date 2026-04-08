@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useDebouncedCallback } from 'use-debounce'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,7 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
-import { Save, Loader2, Send, Truck, Receipt, Car, FileText, Download, ChevronDown, Plus } from 'lucide-react'
+import { Save, Loader2, Send, Truck, Receipt, Car, FileText, Download, ChevronDown, Plus, Check, X } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { format, addDays } from 'date-fns'
@@ -71,13 +72,14 @@ export default function OfferDetailPage() {
   const [emailModalOpen, setEmailModalOpen] = useState(false)
   const [parksperreModalOpen, setParksperreModalOpen] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [creatingDeliveryNote, setCreatingDeliveryNote] = useState(false)
   const [creatingInvoice, setCreatingInvoice] = useState(false)
   const [uploadingToZoho, setUploadingToZoho] = useState(false)
   const autoSaveLock = useRef(false)
   const positionsInitialized = useRef(false)
   const offerInitialized = useRef(false)
-  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const statusResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const { data: existingOffer, isLoading: loadingOffer } = useQuery({
     queryKey: ['offer', offerId],
@@ -221,17 +223,21 @@ export default function OfferDetailPage() {
     }
   }, [offer, positions, isNew, offerId])
 
-  // Debounced autosave: 2 seconds after last change
+  // Debounced autosave: 1 second after last change, with visible status badge
+  const debouncedAutoSave = useDebouncedCallback(() => {
+    handleAutoSave()
+  }, 1000)
+
   useEffect(() => {
     if (isNew || !offerId || !offerInitialized.current) return
-    if (debounceTimer.current) clearTimeout(debounceTimer.current)
-    debounceTimer.current = setTimeout(() => {
-      handleAutoSave()
-    }, 2000)
+    debouncedAutoSave()
+  }, [offer, positions, isNew, offerId, debouncedAutoSave])
+
+  useEffect(() => {
     return () => {
-      if (debounceTimer.current) clearTimeout(debounceTimer.current)
+      if (statusResetTimer.current) clearTimeout(statusResetTimer.current)
     }
-  }, [offer, positions])
+  }, [])
 
   const totals = useMemo(() => {
     const netto_gesamt = positions.reduce((sum: number, p: any) => {
@@ -283,14 +289,23 @@ export default function OfferDetailPage() {
   const handleAutoSave = async () => {
     if (isNew || !offerId || autoSaveLock.current) return
     autoSaveLock.current = true
+    setSaveStatus('saving')
     try {
-      await supabase.from('angebote').update(buildOfferData({ ...offer, ...totals })).eq('id', offerId)
+      const { error: offerErr } = await supabase
+        .from('angebote')
+        .update(buildOfferData({ ...offer, ...totals }))
+        .eq('id', offerId)
+      if (offerErr) throw offerErr
       const posToSave = positions.filter((p: any) => p.produktName?.trim() || p.beschreibung?.trim())
       await savePositions(offerId, posToSave, existingPositions)
+      setSaveStatus('saved')
     } catch (error) {
       console.error('Auto-save error:', error)
+      setSaveStatus('error')
     } finally {
       autoSaveLock.current = false
+      if (statusResetTimer.current) clearTimeout(statusResetTimer.current)
+      statusResetTimer.current = setTimeout(() => setSaveStatus('idle'), 2000)
     }
   }
 
@@ -654,7 +669,27 @@ export default function OfferDetailPage() {
             </div>
             <div>
               <Link href="/angebote" className="text-sm text-slate-500 hover:text-slate-700">← Alle Angebote</Link>
-              <h1 className="text-3xl font-bold text-slate-900">{isNew ? 'Neues Angebot' : offer.angebotsnummer || 'Angebot'}</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-bold text-slate-900">{isNew ? 'Neues Angebot' : offer.angebotsnummer || 'Angebot'}</h1>
+                {saveStatus === 'saving' && (
+                  <span className="flex items-center gap-1 text-xs text-gray-400">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Speichern...
+                  </span>
+                )}
+                {saveStatus === 'saved' && (
+                  <span className="flex items-center gap-1 text-xs text-green-500">
+                    <Check className="w-3 h-3" />
+                    Gespeichert
+                  </span>
+                )}
+                {saveStatus === 'error' && (
+                  <span className="flex items-center gap-1 text-xs text-red-500">
+                    <X className="w-3 h-3" />
+                    Fehler beim Speichern
+                  </span>
+                )}
+              </div>
               <p className="text-sm text-slate-600 mt-1">
                 {isNew ? 'Angebot erstellen' : (createdAt ? `Erstellt am ${format(new Date(createdAt), 'dd.MM.yyyy')}` : '')}
               </p>
