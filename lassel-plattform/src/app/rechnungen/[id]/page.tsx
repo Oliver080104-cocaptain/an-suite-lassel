@@ -157,7 +157,7 @@ export default function InvoiceDetailPage() {
   const { data: vermittlerList = [] } = useQuery({
     queryKey: ['vermittler'],
     queryFn: async () => {
-      const { data } = await supabase.from('vermittler').select('*').eq('status', 'aktiv').order('name')
+      const { data } = await supabase.from('vermittler').select('*').eq('aktiv', true).order('name')
       return data || []
     },
     staleTime: 5 * 60 * 1000,
@@ -239,6 +239,7 @@ export default function InvoiceDetailPage() {
         skontoAktiv: existingInvoice.skonto_aktiv ?? false,
         skontoProzent: existingInvoice.skonto_prozent ?? defaultInvoice.skontoProzent,
         skontoTage: existingInvoice.skonto_tage ?? defaultInvoice.skontoTage,
+        stornoVonRechnung: existingInvoice.storno_von || '',
       })
       invoiceInitialized.current = true
     }
@@ -409,6 +410,7 @@ export default function InvoiceDetailPage() {
     skonto_aktiv: inv.skontoAktiv || false,
     skonto_prozent: inv.skontoAktiv ? (parseFloat(String(inv.skontoProzent)) || null) : null,
     skonto_tage: inv.skontoAktiv ? (parseInt(String(inv.skontoTage)) || null) : null,
+    storno_von: inv.stornoVonRechnung || null,
   })
 
   const performAutoSave = async () => {
@@ -422,6 +424,18 @@ export default function InvoiceDetailPage() {
   }
 
   const handleSave = async () => {
+    // Pflichtfeld-Validation für Anzahlung/Teilrechnung
+    if (['anzahlung', 'teilrechnung'].includes(invoice.rechnungstyp)) {
+      const teilNetto = Number((invoice as any).teilbetragNetto ?? (invoice as any).teilbetrag_netto ?? 0)
+      if (!teilNetto || teilNetto <= 0) {
+        toast.error('Bei Anzahlung/Teilrechnung muss ein Teilbetrag (netto) > 0 eingegeben werden')
+        return
+      }
+    }
+    if (invoice.rechnungstyp === 'storno' && !invoice.stornoVonRechnung?.trim()) {
+      toast.error('Bei Storno muss "Storno von Rechnung" gesetzt werden')
+      return
+    }
     setSaving(true)
     try {
       let savedId = invoiceId
@@ -1152,13 +1166,13 @@ export default function InvoiceDetailPage() {
                     <SelectContent>
                       <SelectItem value="none">Kein Vermittler</SelectItem>
                       {(vermittlerList as any[]).map((v: any) => (
-                        <SelectItem key={v.id} value={v.id}>{v.name} ({v.provisionssatz || 10}%)</SelectItem>
+                        <SelectItem key={v.id} value={v.id}>{v.name} ({v.provision_prozent ?? v.provisionssatz ?? 10}%)</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                   {selectedVermittler && (
                     <p className="text-xs text-orange-700 font-medium mt-2">
-                      Vermittler-Provision: {(selectedVermittler as any).provisionssatz || 10}% wird an Vermittler gezahlt
+                      Vermittler-Provision: {(selectedVermittler as any).provision_prozent ?? (selectedVermittler as any).provisionssatz ?? 10}% wird an Vermittler gezahlt
                     </p>
                   )}
                 </div>

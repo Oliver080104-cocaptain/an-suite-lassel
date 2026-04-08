@@ -92,6 +92,19 @@ export async function GET(
 
   const positionen: any[] = positionenRaw || []
 
+  // Bei Schlussrechnungen: alle Anzahlungen + Teilrechnungen zum gleichen Angebot laden
+  let vorabRechnungen: any[] = []
+  if (rechnung.ist_schlussrechnung && rechnung.angebot_id) {
+    const { data: vorabData } = await supabase
+      .from('rechnungen')
+      .select('id, rechnungsnummer, rechnungstyp, teilbetrag_brutto, brutto_gesamt, rechnungsdatum')
+      .eq('angebot_id', rechnung.angebot_id)
+      .in('rechnungstyp', ['anzahlung', 'teilrechnung'])
+      .neq('id', rechnung.id)
+      .order('rechnungsdatum', { ascending: true })
+    vorabRechnungen = vorabData || []
+  }
+
   // Typ-Mapping für Titel
   const typToPdfTitle: Record<string, string> = {
     normal: 'RECHNUNG',
@@ -241,6 +254,32 @@ export async function GET(
       <span>${formatEuro(rechnung.brutto_gesamt || 0)}</span>
     </div>
   </div>
+
+  ${vorabRechnungen.length > 0 ? (() => {
+    const summeVorab = vorabRechnungen.reduce(
+      (s: number, r: any) => s + (Number(r.teilbetrag_brutto) || Number(r.brutto_gesamt) || 0),
+      0
+    )
+    const restbetrag = (Number(rechnung.brutto_gesamt) || 0) - summeVorab
+    return `
+  <div style="margin-top: 18pt; padding-top: 10pt; border-top: 1px solid #ddd; font-size: 9.5pt;">
+    <p style="font-weight: bold; margin-bottom: 6pt;">Bereits in Rechnung gestellt:</p>
+    ${vorabRechnungen.map((r: any) => `
+      <div style="display: flex; justify-content: space-between; padding: 2pt 0;">
+        <span>${esc(r.rechnungsnummer)} (${formatDate(r.rechnungsdatum)})</span>
+        <span>− ${formatEuro(Number(r.teilbetrag_brutto) || Number(r.brutto_gesamt) || 0)}</span>
+      </div>
+    `).join('')}
+    <div style="display: flex; justify-content: space-between; padding: 2pt 0; border-top: 1px solid #ccc; margin-top: 4pt; padding-top: 4pt; font-weight: 600;">
+      <span>Summe Anzahlungen / Teilrechnungen:</span>
+      <span>− ${formatEuro(summeVorab)}</span>
+    </div>
+    <div style="display: flex; justify-content: space-between; padding: 6pt 0; border-top: 1.5px solid #000; margin-top: 6pt; font-weight: bold; font-size: 10.5pt;">
+      <span>Verbleibender Restbetrag:</span>
+      <span>${formatEuro(restbetrag)}</span>
+    </div>
+  </div>
+  `})() : ''}
 
   <div class="payment">
     <div><strong>Zahlungsbedingungen:</strong> ${esc(rechnung.zahlungskondition || '30 Tage netto')}</div>
