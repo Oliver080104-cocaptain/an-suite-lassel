@@ -19,6 +19,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import Link from 'next/link'
 import InvoicePositionsTable from '@/components/invoices/InvoicePositionsTable'
 import OfferSummary from '@/components/offers/OfferSummary'
+import { getTypInfo } from '@/lib/rechnung-typ'
 
 interface InvoicePosition {
   id?: string
@@ -741,21 +742,35 @@ export default function InvoiceDetailPage() {
                   </a>
                 </div>
               )}
-              {!isNew && (
-                <div className="flex flex-wrap gap-2 mt-1">
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                    ${invoice.status === 'bezahlt' ? 'bg-emerald-100 text-emerald-800' :
-                      invoice.status === 'offen' ? 'bg-blue-100 text-blue-800' :
-                      invoice.status === 'mahnung' ? 'bg-red-100 text-red-800' :
-                      invoice.status === 'storniert' ? 'bg-rose-100 text-rose-800' :
-                      'bg-slate-100 text-slate-600'}`}>
-                    {invoice.status}
-                  </span>
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                    {invoice.rechnungstyp}
-                  </span>
-                </div>
-              )}
+              {!isNew && (() => {
+                const typInfo = getTypInfo(invoice.rechnungstyp)
+                const teilNetto = Number((invoice as any).teilbetragNetto ?? (invoice as any).teilbetrag_netto ?? 0)
+                return (
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                      ${invoice.status === 'bezahlt' ? 'bg-emerald-100 text-emerald-800' :
+                        invoice.status === 'offen' ? 'bg-blue-100 text-blue-800' :
+                        invoice.status === 'mahnung' ? 'bg-red-100 text-red-800' :
+                        invoice.status === 'storniert' ? 'bg-rose-100 text-rose-800' :
+                        'bg-slate-100 text-slate-600'}`}>
+                      {invoice.status}
+                    </span>
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typInfo.badgeBg} ${typInfo.badgeText}`}>
+                      {typInfo.label}
+                    </span>
+                    {(invoice as any).istSchlussrechnung || (invoice as any).ist_schlussrechnung ? (
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
+                        Schlussrechnung
+                      </span>
+                    ) : null}
+                    {teilNetto > 0 && (
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                        Teilbetrag: {new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR' }).format(teilNetto)}
+                      </span>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -951,9 +966,11 @@ export default function InvoiceDetailPage() {
                   <Select value={invoice.rechnungstyp} onValueChange={v => setInvoice(p => ({ ...p, rechnungstyp: v ?? 'normal' }))}>
                     <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="normal">Normal</SelectItem>
-                      <SelectItem value="teilrechnung">Teilrechnung</SelectItem>
-                      <SelectItem value="schlussrechnung">Schlussrechnung</SelectItem>
+                      <SelectItem value="normal">Normal (RE-)</SelectItem>
+                      <SelectItem value="anzahlung">Anzahlung (AN-)</SelectItem>
+                      <SelectItem value="teilrechnung">Teilrechnung (TR-)</SelectItem>
+                      <SelectItem value="schlussrechnung">Schlussrechnung (SR-)</SelectItem>
+                      <SelectItem value="gutschrift">Gutschrift (GS-)</SelectItem>
                       <SelectItem value="storno">Storno</SelectItem>
                     </SelectContent>
                   </Select>

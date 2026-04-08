@@ -21,6 +21,8 @@ import OfferSummary from '@/components/offers/OfferSummary'
 import StatusBadge from '@/components/shared/StatusBadge'
 import EmailVorschauModal from '@/components/EmailVorschauModal'
 import ParksperreModal from '@/components/ParksperreModal'
+import CreateInvoiceDialog, { type CreateInvoiceOptions } from '@/components/CreateInvoiceDialog'
+import { generateRechnungsNummer, getTypInfo, type Rechnungstyp } from '@/lib/rechnung-typ'
 
 export default function OfferDetailPage() {
   const params = useParams()
@@ -71,6 +73,7 @@ export default function OfferDetailPage() {
   const [vorlagenOpen, setVorlagenOpen] = useState(false)
   const [emailModalOpen, setEmailModalOpen] = useState(false)
   const [parksperreModalOpen, setParksperreModalOpen] = useState(false)
+  const [createInvoiceOpen, setCreateInvoiceOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [previewVersion, setPreviewVersion] = useState(0)
@@ -533,24 +536,49 @@ export default function OfferDetailPage() {
     }
   }
 
-  const handleCreateInvoice = async () => {
+  const handleCreateInvoiceClick = () => {
+    if (!offerId) { toast.error('Angebot muss zuerst gespeichert werden'); return }
+    setCreateInvoiceOpen(true)
+  }
+
+  const handleCreateInvoice = async (opts: CreateInvoiceOptions) => {
     if (!offerId) { toast.error('Angebot muss zuerst gespeichert werden'); return }
     setCreatingInvoice(true)
     toast.loading('Rechnung wird erstellt...')
     try {
-      const year = new Date().getFullYear()
-      const rePrefix = `RE-${year}-`
-      const { data: lastRe } = await supabase.from('rechnungen').select('rechnungsnummer')
-        .like('rechnungsnummer', `${rePrefix}%`)
-        .order('rechnungsnummer', { ascending: false })
-        .limit(1).maybeSingle()
-      const rechnungsnummer = lastRe?.rechnungsnummer
-        ? `${rePrefix}${String(parseInt(lastRe.rechnungsnummer.replace(rePrefix, ''), 10) + 1).padStart(5, '0')}`
-        : `${rePrefix}00001`
+      // Bereits fakturiert (netto) — für Schlussrechnung relevant
+      const activeInvoices = (linkedInvoices as any[]).filter(
+        (inv: any) => inv.rechnungstyp !== 'storno' && inv.status !== 'storniert'
+      )
+      const bereitsNetto = activeInvoices.reduce(
+        (s: number, inv: any) => s + (Number(inv.netto_gesamt) || 0),
+        0
+      )
+
+      const rechnungsnummer = await generateRechnungsNummer(opts.rechnungstyp as Rechnungstyp)
+
+      // Beträge je nach Typ
+      const isTeilOrAnz = opts.rechnungstyp === 'anzahlung' || opts.rechnungstyp === 'teilrechnung'
+      const teilNetto = isTeilOrAnz ? (opts.teilbetragNetto ?? 0) : null
+      const teilBrutto = teilNetto !== null ? teilNetto * 1.2 : null
+
+      const insertNetto = isTeilOrAnz
+        ? (teilNetto ?? 0)
+        : (opts.rechnungstyp === 'gutschrift' ? 0 : totals.netto_gesamt)
+      const insertMwst = isTeilOrAnz
+        ? ((teilNetto ?? 0) * 0.2)
+        : (opts.rechnungstyp === 'gutschrift' ? 0 : totals.mwst_gesamt)
+      const insertBrutto = isTeilOrAnz
+        ? (teilBrutto ?? 0)
+        : (opts.rechnungstyp === 'gutschrift' ? 0 : totals.brutto_gesamt)
 
       const { data: invoice, error } = await supabase.from('rechnungen').insert({
         rechnungsnummer,
-        rechnungstyp: 'normal',
+        rechnungstyp: opts.rechnungstyp,
+        ist_schlussrechnung: opts.istSchlussrechnung,
+        bereits_fakturiert_netto: opts.istSchlussrechnung ? bereitsNetto : 0,
+        teilbetrag_netto: teilNetto,
+        teilbetrag_brutto: teilBrutto,
         angebot_id: offer.id || offerId,
         referenz_angebot_id: offer.id || offerId,
         referenz_angebot_nummer: offer.angebotsnummer || null,
@@ -563,36 +591,55 @@ export default function OfferDetailPage() {
         objekt_adresse: offer.objekt_bezeichnung || offer.objekt_adresse,
         rechnungsdatum: format(new Date(), 'yyyy-MM-dd'),
         faellig_bis: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
-        zahlungskondition: '30 Tage netto',
+        zahlungskondition: opts.zahlungskondition || '30 Tage netto',
         zahlungsziel_tage: 30,
         leistungszeitraum_von: null,
         leistungszeitraum_bis: null,
         ticket_nummer: offer.ticket_nummer,
         status: 'entwurf',
-        netto_gesamt: totals.netto_gesamt,
-        mwst_gesamt: totals.mwst_gesamt,
-        brutto_gesamt: totals.brutto_gesamt,
+        zahlungsstatus: 'offen',
+        netto_gesamt: insertNetto,
+        mwst_gesamt: insertMwst,
+        brutto_gesamt: insertBrutto,
       }).select().single()
       if (error) throw error
 
+      // Positionen-Erzeugung je nach Typ
       const { data: dbPositions } = await supabase.from('angebot_positionen')
         .select('*').eq('angebot_id', offerId).order('position')
-      const posForRe = (dbPositions || []).filter((p: any) => p.beschreibung?.trim() || p.menge)
-      if (posForRe.length > 0) {
-        await supabase.from('rechnung_positionen').insert(
-          posForRe.map((p: any) => ({
-            rechnung_id: invoice.id,
-            position: p.position,
-            beschreibung: p.beschreibung || '',
-            menge: parseFloat(p.menge) || 0,
-            einheit: p.einheit || 'Stk',
-            einzelpreis: parseFloat(p.einzelpreis) || 0,
-            rabatt_prozent: parseFloat(p.rabatt_prozent) || 0,
-            mwst_satz: parseFloat(p.mwst_satz) || 20,
-            gesamtpreis: parseFloat(p.gesamtpreis) || 0,
-          }))
-        )
+
+      if (opts.rechnungstyp === 'normal' && opts.alleNeuPositionen) {
+        const posForRe = (dbPositions || []).filter((p: any) => p.beschreibung?.trim() || p.menge)
+        if (posForRe.length > 0) {
+          await supabase.from('rechnung_positionen').insert(
+            posForRe.map((p: any) => ({
+              rechnung_id: invoice.id,
+              position: p.position,
+              beschreibung: p.beschreibung || '',
+              menge: parseFloat(p.menge) || 0,
+              einheit: p.einheit || 'Stk',
+              einzelpreis: parseFloat(p.einzelpreis) || 0,
+              rabatt_prozent: parseFloat(p.rabatt_prozent) || 0,
+              mwst_satz: parseFloat(p.mwst_satz) || 20,
+              gesamtpreis: parseFloat(p.gesamtpreis) || 0,
+            }))
+          )
+        }
+      } else if (isTeilOrAnz) {
+        // Eine einzelne Pseudo-Position mit dem Teilbetrag
+        await supabase.from('rechnung_positionen').insert([{
+          rechnung_id: invoice.id,
+          position: 1,
+          beschreibung: opts.beschreibung || getTypInfo(opts.rechnungstyp).label,
+          menge: 1,
+          einheit: 'pausch.',
+          einzelpreis: teilNetto ?? 0,
+          rabatt_prozent: 0,
+          mwst_satz: 20,
+          gesamtpreis: teilNetto ?? 0,
+        }])
       }
+      // Gutschrift: leere Positionen — User füllt sie in der Detailseite
 
       try {
         const editUrl = `${window.location.origin}/rechnungen/${invoice.id}`
@@ -602,7 +649,8 @@ export default function OfferDetailPage() {
           body: JSON.stringify({
             rechnungsId: invoice.id,
             rechnungsNummer: invoice.rechnungsnummer,
-            rechnungstyp: 'normal',
+            rechnungstyp: opts.rechnungstyp,
+            istSchlussrechnung: opts.istSchlussrechnung,
             editUrl,
             angebot: {
               angebotId: offer.id,
@@ -636,6 +684,7 @@ export default function OfferDetailPage() {
 
       toast.dismiss()
       toast.success('Rechnung erstellt - Weiterleitung...')
+      setCreateInvoiceOpen(false)
       router.push(`/rechnungen/${invoice.id}`)
     } catch (error: any) {
       toast.dismiss()
@@ -768,7 +817,7 @@ export default function OfferDetailPage() {
                   </Button>
                   <Button
                     variant="outline"
-                    onClick={handleCreateInvoice}
+                    onClick={handleCreateInvoiceClick}
                     disabled={creatingInvoice}
                     className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 flex-1 sm:flex-none"
                     size="sm"
@@ -969,17 +1018,26 @@ export default function OfferDetailPage() {
                   <div className="space-y-4">
                     {(linkedInvoices as any[]).length > 0 && (
                       <div>
-                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Rechnungen</p>
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Verknüpfte Rechnungen</p>
                         <div className="space-y-1">
-                          {(linkedInvoices as any[]).map((inv: any) => (
-                            <Link key={inv.id} href={`/rechnungen/${inv.id}`} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-slate-50 group">
-                              <span className="text-sm font-medium text-blue-600 group-hover:underline">{inv.rechnungsnummer}</span>
-                              <div className="flex items-center gap-2">
-                                {inv.brutto_gesamt ? <span className="text-xs text-slate-500">{new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR' }).format(inv.brutto_gesamt)}</span> : null}
-                                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${inv.status === 'bezahlt' ? 'bg-emerald-100 text-emerald-700' : inv.status === 'offen' ? 'bg-blue-100 text-blue-700' : inv.status === 'storniert' ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-600'}`}>{inv.status}</span>
-                              </div>
-                            </Link>
-                          ))}
+                          {(linkedInvoices as any[]).map((inv: any) => {
+                            const info = getTypInfo(inv.rechnungstyp)
+                            return (
+                              <Link key={inv.id} href={`/rechnungen/${inv.id}`} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-slate-50 group">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className={`text-xs px-2 py-0.5 rounded-full font-mono ${info.badgeBg} ${info.badgeText}`}>{info.prefix}</span>
+                                  <span className="text-sm font-medium text-blue-600 group-hover:underline truncate">{inv.rechnungsnummer}</span>
+                                  {inv.ist_schlussrechnung && (
+                                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">SR</span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  {inv.brutto_gesamt ? <span className="text-xs text-slate-500">{new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR' }).format(inv.brutto_gesamt)}</span> : null}
+                                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${inv.status === 'bezahlt' ? 'bg-emerald-100 text-emerald-700' : inv.status === 'offen' ? 'bg-blue-100 text-blue-700' : inv.status === 'storniert' ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-600'}`}>{inv.status}</span>
+                                </div>
+                              </Link>
+                            )
+                          })}
                         </div>
                       </div>
                     )}
@@ -999,6 +1057,10 @@ export default function OfferDetailPage() {
                     {bereitsFakturiert > 0 && (
                       <div className="border-t pt-3 space-y-1">
                         <div className="flex justify-between text-sm">
+                          <span className="text-slate-500">Angebotsbetrag (brutto)</span>
+                          <span className="font-medium">{new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR' }).format(angebotsbrutto)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
                           <span className="text-slate-500">Bereits fakturiert (brutto)</span>
                           <span className="font-medium">{new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR' }).format(bereitsFakturiert)}</span>
                         </div>
@@ -1008,6 +1070,11 @@ export default function OfferDetailPage() {
                             <span className={`font-semibold ${offenerBetrag <= 0 ? 'text-emerald-600' : 'text-[#E85A1B]'}`}>
                               {new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR' }).format(offenerBetrag)}
                             </span>
+                          </div>
+                        )}
+                        {angebotsbrutto > 0 && offenerBetrag <= 0 && (
+                          <div className="mt-2 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-700 font-medium">
+                            ✅ Vollständig fakturiert
                           </div>
                         )}
                       </div>
@@ -1133,6 +1200,31 @@ export default function OfferDetailPage() {
             angebotsnummer={offer.angebotsnummer || ''}
             objektAdresse={offer.objekt_adresse || offer.objekt_bezeichnung || ''}
           />
+          {(() => {
+            const activeInvoices = (linkedInvoices as any[]).filter(
+              (inv: any) => inv.rechnungstyp !== 'storno' && inv.status !== 'storniert'
+            )
+            const fakturiertBrutto = activeInvoices.reduce(
+              (s: number, inv: any) => s + (Number(inv.brutto_gesamt) || 0),
+              0
+            )
+            const fakturiertNetto = activeInvoices.reduce(
+              (s: number, inv: any) => s + (Number(inv.netto_gesamt) || 0),
+              0
+            )
+            return (
+              <CreateInvoiceDialog
+                open={createInvoiceOpen}
+                onClose={() => setCreateInvoiceOpen(false)}
+                onConfirm={handleCreateInvoice}
+                angebotsbrutto={totals.brutto_gesamt}
+                angebotsnetto={totals.netto_gesamt}
+                bereitsFakturiertBrutto={fakturiertBrutto}
+                bereitsFakturiertNetto={fakturiertNetto}
+                loading={creatingInvoice}
+              />
+            )
+          })()}
         </>
       )}
     </div>

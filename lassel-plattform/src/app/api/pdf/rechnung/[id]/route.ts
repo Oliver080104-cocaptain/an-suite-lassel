@@ -90,10 +90,20 @@ export async function GET(
 
   if (error || !rechnung) return new NextResponse('Rechnung nicht gefunden', { status: 404 })
 
-  console.log('DEBUG rechnung fusszeile:', rechnung?.fusszeile)
-  console.log('DEBUG rechnung keys:', Object.keys(rechnung || {}))
-
   const positionen: any[] = positionenRaw || []
+
+  // Typ-Mapping für Titel
+  const typToPdfTitle: Record<string, string> = {
+    normal: 'RECHNUNG',
+    anzahlung: 'ANZAHLUNGSRECHNUNG',
+    teilrechnung: 'TEILRECHNUNG',
+    schlussrechnung: 'SCHLUSSRECHNUNG',
+    gutschrift: 'GUTSCHRIFT',
+    storno: 'STORNORECHNUNG',
+  }
+  const pdfTitle = (rechnung.ist_schlussrechnung
+    ? 'SCHLUSSRECHNUNG'
+    : (typToPdfTitle[rechnung.rechnungstyp || 'normal'] || 'RECHNUNG'))
 
   // Einstellungen parsen
   const s: Record<string, string> = {}
@@ -202,7 +212,7 @@ export async function GET(
   </div>
 
   <div class="doc-title-section">
-    <div class="doc-title">Rechnung ${esc(rechnung.rechnungsnummer)}</div>
+    <div class="doc-title">${esc(pdfTitle)} ${esc(rechnung.rechnungsnummer)}</div>
   </div>
 
   <div class="object-line">

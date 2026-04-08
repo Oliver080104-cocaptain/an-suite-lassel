@@ -24,9 +24,11 @@ const invoiceStatusOptions = [
 ]
 
 const invoiceTypeOptions = [
-  { value: 'normal', label: 'Normal' },
-  { value: 'teilrechnung', label: 'Teilrechnung' },
-  { value: 'schlussrechnung', label: 'Schlussrechnung' },
+  { value: 'normal', label: 'Normal (RE-)' },
+  { value: 'anzahlung', label: 'Anzahlung (AN-)' },
+  { value: 'teilrechnung', label: 'Teilrechnung (TR-)' },
+  { value: 'schlussrechnung', label: 'Schlussrechnung (SR-)' },
+  { value: 'gutschrift', label: 'Gutschrift (GS-)' },
   { value: 'storno', label: 'Storno' },
 ]
 
@@ -153,6 +155,7 @@ export default function RechnungenPage() {
         if (getYear(new Date(i.rechnungsdatum)) !== parseInt(filters.year)) return false
       }
       if (filters.status !== 'all' && i.status !== filters.status) return false
+      if (filters.type !== 'all' && (i.rechnungstyp || 'normal') !== filters.type) return false
       return true
     })
 
