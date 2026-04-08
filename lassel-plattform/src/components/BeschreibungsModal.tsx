@@ -25,6 +25,8 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
   const [text, setText] = useState(value)
   const [kiInput, setKiInput] = useState('')
   const [isRecording, setIsRecording] = useState(false)
+  const [isRecordingDescription, setIsRecordingDescription] = useState(false)
+  const [descTranscribing, setDescTranscribing] = useState(false)
   const [kalkulation, setKalkulation] = useState<{
     positionen: { bezeichnung: string; menge: number; einheit: string; einzelpreis: number; gesamt: number }[]
     gesamtNetto: number
@@ -34,6 +36,64 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
   const [kiLoading, setKiLoading] = useState(false)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
+  const descRecorderRef = useRef<MediaRecorder | null>(null)
+  const descChunksRef = useRef<Blob[]>([])
+
+  /** Hängt einen Vorlagen-Text an den existierenden Text an, statt ihn zu ersetzen. */
+  const appendText = (zusatz: string) => {
+    if (!zusatz.trim()) return
+    setText(prev => {
+      if (!prev.trim()) return zusatz
+      const sep = prev.endsWith('\n') ? '' : '\n'
+      return `${prev}${sep}${zusatz}`
+    })
+  }
+
+  /** Spracheingabe für die Beschreibung — Transkript wird ANGEHÄNGT, nicht ersetzt. */
+  async function toggleDescriptionRecording() {
+    if (isRecordingDescription) {
+      descRecorderRef.current?.stop()
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const recorder = new MediaRecorder(stream)
+      descRecorderRef.current = recorder
+      descChunksRef.current = []
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) descChunksRef.current.push(e.data)
+      }
+      recorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop())
+        setIsRecordingDescription(false)
+        const blob = new Blob(descChunksRef.current, { type: 'audio/webm' })
+        setDescTranscribing(true)
+        try {
+          const formData = new FormData()
+          formData.append('audio', blob, 'description.webm')
+          const res = await fetch('/api/ki/transkription', { method: 'POST', body: formData })
+          const data = await res.json()
+          if (data.text) {
+            appendText(data.text)
+            toast.success('Beschreibung übernommen')
+          } else {
+            toast.error('Keine Sprache erkannt')
+          }
+        } catch (err) {
+          console.error('Beschreibungs-Transkription error:', err)
+          toast.error('Spracheingabe fehlgeschlagen')
+        } finally {
+          setDescTranscribing(false)
+        }
+      }
+      recorder.start()
+      setIsRecordingDescription(true)
+    } catch (err) {
+      console.error('Mikrofon error:', err)
+      toast.error('Mikrofon nicht verfügbar')
+    }
+  }
 
   React.useEffect(() => {
     if (open) {
@@ -138,14 +198,34 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
           {/* LEFT: Beschreibungstext */}
           <div className="flex flex-col p-6 border-r overflow-hidden" style={{ width: '50%', minWidth: 0 }}>
             {/* Label row */}
-            <div className="flex items-center justify-between mb-3 flex-shrink-0">
+            <div className="flex items-center justify-between mb-3 flex-shrink-0 gap-2">
               <span className="text-sm font-semibold text-slate-800">Beschreibungstext</span>
-              <button
-                onClick={() => router.push('/einstellungen/textvorlagen')}
-                className="text-xs text-blue-600 hover:underline whitespace-nowrap ml-2"
-              >
-                Vorlagen verwalten
-              </button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant={isRecordingDescription ? 'destructive' : 'outline'}
+                  size="sm"
+                  onClick={toggleDescriptionRecording}
+                  disabled={descTranscribing}
+                  className="gap-1.5 h-7 px-2 text-xs"
+                  title="Beschreibung einsprechen — Transkript wird angehängt"
+                >
+                  {descTranscribing ? (
+                    <div className="h-3 w-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                  ) : isRecordingDescription ? (
+                    <MicOff className="h-3.5 w-3.5" />
+                  ) : (
+                    <Mic className="h-3.5 w-3.5" />
+                  )}
+                  {isRecordingDescription ? 'Stoppen' : descTranscribing ? 'Verarbeite…' : 'Einsprechen'}
+                </Button>
+                <button
+                  onClick={() => router.push('/einstellungen/textvorlagen')}
+                  className="text-xs text-blue-600 hover:underline whitespace-nowrap"
+                >
+                  Vorlagen verwalten
+                </button>
+              </div>
             </div>
 
             <Textarea
@@ -158,15 +238,16 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
 
             {/* Schnellvorlagen */}
             <div className="mt-4 flex-shrink-0">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Schnellvorlagen</p>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Schnellvorlagen (anhängen)</p>
               <div className="flex flex-wrap gap-2" style={{ maxHeight: '120px', overflowY: 'auto' }}>
                 {(vorlagen as any[]).length === 0 ? (
                   <p className="text-xs text-slate-400">Keine Vorlagen vorhanden</p>
                 ) : (vorlagen as any[]).map((v: any) => (
                   <button
                     key={v.id}
-                    onClick={() => setText(v.inhalt || v.text || '')}
+                    onClick={() => appendText(v.inhalt || v.text || '')}
                     className="text-xs px-3 py-1.5 rounded-full border border-slate-200 hover:bg-orange-50 hover:border-orange-300 transition-colors whitespace-nowrap"
+                    title="Klicken zum Anhängen"
                   >
                     {v.name}
                   </button>

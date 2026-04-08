@@ -11,7 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
-import { Save, Loader2, Download, Plus, Trash2, FileText } from 'lucide-react'
+import { Save, Loader2, Download, Plus, Trash2, FileText, Send } from 'lucide-react'
 import { format } from 'date-fns'
 import Link from 'next/link'
 
@@ -288,6 +288,11 @@ export default function DeliveryNoteDetailPage() {
       await savePositions(savedId!, positions, isNew ? [] : existingPositions)
       await syncPositionsToTicket()
 
+      // PDF Link explizit setzen (nicht mehr automatisch beim PDF-Render)
+      const pdfLink = `${window.location.origin}/api/pdf/lieferschein/${savedId}`
+      await supabase.from('lieferscheine').update({ pdf_url: pdfLink }).eq('id', savedId!)
+      setDn(prev => ({ ...prev, pdf_url: pdfLink }))
+
       await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/b15d8baa-e8ec-4d8a-aa85-0865048b9c31', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -314,6 +319,60 @@ export default function DeliveryNoteDetailPage() {
       toast.error('Fehler: ' + err.message)
     } finally {
       setSaving(false)
+      setUploadingToZoho(false)
+    }
+  }
+
+  /**
+   * Überträgt die aktuellen Lieferschein-Positionen + Daten in Zoho
+   * (n8n Webhook) und spiegelt sie ins Ticket im Tourenplaner.
+   * Speichert vorher nicht — geht davon aus dass der Autosave läuft.
+   */
+  const pushToZohoOnly = async () => {
+    if (!deliveryNoteId) {
+      toast.error('Lieferschein muss zuerst gespeichert werden')
+      return
+    }
+    setUploadingToZoho(true)
+    try {
+      // Sicherstellen dass aktueller State persistiert ist
+      await supabase.from('lieferscheine').update(buildDNData()).eq('id', deliveryNoteId)
+      await savePositions(deliveryNoteId, positions, existingPositions)
+      await syncPositionsToTicket()
+
+      await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/b15d8baa-e8ec-4d8a-aa85-0865048b9c31', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lieferscheinId: deliveryNoteId,
+          lieferscheinNummer: dn.lieferscheinnummer,
+          pdfUrl: `${window.location.origin}/api/pdf/lieferschein/${deliveryNoteId}`,
+          ticketId: dn.zoho_ticket_id,
+          ticketNumber: dn.ticket_nummer,
+          datum: dn.lieferdatum,
+          status: dn.status,
+          kundeName: dn.kunde_name,
+          objektBezeichnung: dn.objekt_adresse || dn.objekt_bezeichnung,
+          erstelltDurch: dn.erstellt_von,
+          referenzAngebotNummer: dn.referenz_angebot_nummer,
+          positionen: positions.map(p => {
+            const lines = (p.beschreibung || '').split('\n')
+            return {
+              pos: p.pos,
+              produktName: lines[0] || '',
+              beschreibung: lines.slice(1).join('\n'),
+              menge: parseFloat(p.menge as string) || 1,
+              einheit: p.einheit || 'Stk',
+            }
+          }),
+          timestamp: new Date().toISOString(),
+        }),
+      })
+      toast.success('In Zoho & Tourenplaner übertragen')
+    } catch (err: any) {
+      console.error('Push to Zoho error:', err)
+      toast.error('Fehler bei Übertragung: ' + err.message)
+    } finally {
       setUploadingToZoho(false)
     }
   }
@@ -351,19 +410,6 @@ export default function DeliveryNoteDetailPage() {
             <div>
               <Link href="/lieferscheine" className="text-sm text-slate-500 hover:text-slate-700">← Alle Lieferscheine</Link>
               <h1 className="text-3xl font-bold text-slate-900">{isNew ? 'Neuer Lieferschein' : dn.lieferscheinnummer || 'Lieferschein'}</h1>
-              {!isNew && deliveryNoteId && (
-                <div className="mt-2 flex items-center gap-2">
-                  <Label className="text-xs text-slate-500 shrink-0">PDF Link:</Label>
-                  <a
-                    href={dn.pdf_url || `/api/pdf/lieferschein/${deliveryNoteId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-blue-600 hover:text-blue-800 hover:underline truncate max-w-md"
-                  >
-                    {dn.pdf_url || `/api/pdf/lieferschein/${deliveryNoteId}`}
-                  </a>
-                </div>
-              )}
             </div>
           </div>
           <div className="ml-auto flex items-center gap-2">
@@ -371,6 +417,17 @@ export default function DeliveryNoteDetailPage() {
               {(saving || uploadingToZoho) ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
               Speichern & in Zoho ablegen
             </Button>
+            {!isNew && (
+              <Button
+                onClick={pushToZohoOnly}
+                disabled={saving || uploadingToZoho}
+                variant="outline"
+                className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 gap-2"
+              >
+                {uploadingToZoho ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                Lieferschein Positionen in Zoho übertragen
+              </Button>
+            )}
             {!isNew && (
               <a href={`/api/pdf/lieferschein/${deliveryNoteId}?download=1`} target="_blank" rel="noopener noreferrer">
                 <Button variant="outline" className="gap-2">
@@ -483,6 +540,18 @@ export default function DeliveryNoteDetailPage() {
                 <div>
                   <Label>Geschäftsfallnummer</Label>
                   <Input value={dn.geschaeftsfallnummer} onChange={e => setDn(p => ({ ...p, geschaeftsfallnummer: e.target.value }))} placeholder="Geschäftsfallnummer (optional)" className="mt-1" />
+                </div>
+                <div>
+                  <Label>PDF Link</Label>
+                  <Input
+                    value={dn.pdf_url || ''}
+                    readOnly
+                    placeholder="Wird nach 'Speichern & in Zoho ablegen' generiert"
+                    className="mt-1 bg-slate-50"
+                  />
+                  {dn.pdf_url && (
+                    <a href={dn.pdf_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-700 underline mt-1 block">PDF öffnen</a>
+                  )}
                 </div>
               </div>
             </Card>

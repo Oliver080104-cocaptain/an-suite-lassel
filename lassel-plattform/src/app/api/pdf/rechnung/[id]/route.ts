@@ -323,8 +323,8 @@ ${autoPrint ? '<script>window.addEventListener("load", () => setTimeout(() => wi
 </body>
 </html>`
 
-  // Persist PDF URL
-  supabase.from('rechnungen').update({ pdf_url: `${APP_URL}/api/pdf/rechnung/${id}` }).eq('id', id).then(() => {})
+  // pdf_url wird NICHT mehr automatisch beim Render geschrieben — sie wird
+  // nur von "Speichern & in Zoho ablegen" gesetzt.
 
   return new NextResponse(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
 }

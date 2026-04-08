@@ -488,6 +488,11 @@ export default function InvoiceDetailPage() {
 
       await savePositions(savedId!, positions, isNew ? [] : existingPositions)
 
+      // PDF Link explizit setzen (nicht mehr automatisch beim PDF-Render)
+      const pdfLink = `${window.location.origin}/api/pdf/rechnung/${savedId}`
+      await supabase.from('rechnungen').update({ pdf_url: pdfLink }).eq('id', savedId!)
+      setInvoice(prev => ({ ...prev, pdfUrl: pdfLink }))
+
       // Trigger Zoho webhook
       await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/48a021d8-c88d-4663-80f6-dc09a70d598b', {
         method: 'POST',
@@ -761,19 +766,6 @@ export default function InvoiceDetailPage() {
               <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
                 {isNew ? 'Neue Rechnung' : (invoice.rechnungsNummer || 'Rechnung')}
               </h1>
-              {!isNew && invoiceId && (
-                <div className="mt-2 flex items-center gap-2">
-                  <Label className="text-xs text-slate-500 shrink-0">PDF Link:</Label>
-                  <a
-                    href={invoice.pdfUrl || `/api/pdf/rechnung/${invoiceId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-blue-600 hover:text-blue-800 hover:underline truncate max-w-md"
-                  >
-                    {invoice.pdfUrl || `/api/pdf/rechnung/${invoiceId}`}
-                  </a>
-                </div>
-              )}
               {!isNew && (() => {
                 const typInfo = getTypInfo(invoice.rechnungstyp)
                 const teilNetto = Number((invoice as any).teilbetragNetto ?? (invoice as any).teilbetrag_netto ?? 0)
@@ -1217,16 +1209,20 @@ export default function InvoiceDetailPage() {
                   <Input value={invoice.ticketNumber || ''} onChange={e => setInvoice(p => ({ ...p, ticketNumber: e.target.value }))} placeholder="Zoho Ticketnummer" className="mt-1" />
                 </div>
 
-                {invoice.pdfUrl && (
-                  <div>
-                    <Label>PDF Link</Label>
-                    <div className="mt-1">
-                      <a href={invoice.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:text-blue-700 underline truncate block">
-                        PDF öffnen
-                      </a>
-                    </div>
-                  </div>
-                )}
+                <div>
+                  <Label>PDF Link</Label>
+                  <Input
+                    value={invoice.pdfUrl || ''}
+                    readOnly
+                    placeholder="Wird nach 'Speichern & in Zoho ablegen' generiert"
+                    className="mt-1 bg-slate-50"
+                  />
+                  {invoice.pdfUrl && (
+                    <a href={invoice.pdfUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-700 underline mt-1 block">
+                      PDF öffnen
+                    </a>
+                  )}
+                </div>
               </div>
             </Card>
           </div>

@@ -240,8 +240,9 @@ ${autoPrint ? '<script>window.addEventListener("load", () => setTimeout(() => wi
 </body>
 </html>`
 
-  // Persist PDF URL
-  supabase.from('angebote').update({ pdf_url: `${APP_URL}/api/pdf/angebot/${id}` }).eq('id', id).then(() => {})
+  // pdf_url wird NICHT mehr automatisch beim Render geschrieben — sie wird
+  // nur von "Speichern & in Zoho ablegen" gesetzt, sodass ein neues Angebot
+  // initial keinen PDF Link hat.
 
   return new NextResponse(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
 }

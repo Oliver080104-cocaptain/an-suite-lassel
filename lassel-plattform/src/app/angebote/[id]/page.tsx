@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
-import { Save, Loader2, Send, Truck, Receipt, Car, FileText, Download, ChevronDown, Plus, Check, X } from 'lucide-react'
+import { Save, Loader2, Send, Truck, Receipt, Car, FileText, Download, ChevronDown, Plus, Check, X, Pencil } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { format, addDays } from 'date-fns'
@@ -417,6 +417,11 @@ export default function OfferDetailPage() {
       const posToSave = positions.filter((p: any) => p.produktName?.trim() || p.beschreibung?.trim())
       await savePositions(savedOffer.id, posToSave)
 
+      // PDF Link wird jetzt explizit geschrieben (nicht mehr beim PDF-Render)
+      const pdfLink = `${window.location.origin}/api/pdf/angebot/${savedOffer.id}`
+      await supabase.from('angebote').update({ pdf_url: pdfLink }).eq('id', savedOffer.id)
+      setOffer((prev: any) => ({ ...prev, pdf_url: pdfLink }))
+
       const editUrl = `${window.location.origin}/angebote/${savedOffer.id}`
       await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/fccf5130-51b2-4e66-8aa2-84d29da4862a', {
         method: 'POST',
@@ -761,19 +766,6 @@ export default function OfferDetailPage() {
               <p className="text-sm text-slate-600 mt-1">
                 {isNew ? 'Angebot erstellen' : (createdAt ? `Erstellt am ${format(new Date(createdAt), 'dd.MM.yyyy')}` : '')}
               </p>
-              {!isNew && offerId && (
-                <div className="mt-2 flex items-center gap-2">
-                  <Label className="text-xs text-slate-500 shrink-0">PDF Link:</Label>
-                  <a
-                    href={offer.pdf_url || `/api/pdf/angebot/${offerId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-blue-600 hover:text-blue-800 hover:underline truncate max-w-md"
-                  >
-                    {offer.pdf_url || `/api/pdf/angebot/${offerId}`}
-                  </a>
-                </div>
-              )}
             </div>
           </div>
           <div className="ml-auto">
@@ -1011,6 +1003,18 @@ export default function OfferDetailPage() {
                     <a href={offer.skizzen_link} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-700 underline mt-1 block">Link öffnen</a>
                   )}
                 </div>
+                <div>
+                  <Label>PDF Link</Label>
+                  <Input
+                    value={offer.pdf_url || ''}
+                    readOnly
+                    placeholder="Wird nach 'Speichern & in Zoho ablegen' generiert"
+                    className="mt-1 bg-slate-50"
+                  />
+                  {offer.pdf_url && (
+                    <a href={offer.pdf_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-700 underline mt-1 block">PDF öffnen</a>
+                  )}
+                </div>
               </div>
             </Card>
 
@@ -1141,22 +1145,42 @@ export default function OfferDetailPage() {
                 Weitere Vorlagen <ChevronDown className="ml-1 h-4 w-4" />
               </Button>
               {vorlagenOpen && (
-                <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-slate-200 rounded-lg shadow-lg z-50 overflow-hidden">
-                  {(vorlagenList as any[]).map((v: any) => (
-                    <button
-                      key={v.id}
-                      onClick={() => { setOffer({ ...offer, fusszeile: v.inhalt || v.text || '' }); setVorlagenOpen(false) }}
-                      className="w-full text-left px-4 py-3 hover:bg-slate-50 border-b border-slate-100 last:border-0"
-                    >
-                      <div className="font-medium text-sm">{v.name || v.titel}</div>
-                      <div className="text-xs text-slate-500 truncate">{(v.inhalt || v.text || '').substring(0, 55)}</div>
-                    </button>
-                  ))}
+                <div className="absolute right-0 top-full mt-1 w-80 bg-white border border-slate-200 rounded-lg shadow-lg z-50 flex flex-col max-h-[400px]">
+                  <div className="flex-1 overflow-y-auto">
+                    {(vorlagenList as any[]).length === 0 ? (
+                      <div className="px-4 py-6 text-center text-sm text-slate-500">
+                        Keine Vorlagen vorhanden
+                      </div>
+                    ) : (vorlagenList as any[]).map((v: any) => (
+                      <div
+                        key={v.id}
+                        className="group relative flex items-start gap-2 border-b border-slate-100 last:border-0 hover:bg-slate-50"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => { setOffer({ ...offer, fusszeile: v.inhalt || v.text || '' }); setVorlagenOpen(false) }}
+                          className="flex-1 min-w-0 text-left px-4 py-3"
+                        >
+                          <div className="font-medium text-sm truncate">{v.name || v.titel}</div>
+                          <div className="text-xs text-slate-500 truncate">{(v.inhalt || v.text || '').substring(0, 80)}</div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); router.push('/einstellungen/textvorlagen'); setVorlagenOpen(false) }}
+                          title="Vorlage bearbeiten"
+                          className="opacity-0 group-hover:opacity-100 transition-opacity p-2 mr-1 mt-1 rounded hover:bg-slate-200 text-slate-500 hover:text-slate-900"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                   <button
+                    type="button"
                     onClick={() => { router.push('/einstellungen/textvorlagen'); setVorlagenOpen(false) }}
-                    className="w-full text-left px-4 py-3 flex items-center gap-2 text-sm text-slate-600 hover:bg-slate-50"
+                    className="w-full text-left px-4 py-3 flex items-center gap-2 text-sm text-slate-600 hover:bg-slate-50 border-t border-slate-200 shrink-0"
                   >
-                    <Plus className="h-4 w-4" /> Neue Vorlage hinzufügen
+                    <Plus className="h-4 w-4" /> Vorlagen verwalten
                   </button>
                 </div>
               )}
