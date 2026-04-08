@@ -139,7 +139,7 @@ export default function OfferDetailPage() {
   const { data: vermittlerList = [] } = useQuery({
     queryKey: ['vermittler'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('vermittler').select('*').order('name')
+      const { data, error } = await supabase.from('vermittler').select('*').eq('aktiv', true).order('name')
       if (error) throw error
       return data || []
     }
@@ -928,23 +928,41 @@ export default function OfferDetailPage() {
                   <Label>Angebot erstellt von</Label>
                   <Input value={offer.erstellt_von || ''} onChange={(e) => setOffer({ ...offer, erstellt_von: e.target.value })} placeholder="z.B. Reinhard Lassel" className="mt-1" />
                 </div>
-                <div className={offer.vermittler_id ? 'p-3 bg-orange-50 border-2 border-orange-300 rounded-lg' : ''}>
-                  <Label>Vermittler</Label>
-                  <Select value={offer.vermittler_id || ''} onValueChange={(value) => setOffer({ ...offer, vermittler_id: value || null })}>
-                    <SelectTrigger className={offer.vermittler_id ? 'mt-1 border-orange-300 bg-white' : 'mt-1'}><SelectValue placeholder="Vermittler auswählen (optional)..." /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">Kein Vermittler</SelectItem>
-                      {(vermittlerList as any[]).map((v: any) => (
-                        <SelectItem key={v.id} value={v.id}>{v.name} ({v.provisionssatz || 10}%)</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {offer.vermittler_id && (vermittlerList as any[]).find((v: any) => v.id === offer.vermittler_id) && (
-                    <p className="text-xs text-orange-700 font-medium mt-2">
-                      Vermittler-Provision: {(vermittlerList as any[]).find((v: any) => v.id === offer.vermittler_id)?.provisionssatz || 10}% wird an Vermittler gezahlt
-                    </p>
-                  )}
-                </div>
+                {(() => {
+                  const selectedVermittler = (vermittlerList as any[]).find((v: any) => v.id === offer.vermittler_id)
+                  const selectedProvision = selectedVermittler?.provision_prozent ?? selectedVermittler?.provisionssatz ?? 10
+                  return (
+                    <div className={offer.vermittler_id ? 'p-3 bg-orange-50 border-2 border-orange-300 rounded-lg' : ''}>
+                      <Label>Vermittler</Label>
+                      <Select
+                        value={offer.vermittler_id || 'none'}
+                        onValueChange={(value) => setOffer({ ...offer, vermittler_id: value === 'none' ? null : value })}
+                      >
+                        <SelectTrigger className={offer.vermittler_id ? 'mt-1 border-orange-300 bg-white' : 'mt-1'}>
+                          <SelectValue placeholder="Vermittler auswählen (optional)...">
+                            {selectedVermittler
+                              ? `${selectedVermittler.name} (${selectedProvision}%)`
+                              : (offer.vermittler_id ? 'Unbekannter Vermittler' : 'Kein Vermittler')}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Kein Vermittler</SelectItem>
+                          {(vermittlerList as any[]).map((v: any) => (
+                            <SelectItem key={v.id} value={v.id}>{v.name} ({v.provision_prozent ?? v.provisionssatz ?? 10}%)</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {selectedVermittler && (
+                        <p className="text-xs text-orange-700 font-medium mt-2">
+                          <Link href={`/vermittler#${selectedVermittler.id}`} className="underline hover:text-orange-900">
+                            {selectedVermittler.name}
+                          </Link>
+                          {' '}— Provision {selectedProvision}% wird an Vermittler gezahlt
+                        </p>
+                      )}
+                    </div>
+                  )
+                })()}
                 <div>
                   <Label>Status</Label>
                   <div className="p-3 bg-blue-50 border-2 border-blue-300 rounded-lg mt-1">
