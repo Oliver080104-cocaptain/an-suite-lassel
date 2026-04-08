@@ -76,10 +76,11 @@ const CSS = `
 `
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
+  const autoPrint = new URL(req.url).searchParams.get('download') === '1'
 
   const [{ data: angebot, error }, posResult, companyResult] = await Promise.all([
     supabase.from('angebote').select('*').eq('id', id).single(),
@@ -235,6 +236,7 @@ export async function GET(
   </div>
 
 </div>
+${autoPrint ? '<script>window.addEventListener("load", () => setTimeout(() => window.print(), 300))</script>' : ''}
 </body>
 </html>`
 

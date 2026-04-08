@@ -728,6 +728,19 @@ export default function InvoiceDetailPage() {
               <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
                 {isNew ? 'Neue Rechnung' : (invoice.rechnungsNummer || 'Rechnung')}
               </h1>
+              {!isNew && invoiceId && (
+                <div className="mt-2 flex items-center gap-2">
+                  <Label className="text-xs text-slate-500 shrink-0">PDF Link:</Label>
+                  <a
+                    href={invoice.pdfUrl || `/api/pdf/rechnung/${invoiceId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 hover:text-blue-800 hover:underline truncate max-w-md"
+                  >
+                    {invoice.pdfUrl || `/api/pdf/rechnung/${invoiceId}`}
+                  </a>
+                </div>
+              )}
               {!isNew && (
                 <div className="flex flex-wrap gap-2 mt-1">
                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
@@ -772,7 +785,7 @@ export default function InvoiceDetailPage() {
               <span className="sm:hidden">Speichern</span>
             </Button>
             {!isNew && (
-              <a href={`/api/pdf/rechnung/${invoiceId}`} target="_blank" rel="noopener noreferrer">
+              <a href={`/api/pdf/rechnung/${invoiceId}?download=1`} target="_blank" rel="noopener noreferrer">
                 <Button variant="outline" className="gap-2">
                   <Download className="h-4 w-4" />
                   PDF herunterladen

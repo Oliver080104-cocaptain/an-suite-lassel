@@ -15,7 +15,6 @@ import {
   Truck,
   ChevronLeft,
   Users,
-  Search,
   Upload,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -31,9 +30,7 @@ const navigation = [
     submenu: [
       { name: 'Rustler', href: '/hausverwaltungen', icon: Upload },
       { name: 'Vermittler', href: '/vermittler', icon: Users },
-      { name: 'Power Suche', href: '/power-suche', icon: Search },
       { name: 'Analytics', href: '/analytics', icon: LayoutDashboard },
-      { name: 'Lieferschein Zuweisung', href: '/lieferschein-zuweisung', icon: Truck },
     ],
   },
   {

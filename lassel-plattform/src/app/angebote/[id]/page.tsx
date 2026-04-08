@@ -709,6 +709,19 @@ export default function OfferDetailPage() {
               <p className="text-sm text-slate-600 mt-1">
                 {isNew ? 'Angebot erstellen' : (createdAt ? `Erstellt am ${format(new Date(createdAt), 'dd.MM.yyyy')}` : '')}
               </p>
+              {!isNew && offerId && (
+                <div className="mt-2 flex items-center gap-2">
+                  <Label className="text-xs text-slate-500 shrink-0">PDF Link:</Label>
+                  <a
+                    href={offer.pdf_url || `/api/pdf/angebot/${offerId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 hover:text-blue-800 hover:underline truncate max-w-md"
+                  >
+                    {offer.pdf_url || `/api/pdf/angebot/${offerId}`}
+                  </a>
+                </div>
+              )}
             </div>
           </div>
           <div className="ml-auto">
@@ -724,7 +737,7 @@ export default function OfferDetailPage() {
                   Speichern & in Zoho ablegen
                 </Button>
                 {!isNew && (
-                  <a href={`/api/pdf/angebot/${offerId}`} target="_blank" rel="noopener noreferrer">
+                  <a href={`/api/pdf/angebot/${offerId}?download=1`} target="_blank" rel="noopener noreferrer">
                     <Button variant="outline" className="gap-2 w-full sm:w-auto">
                       <Download className="h-4 w-4" />
                       PDF herunterladen

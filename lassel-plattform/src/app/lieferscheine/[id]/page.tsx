@@ -296,6 +296,19 @@ export default function DeliveryNoteDetailPage() {
             <div>
               <Link href="/lieferscheine" className="text-sm text-slate-500 hover:text-slate-700">← Alle Lieferscheine</Link>
               <h1 className="text-3xl font-bold text-slate-900">{isNew ? 'Neuer Lieferschein' : dn.lieferscheinnummer || 'Lieferschein'}</h1>
+              {!isNew && deliveryNoteId && (
+                <div className="mt-2 flex items-center gap-2">
+                  <Label className="text-xs text-slate-500 shrink-0">PDF Link:</Label>
+                  <a
+                    href={dn.pdf_url || `/api/pdf/lieferschein/${deliveryNoteId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 hover:text-blue-800 hover:underline truncate max-w-md"
+                  >
+                    {dn.pdf_url || `/api/pdf/lieferschein/${deliveryNoteId}`}
+                  </a>
+                </div>
+              )}
             </div>
           </div>
           <div className="ml-auto flex items-center gap-2">
@@ -304,7 +317,7 @@ export default function DeliveryNoteDetailPage() {
               Speichern & in Zoho ablegen
             </Button>
             {!isNew && (
-              <a href={`/api/pdf/lieferschein/${deliveryNoteId}`} target="_blank" rel="noopener noreferrer">
+              <a href={`/api/pdf/lieferschein/${deliveryNoteId}?download=1`} target="_blank" rel="noopener noreferrer">
                 <Button variant="outline" className="gap-2">
                   <Download className="h-4 w-4" />
                   PDF herunterladen
@@ -381,14 +394,12 @@ export default function DeliveryNoteDetailPage() {
                 </div>
                 <div>
                   <Label>Erstellt durch</Label>
-                  <Select value={dn.erstellt_von || ''} onValueChange={v => setDn(p => ({ ...p, erstellt_von: v || '' }))}>
-                    <SelectTrigger className="mt-1"><SelectValue placeholder="Mitarbeiter auswählen..." /></SelectTrigger>
-                    <SelectContent>
-                      {(mitarbeiterList as any[]).map((m: any) => (
-                        <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Input
+                    value={dn.erstellt_von || ''}
+                    onChange={e => setDn(p => ({ ...p, erstellt_von: e.target.value }))}
+                    placeholder="z.B. Reinhard Lassel"
+                    className="mt-1"
+                  />
                 </div>
                 <div>
                   <Label>Status</Label>

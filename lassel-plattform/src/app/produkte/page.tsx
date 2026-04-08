@@ -17,8 +17,8 @@ const defaultForm = {
   name: '',
   kategorie: '',
   einheit: 'Stk',
-  einzelpreis: 0,
-  mwst_satz: 20,
+  einzelpreis: '' as string | number,
+  mwst_satz: '20' as string | number,
   aktiv: true,
   beschreibung: '',
 }
@@ -33,7 +33,7 @@ export default function ProdukteListePage() {
   const { data: products = [], isLoading } = useQuery({
     queryKey: ['products'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('produkte').select('*').order('name')
+      const { data, error } = await supabase.from('produkte').select('*').order('created_at', { ascending: false })
       if (error) throw error
       return data || []
     },
@@ -86,16 +86,26 @@ export default function ProdukteListePage() {
 
   const handleEdit = (product: any) => {
     setEditingProduct(product)
-    setFormData({ ...defaultForm, ...product })
+    setFormData({
+      ...defaultForm,
+      ...product,
+      einzelpreis: product.einzelpreis ?? '',
+      mwst_satz: product.mwst_satz ?? '20',
+    })
     setShowDialog(true)
   }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    const payload = {
+      ...formData,
+      einzelpreis: parseFloat(String(formData.einzelpreis)) || 0,
+      mwst_satz: parseFloat(String(formData.mwst_satz)) || 20,
+    }
     if (editingProduct) {
-      updateMutation.mutate({ id: editingProduct.id, data: formData })
+      updateMutation.mutate({ id: editingProduct.id, data: payload })
     } else {
-      createMutation.mutate(formData)
+      createMutation.mutate(payload)
     }
   }
 
@@ -210,7 +220,8 @@ export default function ProdukteListePage() {
                   <Input
                     type="number" step="0.01"
                     value={formData.einzelpreis}
-                    onChange={e => setFormData(p => ({ ...p, einzelpreis: parseFloat(e.target.value) || 0 }))}
+                    onChange={e => setFormData(p => ({ ...p, einzelpreis: e.target.value }))}
+                    placeholder="0,00"
                     className="mt-1 h-12"
                   />
                 </div>
@@ -219,7 +230,8 @@ export default function ProdukteListePage() {
                   <Input
                     type="number" step="0.01"
                     value={formData.mwst_satz}
-                    onChange={e => setFormData(p => ({ ...p, mwst_satz: parseFloat(e.target.value) || 20 }))}
+                    onChange={e => setFormData(p => ({ ...p, mwst_satz: e.target.value }))}
+                    placeholder="20"
                     className="mt-1 h-12"
                   />
                 </div>
