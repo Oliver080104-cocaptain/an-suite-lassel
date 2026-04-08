@@ -50,10 +50,8 @@ export default function OfferDetailPage() {
     erstellt_von: '',
     skizzen_link: '',
     fusszeile: '',
-    // UI-only fields (not saved to DB)
     ansprechpartner: '',
     geschaeftsfallNummer: '',
-    // DB fields
     ticket_nummer: '',
     zoho_ticket_id: '',
     reverse_charge: false,
@@ -176,6 +174,9 @@ export default function OfferDetailPage() {
         hausinhabung: existingOffer.hausinhabung || '',
         fusszeile: existingOffer.fusszeile || '',
         objekt_bezeichnung: existingOffer.objekt_bezeichnung || '',
+        // Mappen DB-Spalte (snake_case) → State-Feld (camelCase)
+        geschaeftsfallNummer: existingOffer.geschaeftsfallnummer || '',
+        ansprechpartner: existingOffer.ansprechpartner || '',
       })
       offerInitialized.current = true
     }
@@ -288,6 +289,8 @@ export default function OfferDetailPage() {
       netto_gesamt: offerState.netto_gesamt || 0,
       mwst_gesamt: offerState.mwst_gesamt || 0,
       brutto_gesamt: offerState.brutto_gesamt || 0,
+      geschaeftsfallnummer: offerState.geschaeftsfallNummer || null,
+      ansprechpartner: offerState.ansprechpartner || null,
     }
     // vermittler_id nur senden wenn gesetzt — vermeidet PGRST204 wenn Spalte im
     // Schema-Cache fehlt und User keinen Vermittler ausgewählt hat.
@@ -996,6 +999,10 @@ export default function OfferDetailPage() {
                 <div>
                   <Label>Geschäftsfallnummer</Label>
                   <Input value={offer.geschaeftsfallNummer || ''} onChange={(e) => setOffer({ ...offer, geschaeftsfallNummer: e.target.value })} placeholder="Geschäftsfallnummer (optional)" className="mt-1" />
+                </div>
+                <div>
+                  <Label>Ansprechpartner</Label>
+                  <Input value={offer.ansprechpartner || ''} onChange={(e) => setOffer({ ...offer, ansprechpartner: e.target.value })} placeholder="z.B. Max Mustermann" className="mt-1" />
                 </div>
                 <div>
                   <Label>Skizzen Link</Label>

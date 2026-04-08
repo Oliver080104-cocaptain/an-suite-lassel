@@ -31,11 +31,14 @@ const defaultDN = {
   kunde_strasse: '',
   kunde_plz: '',
   kunde_ort: '',
+  kunde_uid: '',
   objekt_bezeichnung: '',
   objekt_adresse: '',
+  ansprechpartner: '',
   erstellt_von: '',
   ticket_nummer: '',
   zoho_ticket_id: '',
+  geschaeftsfallnummer: '',
   notizen: '',
   pdf_url: '',
   angebot_id: '',
@@ -102,11 +105,14 @@ export default function DeliveryNoteDetailPage() {
         kunde_strasse: (existingDN as any).kunde_strasse || '',
         kunde_plz: (existingDN as any).kunde_plz || '',
         kunde_ort: (existingDN as any).kunde_ort || '',
+        kunde_uid: (existingDN as any).kunde_uid || '',
         objekt_bezeichnung: (existingDN as any).objekt_bezeichnung || '',
         objekt_adresse: (existingDN as any).objekt_adresse || '',
+        ansprechpartner: (existingDN as any).ansprechpartner || '',
         erstellt_von: (existingDN as any).erstellt_von || '',
         ticket_nummer: (existingDN as any).ticket_nummer || '',
         zoho_ticket_id: (existingDN as any).zoho_ticket_id || '',
+        geschaeftsfallnummer: (existingDN as any).geschaeftsfallnummer || '',
         notizen: (existingDN as any).notizen || '',
         pdf_url: (existingDN as any).pdf_url || '',
         angebot_id: (existingDN as any).angebot_id || '',
@@ -162,12 +168,15 @@ export default function DeliveryNoteDetailPage() {
     kunde_strasse: dn.kunde_strasse || null,
     kunde_plz: dn.kunde_plz || null,
     kunde_ort: dn.kunde_ort || null,
+    kunde_uid: dn.kunde_uid || null,
     objekt_bezeichnung: dn.objekt_bezeichnung || null,
     objekt_adresse: dn.objekt_adresse || null,
+    ansprechpartner: dn.ansprechpartner || null,
     lieferdatum: dn.lieferdatum,
     erstellt_von: dn.erstellt_von || null,
     ticket_nummer: dn.ticket_nummer || null,
     zoho_ticket_id: dn.zoho_ticket_id || null,
+    geschaeftsfallnummer: dn.geschaeftsfallnummer || null,
     notizen: dn.notizen || null,
     pdf_url: dn.pdf_url || null,
     angebot_id: dn.angebot_id || null,
@@ -187,8 +196,53 @@ export default function DeliveryNoteDetailPage() {
     try {
       await supabase.from('lieferscheine').update(buildDNData()).eq('id', deliveryNoteId)
       await savePositions(deliveryNoteId, positions, existingPositions)
+      await syncPositionsToTicket()
     } catch (err) {
       console.error('Auto-save error:', err)
+    }
+  }
+
+  /**
+   * Wenn der Lieferschein eine Ticketnummer hat, spiegeln wir die Positionen
+   * als `angebotspositionen` direkt in das Ticket im Tourenplaner — gleiche
+   * Supabase DB. Best-effort: Fehler schlucken, damit der eigentliche Save
+   * nicht failt.
+   */
+  const syncPositionsToTicket = async () => {
+    if (!dn.ticket_nummer?.trim()) return
+    try {
+      const { data: ticket } = await supabase
+        .from('tickets')
+        .select('id, angebotspositionen')
+        .eq('ticketnummer', dn.ticket_nummer.trim())
+        .maybeSingle()
+      if (!ticket?.id) return
+      const existingFotosByPos: Record<string, any[]> = {}
+      const existingErledigtByPos: Record<string, boolean> = {}
+      if (Array.isArray(ticket.angebotspositionen)) {
+        ticket.angebotspositionen.forEach((p: any, i: number) => {
+          const key = String(i)
+          existingFotosByPos[key] = Array.isArray(p?.fotos) ? p.fotos : []
+          existingErledigtByPos[key] = !!p?.erledigt
+        })
+      }
+      const newPositions = positions.map((p, i) => {
+        const lines = (p.beschreibung || '').split('\n')
+        return {
+          produktName: lines[0] || '',
+          beschreibung: lines.slice(1).join('\n'),
+          menge: parseFloat(p.menge as string) || 1,
+          einheit: p.einheit || 'Stk',
+          erledigt: existingErledigtByPos[String(i)] ?? false,
+          fotos: existingFotosByPos[String(i)] ?? [],
+        }
+      })
+      await supabase
+        .from('tickets')
+        .update({ angebotspositionen: newPositions })
+        .eq('id', ticket.id)
+    } catch (err) {
+      console.error('Ticket-Sync fehlgeschlagen:', err)
     }
   }
 
@@ -232,6 +286,7 @@ export default function DeliveryNoteDetailPage() {
       }
 
       await savePositions(savedId!, positions, isNew ? [] : existingPositions)
+      await syncPositionsToTicket()
 
       await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/b15d8baa-e8ec-4d8a-aa85-0865048b9c31', {
         method: 'POST',
@@ -363,6 +418,10 @@ export default function DeliveryNoteDetailPage() {
                     <Input value={dn.kunde_ort} onChange={e => setDn(p => ({ ...p, kunde_ort: e.target.value }))} placeholder="Ort" className="mt-1" />
                   </div>
                 </div>
+                <div>
+                  <Label>UID-Nummer</Label>
+                  <Input value={dn.kunde_uid} onChange={e => setDn(p => ({ ...p, kunde_uid: e.target.value }))} placeholder="z.B. ATU12345678" className="mt-1" />
+                </div>
               </div>
             </Card>
 
@@ -377,6 +436,10 @@ export default function DeliveryNoteDetailPage() {
                 <div>
                   <Label>Objektadresse (Straße und Nummer)</Label>
                   <Input value={dn.objekt_adresse} onChange={e => setDn(p => ({ ...p, objekt_adresse: e.target.value }))} placeholder="z.B. Rauscherstraße 251" className="mt-1" />
+                </div>
+                <div>
+                  <Label>Ansprechpartner</Label>
+                  <Input value={dn.ansprechpartner} onChange={e => setDn(p => ({ ...p, ansprechpartner: e.target.value }))} placeholder="z.B. Max Mustermann" className="mt-1" />
                 </div>
               </div>
             </Card>
@@ -416,6 +479,10 @@ export default function DeliveryNoteDetailPage() {
                 <div>
                   <Label>Ticket-Nr.</Label>
                   <Input value={dn.ticket_nummer} onChange={e => setDn(p => ({ ...p, ticket_nummer: e.target.value }))} placeholder="Ticket-Nummer" className="mt-1" />
+                </div>
+                <div>
+                  <Label>Geschäftsfallnummer</Label>
+                  <Input value={dn.geschaeftsfallnummer} onChange={e => setDn(p => ({ ...p, geschaeftsfallnummer: e.target.value }))} placeholder="Geschäftsfallnummer (optional)" className="mt-1" />
                 </div>
               </div>
             </Card>

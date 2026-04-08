@@ -72,6 +72,8 @@ const defaultInvoice = {
   hausverwaltungStrasse: '',
   hausverwaltungPlz: '',
   hausverwaltungOrt: '',
+  ansprechpartner: '',
+  objektAnsprechpartner: '',
   stornoVonRechnung: '',
   stornoGrund: '',
   pdfUrl: '',
@@ -229,6 +231,14 @@ export default function InvoiceDetailPage() {
         rechnungstyp: existingInvoice.rechnungstyp || 'normal',
         stornoGrund: existingInvoice.storno_grund || '',
         bezahltBetrag: existingInvoice.bezahlt_betrag || 0,
+        ansprechpartner: existingInvoice.ansprechpartner || '',
+        objektStrasse: existingInvoice.objekt_strasse || '',
+        objektPlz: existingInvoice.objekt_plz || '',
+        objektOrt: existingInvoice.objekt_ort || '',
+        objektAnsprechpartner: existingInvoice.objekt_ansprechpartner || '',
+        skontoAktiv: existingInvoice.skonto_aktiv ?? false,
+        skontoProzent: existingInvoice.skonto_prozent ?? defaultInvoice.skontoProzent,
+        skontoTage: existingInvoice.skonto_tage ?? defaultInvoice.skontoTage,
       })
       invoiceInitialized.current = true
     }
@@ -391,6 +401,14 @@ export default function InvoiceDetailPage() {
     netto_gesamt: t.summeNetto || 0,
     mwst_gesamt: t.summeUst || 0,
     brutto_gesamt: t.summeBrutto || 0,
+    ansprechpartner: inv.ansprechpartner || null,
+    objekt_strasse: inv.objektStrasse || null,
+    objekt_plz: inv.objektPlz || null,
+    objekt_ort: inv.objektOrt || null,
+    objekt_ansprechpartner: inv.objektAnsprechpartner || null,
+    skonto_aktiv: inv.skontoAktiv || false,
+    skonto_prozent: inv.skontoAktiv ? (parseFloat(String(inv.skontoProzent)) || null) : null,
+    skonto_tage: inv.skontoAktiv ? (parseInt(String(inv.skontoTage)) || null) : null,
   })
 
   const performAutoSave = async () => {
