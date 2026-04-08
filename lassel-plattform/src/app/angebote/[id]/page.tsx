@@ -781,12 +781,18 @@ export default function OfferDetailPage() {
                   Speichern & in Zoho ablegen
                 </Button>
                 {!isNew && (
-                  <a href={`/api/pdf/angebot/${offerId}?download=1`} target="_blank" rel="noopener noreferrer">
-                    <Button variant="outline" className="gap-2 w-full sm:w-auto">
-                      <Download className="h-4 w-4" />
-                      PDF herunterladen
-                    </Button>
-                  </a>
+                  <Button
+                    variant="outline"
+                    className="gap-2 w-full sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!offer.pdf_url}
+                    title={offer.pdf_url ? 'PDF herunterladen' : "Zuerst 'Speichern & in Zoho ablegen' klicken"}
+                    onClick={() => {
+                      if (offer.pdf_url) window.open(`/api/pdf/angebot/${offerId}?download=1`, '_blank')
+                    }}
+                  >
+                    <Download className="h-4 w-4" />
+                    📄 PDF herunterladen
+                  </Button>
                 )}
               </div>
               {!isNew && (
@@ -1203,6 +1209,16 @@ export default function OfferDetailPage() {
             </div>
             <div className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-inner p-8" style={{ aspectRatio: '1 / 1.414' }}>
               <iframe src={`/api/pdf/angebot/${offerId}?v=${previewVersion}`} className="w-full h-full" title="Angebots-Vorschau" />
+            </div>
+            <div className="mt-3 text-right">
+              <a
+                href={`/api/pdf/angebot/${offerId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-blue-600 hover:text-blue-800 hover:underline"
+              >
+                🔗 PDF in neuem Tab öffnen
+              </a>
             </div>
           </div>
         )}

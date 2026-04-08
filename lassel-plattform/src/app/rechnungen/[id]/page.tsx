@@ -824,12 +824,18 @@ export default function InvoiceDetailPage() {
               <span className="sm:hidden">Speichern</span>
             </Button>
             {!isNew && (
-              <a href={`/api/pdf/rechnung/${invoiceId}?download=1`} target="_blank" rel="noopener noreferrer">
-                <Button variant="outline" className="gap-2">
-                  <Download className="h-4 w-4" />
-                  PDF herunterladen
-                </Button>
-              </a>
+              <Button
+                variant="outline"
+                className="gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={!invoice.pdfUrl}
+                title={invoice.pdfUrl ? 'PDF herunterladen' : "Zuerst 'Speichern & in Zoho ablegen' klicken"}
+                onClick={() => {
+                  if (invoice.pdfUrl) window.open(`/api/pdf/rechnung/${invoiceId}?download=1`, '_blank')
+                }}
+              >
+                <Download className="h-4 w-4" />
+                📄 PDF herunterladen
+              </Button>
             )}
           </div>
         </div>
@@ -1386,15 +1392,19 @@ export default function InvoiceDetailPage() {
           <div className="rounded-xl border border-slate-200 bg-white shadow p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-slate-900">Rechnungs-Vorschau</h2>
-              <a href={`/api/pdf/rechnung/${invoiceId}`} target="_blank" rel="noopener noreferrer">
-                <Button variant="outline" size="sm" className="gap-2">
-                  <Download className="h-4 w-4" />
-                  PDF speichern
-                </Button>
-              </a>
             </div>
             <div className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-inner" style={{ aspectRatio: '1 / 1.414' }}>
               <iframe src={`/api/pdf/rechnung/${invoiceId}`} className="w-full h-full" title="Rechnungs-Vorschau" />
+            </div>
+            <div className="mt-3 text-right">
+              <a
+                href={`/api/pdf/rechnung/${invoiceId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-blue-600 hover:text-blue-800 hover:underline"
+              >
+                🔗 PDF in neuem Tab öffnen
+              </a>
             </div>
           </div>
         )}
