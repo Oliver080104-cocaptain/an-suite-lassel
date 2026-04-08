@@ -1161,7 +1161,11 @@ export default function InvoiceDetailPage() {
                   <Label>Vermittler</Label>
                   <Select value={invoice.vermittlerId || 'none'} onValueChange={v => setInvoice(p => ({ ...p, vermittlerId: v == null || v === 'none' ? '' : v }))}>
                     <SelectTrigger className={`mt-1 ${invoice.vermittlerId ? 'border-orange-300 bg-white' : ''}`}>
-                      <SelectValue placeholder="Vermittler auswählen (optional)..." />
+                      <SelectValue placeholder="Vermittler auswählen (optional)...">
+                        {selectedVermittler
+                          ? `${(selectedVermittler as any).name} (${(selectedVermittler as any).provision_prozent ?? (selectedVermittler as any).provisionssatz ?? 10}%)`
+                          : (invoice.vermittlerId ? 'Unbekannter Vermittler' : 'Kein Vermittler')}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">Kein Vermittler</SelectItem>
@@ -1172,7 +1176,10 @@ export default function InvoiceDetailPage() {
                   </Select>
                   {selectedVermittler && (
                     <p className="text-xs text-orange-700 font-medium mt-2">
-                      Vermittler-Provision: {(selectedVermittler as any).provision_prozent ?? (selectedVermittler as any).provisionssatz ?? 10}% wird an Vermittler gezahlt
+                      <Link href={`/vermittler#${(selectedVermittler as any).id}`} className="underline hover:text-orange-900">
+                        {(selectedVermittler as any).name}
+                      </Link>
+                      {' '}— Provision {(selectedVermittler as any).provision_prozent ?? (selectedVermittler as any).provisionssatz ?? 10}% wird an Vermittler gezahlt
                     </p>
                   )}
                 </div>
