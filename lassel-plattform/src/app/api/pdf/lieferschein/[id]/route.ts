@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { renderHtmlToPdfResponse } from '@/lib/pdf-renderer'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -66,7 +67,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  const autoPrint = new URL(req.url).searchParams.get('download') === '1'
+  const disposition = new URL(req.url).searchParams.get('download') === '1'
+    ? 'attachment'
+    : 'inline'
 
   const { data: ls, error } = await supabase.from('lieferscheine').select('*').eq('id', id).single()
   if (error || !ls) return new NextResponse('Lieferschein nicht gefunden', { status: 404 })
@@ -104,7 +107,6 @@ export async function GET(
 <style>${CSS}</style>
 </head>
 <body>
-<button class="print-btn" onclick="window.print()">⬇ PDF speichern</button>
 <div class="container">
 
   <div class="header">
@@ -158,12 +160,12 @@ export async function GET(
   </div>
 
 </div>
-${autoPrint ? '<script>window.addEventListener("load", () => setTimeout(() => window.print(), 300))</script>' : ''}
 </body>
 </html>`
 
   // pdf_url wird NICHT mehr automatisch beim Render geschrieben — sie wird
   // nur von "Speichern & in Zoho ablegen" gesetzt.
 
-  return new NextResponse(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
+  const fileName = `Lieferschein_${(ls.lieferscheinnummer || id).replace(/[^A-Za-z0-9_-]/g, '_')}.pdf`
+  return renderHtmlToPdfResponse(html, fileName, disposition)
 }
