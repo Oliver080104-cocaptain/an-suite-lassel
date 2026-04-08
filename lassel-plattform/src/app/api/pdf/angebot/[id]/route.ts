@@ -32,8 +32,8 @@ const CSS = `
   @page { margin: 15mm 20mm; size: A4 portrait; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: Arial, sans-serif; font-size: 10pt; color: #000; line-height: 1.4; padding: 0; margin: 0; overflow: visible !important; height: auto !important; }
-  .container { width: 100%; max-width: 100%; margin: 0 auto; padding: 0 20mm; overflow: visible !important; height: auto !important; position: relative; }
-  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-top: 30mm; margin-bottom: 10mm; }
+  .container { width: 100%; max-width: 100%; margin: 0 auto; padding: 0; overflow: visible !important; height: auto !important; position: relative; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-top: 0; margin-bottom: 10mm; }
   .header-left { flex: 1; }
   .header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 12px; width: 40%; }
   .logo { max-height: 65px; max-width: 150px; object-fit: contain; }
@@ -49,16 +49,16 @@ const CSS = `
   .object-line { font-size: 10pt; margin-bottom: 20px; font-weight: bold; page-break-after: avoid; }
   .ticket-line { font-size: 8.5pt; color: #666; font-weight: normal; margin-top: 4px; }
   .positions-header { display: flex; background: #f8f8f8; border-bottom: 1.5px solid #333; padding: 8px 6px; font-size: 9pt; font-weight: bold; color: #000; margin: 0; }
-  .positions-header .col-desc { width: 60%; padding-right: 10px; }
-  .positions-header .col-menge { width: 10%; text-align: center; }
-  .positions-header .col-preis { width: 15%; text-align: right; }
-  .positions-header .col-gesamt { width: 15%; text-align: right; }
+  .positions-header .col-desc { flex: 0 0 55%; padding-right: 10px; }
+  .positions-header .col-menge { flex: 0 0 12%; text-align: center; padding: 0 4px; }
+  .positions-header .col-preis { flex: 0 0 16%; text-align: right; padding: 0 4px; }
+  .positions-header .col-gesamt { flex: 0 0 17%; text-align: right; padding-left: 4px; }
   .positions-list { display: block !important; width: 100%; overflow: visible !important; widows: 1 !important; orphans: 1 !important; }
   .position-item { display: flex !important; width: 100%; height: auto !important; overflow: visible !important; border-bottom: 0.5pt solid #ddd; padding: 10pt 6pt; margin: 0; gap: 0; }
-  .pos-col-desc { flex: 0 0 60%; padding-right: 10px; vertical-align: top; box-sizing: border-box; }
-  .pos-col-menge { flex: 0 0 10%; font-size: 9.5pt; text-align: center; padding-top: 0; vertical-align: top; box-sizing: border-box; }
-  .pos-col-preis { flex: 0 0 15%; font-size: 9.5pt; text-align: right; padding-top: 0; vertical-align: top; box-sizing: border-box; }
-  .pos-col-gesamt { flex: 0 0 15%; font-size: 9.5pt; text-align: right; padding-top: 0; vertical-align: top; box-sizing: border-box; }
+  .pos-col-desc { flex: 0 0 55%; padding-right: 10px; vertical-align: top; box-sizing: border-box; }
+  .pos-col-menge { flex: 0 0 12%; font-size: 9.5pt; text-align: center; padding: 0 4px; vertical-align: top; box-sizing: border-box; }
+  .pos-col-preis { flex: 0 0 16%; font-size: 9.5pt; text-align: right; padding: 0 4px; vertical-align: top; box-sizing: border-box; }
+  .pos-col-gesamt { flex: 0 0 17%; font-size: 9.5pt; text-align: right; padding-left: 4px; vertical-align: top; box-sizing: border-box; }
   .pos-title { font-weight: bold; color: #000; margin: 0 0 4pt 0; font-size: 9.5pt; }
   .pos-desc { font-size: 9pt; color: #333; line-height: 1.4; white-space: pre-wrap; margin: 2pt 0 0 0; padding-left: 8pt; }
   .totals { margin-top: 25pt; margin-left: auto; width: 40%; min-width: 280px; }

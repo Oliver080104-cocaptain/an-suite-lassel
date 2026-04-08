@@ -41,15 +41,20 @@ export async function renderHtmlToPdfResponse(
 
   try {
     const client = new Api2Pdf(apiKey)
+    // WICHTIG: Margins hier auf 0 — das HTML-CSS definiert eigene @page margins
+    // (z.B. `@page { margin: 15mm 20mm }`). Sonst addiert sich beides und das
+    // Layout wird zu eng / der Header abgeschnitten.
     const result: Api2PdfResult = await client.chromeHtmlToPdf(html, {
       inlinePdf: true,
       fileName,
       options: {
         printBackground: true,
-        marginTop: '15mm',
-        marginBottom: '15mm',
-        marginLeft: '15mm',
-        marginRight: '15mm',
+        preferCSSPageSize: true,
+        marginTop: '0',
+        marginBottom: '0',
+        marginLeft: '0',
+        marginRight: '0',
+        format: 'A4',
       },
     })
 

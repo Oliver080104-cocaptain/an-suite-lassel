@@ -28,8 +28,8 @@ const CSS = `
   @page { margin: 12mm 15mm 15mm 15mm; size: A4 portrait; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: Arial, sans-serif; font-size: 10.5pt; color: #333; line-height: 1.5; padding: 0; overflow: visible !important; height: auto !important; }
-  .container { width: 100%; max-width: 100%; margin: 0 auto; padding: 0 5mm; padding-bottom: 20mm; overflow: visible !important; height: auto !important; }
-  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-top: 30mm; margin-bottom: 10mm; }
+  .container { width: 100%; max-width: 100%; margin: 0 auto; padding: 0; padding-bottom: 10mm; overflow: visible !important; height: auto !important; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-top: 0; margin-bottom: 10mm; }
   .header-left { flex: 1; }
   .header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 12px; width: 40%; }
   .logo { max-height: 65px; max-width: 150px; object-fit: contain; }
