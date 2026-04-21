@@ -14,10 +14,14 @@ import { toast } from 'sonner'
 import { Save, Loader2, Download, Plus, Trash2, FileText, Send } from 'lucide-react'
 import { format } from 'date-fns'
 import Link from 'next/link'
+import DeliveryNotePositionsTable from '@/components/deliveryNotes/DeliveryNotePositionsTable'
+import EditableDocNumber from '@/components/shared/EditableDocNumber'
 
 interface DNPosition {
   id?: string
   pos: number
+  produktId?: string
+  produktName: string
   beschreibung: string
   menge: number | string
   einheit: string
@@ -54,9 +58,10 @@ export default function DeliveryNoteDetailPage() {
   const deliveryNoteId = isNew ? null : rawId
 
   const [dn, setDn] = useState({ ...defaultDN })
-  const [positions, setPositions] = useState<DNPosition[]>([{ pos: 1, beschreibung: '', menge: 1, einheit: 'Stk' }])
+  const [positions, setPositions] = useState<DNPosition[]>([{ pos: 1, produktName: '', beschreibung: '', menge: 1, einheit: 'Stk' }])
   const [saving, setSaving] = useState(false)
   const [uploadingToZoho, setUploadingToZoho] = useState(false)
+  const [previewVersion, setPreviewVersion] = useState(0)
 
   const dnInitialized = useRef(false)
   const posInitialized = useRef(false)
@@ -124,13 +129,18 @@ export default function DeliveryNoteDetailPage() {
 
   useEffect(() => {
     if (existingPositions.length > 0 && !posInitialized.current) {
-      setPositions((existingPositions as any[]).map((p: any, i: number) => ({
-        id: p.id,
-        pos: i + 1,
-        beschreibung: p.beschreibung || '',
-        menge: p.menge || 1,
-        einheit: p.einheit || 'Stk',
-      })))
+      setPositions((existingPositions as any[]).map((p: any, i: number) => {
+        const raw = (p.beschreibung || '') as string
+        const [firstLine, ...rest] = raw.split('\n')
+        return {
+          id: p.id,
+          pos: i + 1,
+          produktName: firstLine || '',
+          beschreibung: rest.join('\n'),
+          menge: p.menge || 1,
+          einheit: p.einheit || 'Stk',
+        }
+      }))
       posInitialized.current = true
     }
   }, [existingPositions])
@@ -144,7 +154,7 @@ export default function DeliveryNoteDetailPage() {
         autoSaveLock.current = true
         performAutoSave().finally(() => { autoSaveLock.current = false })
       }
-    }, 2000)
+    }, 1000)
     return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current) }
   }, [dn, positions])
 
@@ -183,13 +193,19 @@ export default function DeliveryNoteDetailPage() {
     referenz_angebot_nummer: dn.referenz_angebot_nummer || null,
   })
 
-  const buildPosData = (p: DNPosition, lsId: string) => ({
-    lieferschein_id: lsId,
-    position: p.pos,
-    beschreibung: p.beschreibung || '',
-    menge: parseFloat(p.menge as string) || 1,
-    einheit: p.einheit || 'Stk',
-  })
+  const buildPosData = (p: DNPosition, lsId: string) => {
+    // DB-Feld `beschreibung` enthält "Produktname\nBeschreibung" (analog Angebot)
+    const combined = p.produktName
+      ? (p.beschreibung ? `${p.produktName}\n${p.beschreibung}` : p.produktName)
+      : (p.beschreibung || '')
+    return {
+      lieferschein_id: lsId,
+      position: p.pos,
+      beschreibung: combined,
+      menge: parseFloat(p.menge as string) || 1,
+      einheit: p.einheit || 'Stk',
+    }
+  }
 
   const performAutoSave = async () => {
     if (!deliveryNoteId || !dn.kunde_name) return
@@ -197,6 +213,7 @@ export default function DeliveryNoteDetailPage() {
       await supabase.from('lieferscheine').update(buildDNData()).eq('id', deliveryNoteId)
       await savePositions(deliveryNoteId, positions, existingPositions)
       await syncPositionsToTicket()
+      setPreviewVersion((v) => v + 1)
     } catch (err) {
       console.error('Auto-save error:', err)
     }
@@ -255,7 +272,19 @@ export default function DeliveryNoteDetailPage() {
       ...toUpdate.map(p => supabase.from('lieferschein_positionen').update(buildPosData(p, targetId)).eq('id', p.id!)),
     ])
     if (toCreate.length > 0) {
-      await supabase.from('lieferschein_positionen').insert(toCreate.map(p => ({ ...buildPosData(p, targetId), id: undefined })))
+      const { data: inserted } = await supabase
+        .from('lieferschein_positionen')
+        .insert(toCreate.map(p => buildPosData(p, targetId)))
+        .select()
+      // IDs zurück in State mergen, sonst werden die Positionen bei nächstem
+      // Auto-Save als "toCreate" dupliziert.
+      if (inserted && inserted.length > 0) {
+        setPositions(prev => prev.map(p => {
+          if (p.id) return p
+          const match = inserted.find((i: any) => i.position === p.pos)
+          return match ? { ...p, id: match.id } : p
+        }))
+      }
     }
   }
 
@@ -382,7 +411,7 @@ export default function DeliveryNoteDetailPage() {
   }
 
   const addPosition = () => {
-    setPositions(prev => [...prev, { pos: prev.length + 1, beschreibung: '', menge: 1, einheit: 'Stk' }])
+    setPositions(prev => [...prev, { pos: prev.length + 1, produktName: '', beschreibung: '', menge: 1, einheit: 'Stk' }])
   }
 
   const deletePosition = (i: number) => {
@@ -409,7 +438,22 @@ export default function DeliveryNoteDetailPage() {
             </div>
             <div>
               <Link href="/lieferscheine" className="text-sm text-slate-500 hover:text-slate-700">← Alle Lieferscheine</Link>
-              <h1 className="text-3xl font-bold text-slate-900">{isNew ? 'Neuer Lieferschein' : dn.lieferscheinnummer || 'Lieferschein'}</h1>
+              {isNew ? (
+                <h1 className="text-3xl font-bold text-slate-900">Neuer Lieferschein</h1>
+              ) : (
+                <EditableDocNumber
+                  value={dn.lieferscheinnummer || ''}
+                  table="lieferscheine"
+                  column="lieferscheinnummer"
+                  id={deliveryNoteId || ''}
+                  expectedPrefix="LI-"
+                  placeholder="Lieferschein"
+                  onSaved={(next) => {
+                    setDn({ ...dn, lieferscheinnummer: next })
+                    setPreviewVersion((v) => v + 1)
+                  }}
+                />
+              )}
             </div>
           </div>
           <div className="ml-auto flex items-center gap-2">
@@ -493,12 +537,8 @@ export default function DeliveryNoteDetailPage() {
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Objekt (Baustellenadresse)</h2>
               <div className="space-y-4">
                 <div>
-                  <Label>Objektbezeichnung</Label>
-                  <Input value={dn.objekt_bezeichnung} onChange={e => setDn(p => ({ ...p, objekt_bezeichnung: e.target.value }))} placeholder="z.B. Hauptstraße 50, 2020 Magersdorf" className="mt-1" />
-                </div>
-                <div>
-                  <Label>Objektadresse (Straße und Nummer)</Label>
-                  <Input value={dn.objekt_adresse} onChange={e => setDn(p => ({ ...p, objekt_adresse: e.target.value }))} placeholder="z.B. Rauscherstraße 251" className="mt-1" />
+                  <Label>Objektadresse</Label>
+                  <Input value={dn.objekt_adresse} onChange={e => setDn(p => ({ ...p, objekt_adresse: e.target.value }))} placeholder="z.B. Hauptstraße 50, 2020 Magersdorf" className="mt-1" />
                 </div>
                 <div>
                   <Label>Ansprechpartner</Label>
@@ -561,94 +601,32 @@ export default function DeliveryNoteDetailPage() {
                 </div>
               </div>
             </Card>
-
-            {/* Verknüpfte Dokumente */}
-            {dn.angebot_id && (
-              <Card className="p-6">
-                <h2 className="text-lg font-semibold text-slate-900 mb-4">Verknüpfte Dokumente</h2>
-                <Link href={`/angebote/${dn.angebot_id}`} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-slate-50 group">
-                  <span className="text-sm font-medium text-blue-600 group-hover:underline">
-                    {dn.referenz_angebot_nummer || 'Angebot öffnen'}
-                  </span>
-                  <span className="text-xs text-slate-400">Angebot →</span>
-                </Link>
-              </Card>
-            )}
           </div>
         </div>
 
-        {/* Positionen – ohne Preise */}
+        {/* Verknüpfte Dokumente – volle Breite */}
+        {dn.angebot_id && (
+          <Card className="p-6 mb-8">
+            <h2 className="text-lg font-semibold text-slate-900 mb-4">Verknüpfte Dokumente</h2>
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Angebot</p>
+              <Link href={`/angebote/${dn.angebot_id}`} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-slate-50 group">
+                <span className="text-sm font-medium text-blue-600 group-hover:underline">
+                  {dn.referenz_angebot_nummer || 'Angebot öffnen'}
+                </span>
+                <span className="text-xs text-slate-400">Angebot →</span>
+              </Link>
+            </div>
+          </Card>
+        )}
+
+        {/* Positionen – ohne Preise (gleicher Look wie Angebot) */}
         <Card className="p-6 mb-8">
           <h2 className="text-lg font-semibold text-slate-900 mb-4">Positionen</h2>
-          <div className="overflow-x-auto rounded-lg border border-slate-200">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="w-12 text-center p-3 text-xs font-semibold text-slate-500">Pos.</th>
-                  <th className="text-left p-3 text-xs font-semibold text-slate-500 min-w-[280px]">Beschreibung</th>
-                  <th className="w-24 text-right p-3 text-xs font-semibold text-slate-500">Menge</th>
-                  <th className="w-24 p-3 text-xs font-semibold text-slate-500">Einheit</th>
-                  <th className="w-12 p-3"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {positions.map((pos, i) => {
-                  const lines = (pos.beschreibung || '').split('\n')
-                  const titel = lines[0] || ''
-                  const desc = lines.slice(1).join('\n').trim()
-                  return (
-                    <tr key={i} className="border-b border-slate-100 hover:bg-slate-50 group">
-                      <td className="text-center p-3 text-slate-500 font-medium">{i + 1}</td>
-                      <td className="p-3">
-                        <Input
-                          value={titel}
-                          onChange={e => updatePosition(i, 'beschreibung', e.target.value + (desc ? '\n' + desc : ''))}
-                          placeholder="Produktname / Leistung"
-                          className="h-8 text-sm font-medium border-0 border-b border-dashed border-slate-300 rounded-none px-1 focus-visible:ring-0 bg-transparent"
-                        />
-                        <Textarea
-                          value={desc}
-                          onChange={e => updatePosition(i, 'beschreibung', titel + (e.target.value ? '\n' + e.target.value : ''))}
-                          rows={2}
-                          placeholder="Detaillierte Beschreibung..."
-                          className="mt-1 text-xs text-slate-500 border-0 border-b border-dashed border-slate-200 rounded-none px-1 resize-none focus-visible:ring-0 bg-transparent"
-                        />
-                      </td>
-                      <td className="p-3">
-                        <Input
-                          type="number"
-                          value={pos.menge}
-                          onChange={e => updatePosition(i, 'menge', e.target.value)}
-                          className="text-right h-8 border-slate-200 text-sm [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                      </td>
-                      <td className="p-3">
-                        <Input
-                          value={pos.einheit}
-                          onChange={e => updatePosition(i, 'einheit', e.target.value)}
-                          className="h-8 border-slate-200 text-sm"
-                        />
-                      </td>
-                      <td className="p-3 text-center">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => deletePosition(i)}
-                          className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-600 h-8 w-8"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-          <Button variant="outline" onClick={addPosition} className="w-full mt-3 border-dashed h-10">
-            <Plus className="w-4 h-4 mr-2" />
-            Position hinzufügen
-          </Button>
+          <DeliveryNotePositionsTable
+            positions={positions as any}
+            onChange={(updated) => setPositions(updated.map((p: any, i: number) => ({ ...p, pos: i + 1 })))}
+          />
         </Card>
 
         {/* Anmerkungen */}
@@ -668,8 +646,21 @@ export default function DeliveryNoteDetailPage() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-slate-900">Lieferschein-Vorschau</h2>
             </div>
-            <div className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-inner" style={{ aspectRatio: '1 / 1.414' }}>
-              <iframe src={`/api/pdf/lieferschein/${deliveryNoteId}`} className="w-full h-full" title="Lieferschein-Vorschau" />
+            <div className="rounded-lg bg-slate-100 overflow-x-auto flex justify-center p-4">
+              <iframe
+                src={`/api/pdf/lieferschein/${deliveryNoteId}?preview=1&v=${previewVersion}`}
+                title="Lieferschein-Vorschau"
+                className="bg-white shadow-md"
+                scrolling="no"
+                style={{ width: '794px', minHeight: '1123px', border: 'none', flexShrink: 0 }}
+                onLoad={(e) => {
+                  const iframe = e.currentTarget
+                  try {
+                    const body = iframe.contentDocument?.body
+                    if (body) iframe.style.height = `${body.scrollHeight}px`
+                  } catch {}
+                }}
+              />
             </div>
             <div className="mt-3 text-right">
               <a

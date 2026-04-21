@@ -21,7 +21,18 @@ export default function InvoiceListItem({ invoice, onDelete, searchTerm, matchDe
   const [showDeleteDialog, setShowDeleteDialog] = React.useState(false)
   const [showFinalConfirm, setShowFinalConfirm] = React.useState(false)
 
-  const isOverdue = invoice.status === 'offen' && invoice.faelligAm && new Date(invoice.faelligAm) < new Date()
+  // DB-Felder (snake_case) mit Fallback auf frühere camelCase-Variante,
+  // damit sowohl API-Listen als auch bereits gemappte Objekte funktionieren.
+  const rechnungsNummer = invoice.rechnungsnummer ?? invoice.rechnungsNummer
+  const kundeName = invoice.kunde_name ?? invoice.kundeName
+  const objektBezeichnung = invoice.objekt_bezeichnung ?? invoice.objekt_adresse ?? invoice.objektBezeichnung
+  const ticketNumber = invoice.ticket_nummer ?? invoice.ticketNumber
+  const datum = invoice.rechnungsdatum ?? invoice.datum
+  const faelligAm = invoice.faellig_bis ?? invoice.faelligAm
+  const bruttoGesamt = invoice.brutto_gesamt ?? invoice.summeBrutto
+  const pdfUrl = invoice.pdf_url ?? invoice.pdfUrl
+
+  const isOverdue = invoice.status === 'offen' && faelligAm && new Date(faelligAm) < new Date()
 
   const handleDelete = (e: React.MouseEvent) => {
     e.preventDefault()
@@ -60,7 +71,7 @@ export default function InvoiceListItem({ invoice, onDelete, searchTerm, matchDe
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-2">
                 <span className="font-bold text-slate-900 text-base whitespace-nowrap">
-                  {invoice.rechnungsNummer}
+                  {rechnungsNummer}
                 </span>
                 <StatusBadge status={invoice.status} />
                 <StatusBadge status={invoice.rechnungstyp} />
@@ -75,11 +86,11 @@ export default function InvoiceListItem({ invoice, onDelete, searchTerm, matchDe
               <div className="flex flex-col gap-1 text-sm">
                 <span className="flex items-center gap-1.5 min-w-0">
                   <Building2 className="w-4 h-4 flex-shrink-0 text-emerald-500" />
-                  <span className="truncate font-medium text-slate-700">{invoice.kundeName || 'Kein Kunde'}</span>
+                  <span className="truncate font-medium text-slate-700">{kundeName || 'Kein Kunde'}</span>
                 </span>
-                {invoice.objektBezeichnung && (
+                {objektBezeichnung && (
                   <span className="flex items-center gap-1.5 min-w-0">
-                    <span className="truncate text-slate-600">{invoice.objektBezeichnung}</span>
+                    <span className="truncate text-slate-600">{objektBezeichnung}</span>
                   </span>
                 )}
               </div>
@@ -105,9 +116,9 @@ export default function InvoiceListItem({ invoice, onDelete, searchTerm, matchDe
 
             <div className="flex items-center gap-6 flex-shrink-0">
               <div className="w-36 text-sm text-slate-600">
-                {invoice.ticketNumber && (
+                {ticketNumber && (
                   <span className="flex items-center gap-1.5">
-                    <span className="font-medium">{invoice.ticketNumber}</span>
+                    <span className="font-medium">{ticketNumber}</span>
                   </span>
                 )}
               </div>
@@ -115,29 +126,29 @@ export default function InvoiceListItem({ invoice, onDelete, searchTerm, matchDe
               <div className="w-32 text-sm">
                 <span className="flex items-center gap-1.5 whitespace-nowrap text-slate-500 mb-1">
                   <Calendar className="w-4 h-4 text-emerald-500" />
-                  {invoice.datum ? format(new Date(invoice.datum), 'dd.MM.yyyy') : '-'}
+                  {datum ? format(new Date(datum), 'dd.MM.yyyy') : '-'}
                 </span>
-                {invoice.faelligAm && (
+                {faelligAm && (
                   <span className={`flex items-center gap-1.5 text-xs whitespace-nowrap ${isOverdue ? 'text-rose-600 font-medium' : 'text-slate-500'}`}>
-                    Fällig: {format(new Date(invoice.faelligAm), 'dd.MM.yyyy')}
+                    Fällig: {format(new Date(faelligAm), 'dd.MM.yyyy')}
                   </span>
                 )}
               </div>
 
               <div className="text-right w-28">
-                <CurrencyDisplay value={invoice.summeBrutto} className="text-lg font-bold text-slate-900 whitespace-nowrap" />
+                <CurrencyDisplay value={bruttoGesamt} className="text-lg font-bold text-slate-900 whitespace-nowrap" />
                 <p className="text-xs text-slate-500">Brutto</p>
               </div>
 
               <div className="flex items-center gap-1">
-                {invoice.pdfUrl && (
+                {pdfUrl && (
                   <Button
                     variant="ghost"
                     size="icon"
                     onClick={(e) => {
                       e.preventDefault()
                       e.stopPropagation()
-                      window.open(invoice.pdfUrl, '_blank')
+                      window.open(pdfUrl, '_blank')
                     }}
                     className="text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 h-8 w-8"
                     title="PDF öffnen"
@@ -165,7 +176,7 @@ export default function InvoiceListItem({ invoice, onDelete, searchTerm, matchDe
           <AlertDialogHeader>
             <AlertDialogTitle>Rechnung löschen?</AlertDialogTitle>
             <AlertDialogDescription>
-              Möchten Sie die Rechnung <strong>{invoice.rechnungsNummer}</strong> wirklich löschen?
+              Möchten Sie die Rechnung <strong>{rechnungsNummer}</strong> wirklich löschen?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -185,7 +196,7 @@ export default function InvoiceListItem({ invoice, onDelete, searchTerm, matchDe
               Unwiderruflich löschen?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Die Rechnung <strong>{invoice.rechnungsNummer}</strong> und alle zugehörigen Positionen werden permanent gelöscht.
+              Die Rechnung <strong>{rechnungsNummer}</strong> und alle zugehörigen Positionen werden permanent gelöscht.
               <br /><br />
               <strong>Diese Aktion kann nicht rückgängig gemacht werden!</strong>
             </AlertDialogDescription>

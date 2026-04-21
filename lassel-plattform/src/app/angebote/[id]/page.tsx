@@ -22,6 +22,7 @@ import StatusBadge from '@/components/shared/StatusBadge'
 import EmailVorschauModal from '@/components/EmailVorschauModal'
 import ParksperreModal from '@/components/ParksperreModal'
 import CreateInvoiceDialog, { type CreateInvoiceOptions } from '@/components/CreateInvoiceDialog'
+import EditableDocNumber from '@/components/shared/EditableDocNumber'
 import { generateRechnungsNummer, getTypInfo, type Rechnungstyp } from '@/lib/rechnung-typ'
 
 export default function OfferDetailPage() {
@@ -486,19 +487,21 @@ export default function OfferDetailPage() {
       }).select().single()
       if (error) throw error
 
-      const { data: dbPositions } = await supabase.from('angebot_positionen')
+      const { data: dbPositions, error: posErr } = await supabase.from('angebot_positionen')
         .select('*').eq('angebot_id', offerId).order('position')
-      const posForLi = (dbPositions || []).filter((p: any) => p.beschreibung?.trim() || p.menge)
+      if (posErr) console.error('Fehler beim Laden Angebots-Positionen:', posErr)
+      const posForLi = dbPositions || []
       if (posForLi.length > 0) {
-        await supabase.from('lieferschein_positionen').insert(
-          posForLi.map((p: any) => ({
+        const { error: insErr } = await supabase.from('lieferschein_positionen').insert(
+          posForLi.map((p: any, i: number) => ({
             lieferschein_id: deliveryNote.id,
-            position: p.position,
-            beschreibung: p.beschreibung || '',
-            menge: p.menge,
+            position: p.position ?? i + 1,
+            beschreibung: (p.beschreibung && String(p.beschreibung).trim()) || '(ohne Bezeichnung)',
+            menge: parseFloat(p.menge) || 0,
             einheit: p.einheit || 'Stk'
           }))
         )
+        if (insErr) { console.error('Lieferschein-Positionen Insert:', insErr); throw insErr }
       }
 
       try {
@@ -570,15 +573,36 @@ export default function OfferDetailPage() {
       const teilNetto = isTeilOrAnz ? (opts.teilbetragNetto ?? 0) : null
       const teilBrutto = teilNetto !== null ? teilNetto * 1.2 : null
 
+      // Positionen vorab laden — wegen optionaler Auswahl im Dialog,
+      // damit die Rechnungs-Summen zur tatsächlichen Position-Auswahl passen.
+      const { data: dbPositionsPre, error: posPreLoadErr } = await supabase
+        .from('angebot_positionen')
+        .select('*').eq('angebot_id', offerId).order('position')
+      if (posPreLoadErr) console.error('Angebot-Positionen Pre-Load:', posPreLoadErr)
+
+      const filteredDbPositions =
+        opts.selectedPositionIds && opts.selectedPositionIds.length >= 0
+          ? (dbPositionsPre || []).filter((p: any) =>
+              opts.selectedPositionIds!.includes(String(p.id))
+            )
+          : (dbPositionsPre || [])
+
+      const selectedNetto = filteredDbPositions.reduce(
+        (s: number, p: any) => s + (Number(p.gesamtpreis) || 0),
+        0
+      )
+      const selectedMwst = selectedNetto * 0.2
+      const selectedBrutto = selectedNetto + selectedMwst
+
       const insertNetto = isTeilOrAnz
         ? (teilNetto ?? 0)
-        : (opts.rechnungstyp === 'gutschrift' ? 0 : totals.netto_gesamt)
+        : (opts.rechnungstyp === 'gutschrift' ? 0 : selectedNetto)
       const insertMwst = isTeilOrAnz
         ? ((teilNetto ?? 0) * 0.2)
-        : (opts.rechnungstyp === 'gutschrift' ? 0 : totals.mwst_gesamt)
+        : (opts.rechnungstyp === 'gutschrift' ? 0 : selectedMwst)
       const insertBrutto = isTeilOrAnz
         ? (teilBrutto ?? 0)
-        : (opts.rechnungstyp === 'gutschrift' ? 0 : totals.brutto_gesamt)
+        : (opts.rechnungstyp === 'gutschrift' ? 0 : selectedBrutto)
 
       const { data: invoice, error } = await supabase.from('rechnungen').insert({
         rechnungsnummer,
@@ -612,30 +636,26 @@ export default function OfferDetailPage() {
       }).select().single()
       if (error) throw error
 
-      // Positionen-Erzeugung je nach Typ
-      const { data: dbPositions } = await supabase.from('angebot_positionen')
-        .select('*').eq('angebot_id', offerId).order('position')
+      // Positionen-Erzeugung: gefilterte Originale aus dem Angebot übernehmen.
+      // Bei Anzahlung/Teilrechnung wird zusätzlich eine Abschlags-Zeile vorgelagert.
+      const originalPositions = filteredDbPositions.map((p: any, i: number) => ({
+        rechnung_id: invoice.id,
+        position: p.position ?? i + 1,
+        produkt_id: p.produkt_id || null,
+        beschreibung: (p.beschreibung && String(p.beschreibung).trim()) || '(ohne Bezeichnung)',
+        menge: parseFloat(p.menge) || 0,
+        einheit: p.einheit || 'Stk',
+        einzelpreis: parseFloat(p.einzelpreis) || 0,
+        rabatt_prozent: parseFloat(p.rabatt_prozent) || 0,
+        mwst_satz: parseFloat(p.mwst_satz) || 20,
+        gesamtpreis: parseFloat(p.gesamtpreis) || 0,
+      }))
 
-      if (opts.rechnungstyp === 'normal' && opts.alleNeuPositionen) {
-        const posForRe = (dbPositions || []).filter((p: any) => p.beschreibung?.trim() || p.menge)
-        if (posForRe.length > 0) {
-          await supabase.from('rechnung_positionen').insert(
-            posForRe.map((p: any) => ({
-              rechnung_id: invoice.id,
-              position: p.position,
-              beschreibung: p.beschreibung || '',
-              menge: parseFloat(p.menge) || 0,
-              einheit: p.einheit || 'Stk',
-              einzelpreis: parseFloat(p.einzelpreis) || 0,
-              rabatt_prozent: parseFloat(p.rabatt_prozent) || 0,
-              mwst_satz: parseFloat(p.mwst_satz) || 20,
-              gesamtpreis: parseFloat(p.gesamtpreis) || 0,
-            }))
-          )
-        }
-      } else if (isTeilOrAnz) {
-        // Eine einzelne Pseudo-Position mit dem Teilbetrag
-        await supabase.from('rechnung_positionen').insert([{
+      let posToInsert: any[] = []
+
+      if (isTeilOrAnz) {
+        // Abschlags-Zeile als Position 1, Original-Positionen darunter als Referenz
+        posToInsert.push({
           rechnung_id: invoice.id,
           position: 1,
           beschreibung: opts.beschreibung || getTypInfo(opts.rechnungstyp).label,
@@ -645,9 +665,19 @@ export default function OfferDetailPage() {
           rabatt_prozent: 0,
           mwst_satz: 20,
           gesamtpreis: teilNetto ?? 0,
-        }])
+        })
+        posToInsert.push(
+          ...originalPositions.map((p, i) => ({ ...p, position: i + 2 }))
+        )
+      } else {
+        // normal + gutschrift: alle Original-Positionen 1:1 übernehmen
+        posToInsert = originalPositions
       }
-      // Gutschrift: leere Positionen — User füllt sie in der Detailseite
+
+      if (posToInsert.length > 0) {
+        const { error: posInsErr } = await supabase.from('rechnung_positionen').insert(posToInsert)
+        if (posInsErr) { console.error('Rechnung-Positionen Insert:', posInsErr); throw posInsErr }
+      }
 
       try {
         const editUrl = `${window.location.origin}/rechnungen/${invoice.id}`
@@ -675,7 +705,7 @@ export default function OfferDetailPage() {
             },
             kunde: { name: offer.kunde_name, strasse: offer.kunde_strasse, plz: offer.kunde_plz, ort: offer.kunde_ort },
             objekt: { bezeichnung: offer.objekt_bezeichnung || offer.objekt_adresse },
-            positionen: (dbPositions || []).map((p: any, i: number) => ({
+            positionen: filteredDbPositions.map((p: any, i: number) => ({
               pos: i + 1,
               produktName: p.beschreibung?.split('\n')[0] || '',
               menge: p.menge,
@@ -743,7 +773,22 @@ export default function OfferDetailPage() {
             <div>
               <Link href="/angebote" className="text-sm text-slate-500 hover:text-slate-700">← Alle Angebote</Link>
               <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-bold text-slate-900">{isNew ? 'Neues Angebot' : offer.angebotsnummer || 'Angebot'}</h1>
+                {isNew ? (
+                  <h1 className="text-3xl font-bold text-slate-900">Neues Angebot</h1>
+                ) : (
+                  <EditableDocNumber
+                    value={offer.angebotsnummer || ''}
+                    table="angebote"
+                    column="angebotsnummer"
+                    id={offerId || ''}
+                    expectedPrefix="AN-"
+                    placeholder="Angebot"
+                    onSaved={(next) => {
+                      setOffer({ ...offer, angebotsnummer: next })
+                      setPreviewVersion((v) => v + 1)
+                    }}
+                  />
+                )}
                 {saveStatus === 'saving' && (
                   <span className="flex items-center gap-1 text-xs text-gray-400">
                     <Loader2 className="w-3 h-3 animate-spin" />
@@ -935,6 +980,7 @@ export default function OfferDetailPage() {
                     <div className={offer.vermittler_id ? 'p-3 bg-orange-50 border-2 border-orange-300 rounded-lg' : ''}>
                       <Label>Vermittler</Label>
                       <Select
+                        key={`vermittler-select-${(vermittlerList as any[]).length}`}
                         value={offer.vermittler_id || 'none'}
                         onValueChange={(value) => setOffer({ ...offer, vermittler_id: value === 'none' ? null : value })}
                       >
@@ -1008,6 +1054,12 @@ export default function OfferDetailPage() {
                     </Select>
                   </div>
                 </div>
+              </div>
+            </Card>
+
+            <Card className="p-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">Referenzen & Links</h2>
+              <div className="space-y-4">
                 <div>
                   <Label>Ticket-Nr.</Label>
                   <Input value={offer.ticket_nummer || ''} onChange={(e) => setOffer({ ...offer, ticket_nummer: e.target.value })} placeholder="Ticket-Nummer" className="mt-1" />
@@ -1041,85 +1093,86 @@ export default function OfferDetailPage() {
                 </div>
               </div>
             </Card>
-
-            {!isNew && ((linkedInvoices as any[]).length > 0 || (linkedDeliveryNotes as any[]).length > 0) && (() => {
-              const activeInvoices = (linkedInvoices as any[]).filter(inv => inv.rechnungstyp !== 'storno' && inv.status !== 'storniert')
-              const bereitsFakturiert = activeInvoices.reduce((sum: number, inv: any) => sum + (Number(inv.brutto_gesamt) || 0), 0)
-              const angebotsbrutto = offer.brutto_gesamt || 0
-              const offenerBetrag = angebotsbrutto - bereitsFakturiert
-              return (
-                <Card className="p-6">
-                  <h2 className="text-lg font-semibold text-slate-900 mb-4">Verknüpfte Dokumente</h2>
-                  <div className="space-y-4">
-                    {(linkedInvoices as any[]).length > 0 && (
-                      <div>
-                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Verknüpfte Rechnungen</p>
-                        <div className="space-y-1">
-                          {(linkedInvoices as any[]).map((inv: any) => {
-                            const info = getTypInfo(inv.rechnungstyp)
-                            return (
-                              <Link key={inv.id} href={`/rechnungen/${inv.id}`} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-slate-50 group">
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span className={`text-xs px-2 py-0.5 rounded-full font-mono ${info.badgeBg} ${info.badgeText}`}>{info.prefix}</span>
-                                  <span className="text-sm font-medium text-blue-600 group-hover:underline truncate">{inv.rechnungsnummer}</span>
-                                  {inv.ist_schlussrechnung && (
-                                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">SR</span>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-2 shrink-0">
-                                  {inv.brutto_gesamt ? <span className="text-xs text-slate-500">{new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR' }).format(inv.brutto_gesamt)}</span> : null}
-                                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${inv.status === 'bezahlt' ? 'bg-emerald-100 text-emerald-700' : inv.status === 'offen' ? 'bg-blue-100 text-blue-700' : inv.status === 'storniert' ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-600'}`}>{inv.status}</span>
-                                </div>
-                              </Link>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-                    {(linkedDeliveryNotes as any[]).length > 0 && (
-                      <div>
-                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Lieferscheine</p>
-                        <div className="space-y-1">
-                          {(linkedDeliveryNotes as any[]).map((dn: any) => (
-                            <Link key={dn.id} href={`/lieferscheine/${dn.id}`} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-slate-50 group">
-                              <span className="text-sm font-medium text-blue-600 group-hover:underline">{dn.lieferscheinnummer}</span>
-                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${dn.status === 'erledigt' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{dn.status}</span>
-                            </Link>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {bereitsFakturiert > 0 && (
-                      <div className="border-t pt-3 space-y-1">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-slate-500">Angebotsbetrag (brutto)</span>
-                          <span className="font-medium">{new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR' }).format(angebotsbrutto)}</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-slate-500">Bereits fakturiert (brutto)</span>
-                          <span className="font-medium">{new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR' }).format(bereitsFakturiert)}</span>
-                        </div>
-                        {angebotsbrutto > 0 && (
-                          <div className="flex justify-between text-sm">
-                            <span className="text-slate-500">Offener Betrag</span>
-                            <span className={`font-semibold ${offenerBetrag <= 0 ? 'text-emerald-600' : 'text-[#E85A1B]'}`}>
-                              {new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR' }).format(offenerBetrag)}
-                            </span>
-                          </div>
-                        )}
-                        {angebotsbrutto > 0 && offenerBetrag <= 0 && (
-                          <div className="mt-2 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-700 font-medium">
-                            ✅ Vollständig fakturiert
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </Card>
-              )
-            })()}
           </div>
         </div>
+
+        {/* Verknüpfte Dokumente – volle Breite */}
+        {!isNew && ((linkedInvoices as any[]).length > 0 || (linkedDeliveryNotes as any[]).length > 0) && (() => {
+          const activeInvoices = (linkedInvoices as any[]).filter(inv => inv.rechnungstyp !== 'storno' && inv.status !== 'storniert')
+          const bereitsFakturiert = activeInvoices.reduce((sum: number, inv: any) => sum + (Number(inv.brutto_gesamt) || 0), 0)
+          const angebotsbrutto = offer.brutto_gesamt || 0
+          const offenerBetrag = angebotsbrutto - bereitsFakturiert
+          return (
+            <Card className="p-6 mb-8">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">Verknüpfte Dokumente</h2>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {(linkedInvoices as any[]).length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Verknüpfte Rechnungen</p>
+                    <div className="space-y-1">
+                      {(linkedInvoices as any[]).map((inv: any) => {
+                        const info = getTypInfo(inv.rechnungstyp)
+                        return (
+                          <Link key={inv.id} href={`/rechnungen/${inv.id}`} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-slate-50 group">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-mono ${info.badgeBg} ${info.badgeText}`}>{info.prefix}</span>
+                              <span className="text-sm font-medium text-blue-600 group-hover:underline truncate">{inv.rechnungsnummer}</span>
+                              {inv.ist_schlussrechnung && (
+                                <span className="text-xs px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">SR</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {inv.brutto_gesamt ? <span className="text-xs text-slate-500">{new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR' }).format(inv.brutto_gesamt)}</span> : null}
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${inv.status === 'bezahlt' ? 'bg-emerald-100 text-emerald-700' : inv.status === 'offen' ? 'bg-blue-100 text-blue-700' : inv.status === 'storniert' ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-600'}`}>{inv.status}</span>
+                            </div>
+                          </Link>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+                {(linkedDeliveryNotes as any[]).length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Lieferscheine</p>
+                    <div className="space-y-1">
+                      {(linkedDeliveryNotes as any[]).map((dn: any) => (
+                        <Link key={dn.id} href={`/lieferscheine/${dn.id}`} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-slate-50 group">
+                          <span className="text-sm font-medium text-blue-600 group-hover:underline">{dn.lieferscheinnummer}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${dn.status === 'erledigt' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{dn.status}</span>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              {bereitsFakturiert > 0 && (
+                <div className="border-t mt-4 pt-3 space-y-1">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Angebotsbetrag (brutto)</span>
+                    <span className="font-medium">{new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR' }).format(angebotsbrutto)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Bereits fakturiert (brutto)</span>
+                    <span className="font-medium">{new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR' }).format(bereitsFakturiert)}</span>
+                  </div>
+                  {angebotsbrutto > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">Offener Betrag</span>
+                      <span className={`font-semibold ${offenerBetrag <= 0 ? 'text-emerald-600' : 'text-[#E85A1B]'}`}>
+                        {new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR' }).format(offenerBetrag)}
+                      </span>
+                    </div>
+                  )}
+                  {angebotsbrutto > 0 && offenerBetrag <= 0 && (
+                    <div className="mt-2 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-sm text-emerald-700 font-medium">
+                      ✅ Vollständig fakturiert
+                    </div>
+                  )}
+                </div>
+              )}
+            </Card>
+          )
+        })()}
 
         {/* Positionen */}
         <Card className="p-6 mb-8">
@@ -1225,8 +1278,21 @@ export default function OfferDetailPage() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-slate-900">Angebots-Vorschau</h2>
             </div>
-            <div className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-inner p-8" style={{ aspectRatio: '1 / 1.414' }}>
-              <iframe src={`/api/pdf/angebot/${offerId}?v=${previewVersion}`} className="w-full h-full" title="Angebots-Vorschau" />
+            <div className="rounded-lg bg-slate-100 overflow-x-auto flex justify-center p-4">
+              <iframe
+                src={`/api/pdf/angebot/${offerId}?preview=1&v=${previewVersion}`}
+                title="Angebots-Vorschau"
+                className="bg-white shadow-md"
+                scrolling="no"
+                style={{ width: '794px', minHeight: '1123px', border: 'none', flexShrink: 0 }}
+                onLoad={(e) => {
+                  const iframe = e.currentTarget
+                  try {
+                    const body = iframe.contentDocument?.body
+                    if (body) iframe.style.height = `${body.scrollHeight}px`
+                  } catch {}
+                }}
+              />
             </div>
             <div className="mt-3 text-right">
               <a
@@ -1287,6 +1353,16 @@ export default function OfferDetailPage() {
                 bereitsFakturiertBrutto={fakturiertBrutto}
                 bereitsFakturiertNetto={fakturiertNetto}
                 loading={creatingInvoice}
+                positionen={positions
+                  .filter((p: any) => p.id && (p.beschreibung || p.produktName))
+                  .map((p: any) => ({
+                    id: String(p.id),
+                    beschreibung: p.beschreibung || p.produktName || '',
+                    menge: p.menge,
+                    einheit: p.einheit,
+                    einzelpreis: p.einzelpreis,
+                    gesamtpreis: p.gesamtpreis,
+                  }))}
               />
             )
           })()}

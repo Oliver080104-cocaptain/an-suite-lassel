@@ -1,7 +1,114 @@
 # NEXTSTEPS – Lassel GmbH AN-Suite
-Stand: 08.04.2026
+Stand: 21.04.2026
 
-## 🧪 NÄCHSTE SESSION – Test-Sprint
+## 🟥 OFFEN – n8n Flows für Versand & Zoho-Ablage (6-7 Flows)
+
+Das große verbleibende Integrations-Thema. App-seitig ist alles vorbereitet
+(PDF-Binaries via api2pdf, Webhook-Endpoints live, "Speichern & in Zoho ablegen"-
+Buttons existieren) — was fehlt sind die passenden n8n-Workflows, die zwischen
+App, Zoho Mail/Workdrive und Supabase vermitteln.
+
+### Versand-Flows (App → n8n → Zoho Mail)
+- [ ] **Angebot versenden** – Webhook hört auf "Angebot versenden"-Button aus
+      `src/components/EmailVorschauModal.tsx`; Payload enthält Empfänger, Betreff,
+      Body, `pdf_url`. n8n muss PDF von `pdf_url` fetchen, an Kunden mailen, dann
+      Status im Supabase-Datensatz auf `versendet` setzen.
+- [ ] **Rechnung versenden** – Analog für Rechnungen. Status-Update:
+      `status: 'offen'`. Email-Kontext aus `invoice.email_rechnung`.
+- [ ] **Lieferschein versenden** (falls benötigt) – gleiche Struktur.
+
+### Zoho-Ablage-Flows (App → n8n → Zoho Workdrive)
+- [ ] **Angebot in Zoho ablegen** – Webhook wird vom
+      "Speichern & in Zoho ablegen"-Button getriggert. n8n lädt PDF-Binary
+      von `api/pdf/angebot/<id>` (jetzt echte PDF, kein HTML mehr!), uploaded
+      in den richtigen Zoho Workdrive Ordner nach Ticket/Geschäftsfallnummer,
+      setzt `pdf_url` auf Workdrive-Link.
+- [ ] **Rechnung in Zoho ablegen** – Analog.
+- [ ] **Lieferschein in Zoho ablegen** – Analog (+ Positionen ins Ticket spiegeln,
+      `syncPositionsToTicket()` ruft bereits den Lieferschein-Webhook).
+
+### Gemeinsam / Querschnitt
+- [ ] Webhook-Secret-Header `lassel-2026-secure-webhook` in jedem Flow prüfen.
+- [ ] Error-Handling: wenn n8n fehlschlägt, Fehler an `/api/webhooks/log` zurück,
+      damit er in der API-Logs-Seite auftaucht.
+- [ ] PDF-Dateinamen konsistent: `Angebot_AN-2026-00063.pdf`, etc. (von der
+      PDF-Route via `Content-Disposition` bereits so gesetzt).
+
+## ✅ HEUTE (21.04.2026) – Erledigt
+
+### Rechnung-Page Großputz
+- ✅ 2-Spalten-Grid balanciert: Angebotsdaten/Rechnungsdaten gesplittet in
+      zwei Karten ("Angebotsdaten" + "Referenzen & Links", "Rechnungsdaten" +
+      "Metadaten & Referenzen") → beide Spalten enden auf gleicher Höhe
+- ✅ "Verknüpfte Dokumente" als **Full-Width-Karte** aus der rechten Spalte
+      extrahiert (Angebot + Lieferschein)
+- ✅ HI-Section auf AN-Detail: bei aktiviertem "Rechnung an HI" nur noch
+      **UID-Feld** (Name/Straße/PLZ/Ort/Hausverwaltung entfernt – waren Duplikate)
+- ✅ Leistungszeitraum: **X-Reset-Button** + "Alle löschen"-Link im Popover
+      (aktuell kein Weg zu clearen existierte)
+- ✅ Lieferschein-Detail: Feld "Objektbezeichnung" entfernt (Duplikat von
+      "Objektadresse")
+
+### Arbeitstage als Array (Leistungszeitraum smart)
+- ✅ Migration 012: `rechnungen.arbeitstage JSONB` (Liste einzelner ISO-Tage)
+- ✅ Defensiver Fallback im Client: useRef-Flag cached "column missing", damit
+      auch ohne Migration 012 der Save funktioniert (nur arbeitstage wird dann
+      nicht persistiert)
+- ✅ `formatArbeitstage()` Helper in `src/app/api/pdf/rechnung/[id]/route.ts`:
+      rendert Ranges kompakt — `01.04.2026 – 03.04.2026, 05.04.2026, 10.04.2026 – 12.04.2026 (7 Tage)`
+- ✅ Calendar-Picker setzt `selectedDates` + `arbeitstage` + `leistungszeitraum_von/_bis`
+      (von/bis als min/max für Backward-Compat)
+- ✅ Altdaten-Fallback beim Load: wenn nur `leistungszeitraum_von/bis`
+      vorhanden → expand to days
+
+### PDF-Vorschau Echtzeit + sauberes Layout
+- ✅ `?preview=1` auf allen 3 PDF-Routes → liefert HTML direkt (kein
+      api2pdf-Roundtrip) → keine PDF-Viewer-Scrollbars mehr im iframe
+- ✅ Iframe auto-resize via `onLoad`-Handler: Höhe = `body.scrollHeight`,
+      `scrolling="no"`, Container nur `overflow-x-auto` (kein fester 900px-Header)
+- ✅ **Live-Update**: `previewVersion` wird nach jedem Auto-Save gebumpt
+      (AN/LI/RE) und nach jedem `EditableDocNumber`-Edit → iframe fetcht neu
+- ✅ Debounce-Timing: 2s → 1s auf Rechnungen + Lieferscheine
+- ✅ Lieferschein-PDF-CSS auf Angebot-Layout angeglichen (gleiche Schriften,
+      Farben, Margins, .ticket-line Style)
+- ✅ Rechnung-PDF: `FUSSZEILE TEST` debug-div entfernt, Rechnungstyp jetzt
+      nur noch im großen Doc-Title (`ANZAHLUNGSRECHNUNG RE-2026-00059`)
+
+### Positionen-Sync Bug gefixt
+- ✅ Nach Insert werden neue DB-IDs direkt in den State gemerget (Rechnung + LI)
+      – vorher wurden Positionen bei jedem Auto-Save dupliziert, weil `!p.id`
+      immer true blieb
+
+### Grid-System
+- ✅ Alle 3 Detail-Seiten (AN/LI/RE) haben jetzt konsistent 2 Karten links
+      (Kunde + Objekt) gegenüber 2 Karten rechts → saubere Kanten, keine
+      Überhänge mehr
+
+### Infrastruktur
+- ✅ Migration 013: `mitarbeiter` + `vermittler` "Allow all" RLS-Policy
+      (war nur in schema.sql, fehlte in Prod → 400-Error beim Mitarbeiter-Insert
+      in Analytics)
+
+## 🗄️ SUPABASE – Noch auszuführende SQL (beide idempotent)
+```sql
+-- 012_rechnungen_arbeitstage.sql
+ALTER TABLE rechnungen
+  ADD COLUMN IF NOT EXISTS arbeitstage JSONB NOT NULL DEFAULT '[]'::jsonb;
+NOTIFY pgrst, 'reload schema';
+
+-- 013_mitarbeiter_rls.sql
+ALTER TABLE mitarbeiter ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all" ON mitarbeiter;
+CREATE POLICY "Allow all" ON mitarbeiter FOR ALL USING (true) WITH CHECK (true);
+ALTER TABLE vermittler ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all" ON vermittler;
+CREATE POLICY "Allow all" ON vermittler FOR ALL USING (true) WITH CHECK (true);
+NOTIFY pgrst, 'reload schema';
+```
+
+---
+
+## 🧪 VORIGE SESSION – Test-Sprint
 
 ### 1. PDF Generierung E2E testen (AN / LI / RE)
 Frisch gepusht via api2pdf — bisher nur Layout-Fix gemacht, kein End-to-End-Test.

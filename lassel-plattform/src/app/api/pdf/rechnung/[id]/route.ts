@@ -24,6 +24,42 @@ function formatEuro(n: unknown): string {
   return new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR' }).format(Number(n) || 0)
 }
 
+/**
+ * Formatiert ein Array von ISO-Tagen als kompakte Liste:
+ * - Einzelner Tag: "01.04.2026"
+ * - Zusammenhängender Zeitraum: "01.04.2026 – 03.04.2026"
+ * - Mischung: "01.04.2026 – 03.04.2026, 05.04.2026, 10.04.2026 – 12.04.2026 (7 Tage)"
+ * Fallback: von/bis, wenn arbeitstage leer.
+ */
+function formatArbeitstage(arbeitstage: string[] | null | undefined, von?: string | null, bis?: string | null): string {
+  const days = Array.isArray(arbeitstage) ? arbeitstage.filter(Boolean) : []
+  if (days.length === 0) {
+    if (von && bis) return `${formatDate(von)} – ${formatDate(bis)}`
+    if (von) return formatDate(von)
+    return ''
+  }
+  // Parse als Mittag, um TZ-Kippen zu vermeiden
+  const sorted = [...days].map(s => new Date(`${s}T12:00:00`)).sort((a, b) => a.getTime() - b.getTime())
+  const ranges: { start: Date; end: Date }[] = []
+  let rs = sorted[0], re = sorted[0]
+  for (let i = 1; i < sorted.length; i++) {
+    const diffDays = Math.round((sorted[i].getTime() - re.getTime()) / (1000 * 60 * 60 * 24))
+    if (diffDays === 1) {
+      re = sorted[i]
+    } else {
+      ranges.push({ start: rs, end: re })
+      rs = sorted[i]
+      re = sorted[i]
+    }
+  }
+  ranges.push({ start: rs, end: re })
+  const fmt = (d: Date) => d.toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const parts = ranges.map(r =>
+    r.start.getTime() === r.end.getTime() ? fmt(r.start) : `${fmt(r.start)} – ${fmt(r.end)}`
+  )
+  return sorted.length > 1 ? `${parts.join(', ')} (${sorted.length} Tage)` : parts[0]
+}
+
 const CSS = `
   @page { margin: 12mm 15mm 15mm 15mm; size: A4 portrait; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -72,12 +108,21 @@ const CSS = `
   @media print { .print-btn { display: none; } @page { size: A4; } }
 `
 
+const PREVIEW_CSS = `
+  @media screen {
+    html, body { background: #ffffff !important; }
+    body { padding: 12mm 15mm 15mm 15mm !important; margin: 0 !important; min-height: 297mm; box-sizing: border-box; }
+  }
+`
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  const disposition = new URL(req.url).searchParams.get('download') === '1'
+  const searchParams = new URL(req.url).searchParams
+  const isPreview = searchParams.get('preview') === '1'
+  const disposition = searchParams.get('download') === '1'
     ? 'attachment'
     : 'inline'
 
@@ -192,7 +237,7 @@ export async function GET(
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>${CSS}</style>
+<style>${CSS}${isPreview ? PREVIEW_CSS : ''}</style>
 </head>
 <body>
 <div class="container">
@@ -213,15 +258,17 @@ export async function GET(
       <img src="${APP_URL}/logo.png" alt="${esc(firma.firmenname)}" class="logo" />
       <div class="meta-block">
         <div class="meta-row"><span class="meta-label">Rechnungs-Nr.:</span><span class="meta-value">${esc(rechnung.rechnungsnummer)}</span></div>
-        ${rechnung.rechnungstyp && rechnung.rechnungstyp !== 'normal' ? `
-        <div class="meta-row"><span class="meta-label">Typ:</span><span class="meta-value">${esc(rechnung.rechnungstyp)}</span></div>` : ''}
         <div class="meta-row"><span class="meta-label">Rechnungsdatum:</span><span class="meta-value">${formatDate(rechnung.rechnungsdatum || rechnung.created_at)}</span></div>
-        ${(rechnung.leistungszeitraum_von && rechnung.leistungszeitraum_bis) ? `
-        <div class="meta-row"><span class="meta-label">Leistungszeitraum:</span><span class="meta-value">${formatDate(rechnung.leistungszeitraum_von)} – ${formatDate(rechnung.leistungszeitraum_bis)}</span></div>` : ''}
+        ${(() => {
+          const lz = formatArbeitstage(rechnung.arbeitstage, rechnung.leistungszeitraum_von, rechnung.leistungszeitraum_bis)
+          return lz ? `<div class="meta-row"><span class="meta-label">Leistungszeitraum:</span><span class="meta-value">${esc(lz)}</span></div>` : ''
+        })()}
         ${rechnung.erstellt_von ? `
         <div class="meta-row"><span class="meta-label">Ihr Ansprechpartner:</span><span class="meta-value">${esc(rechnung.erstellt_von)}</span></div>` : ''}
         ${rechnung.referenz_angebot_nummer ? `
         <div class="meta-row"><span class="meta-label">Referenz Angebot:</span><span class="meta-value">${esc(rechnung.referenz_angebot_nummer)}</span></div>` : ''}
+        ${rechnung.geschaeftsfallnummer ? `
+        <div class="meta-row"><span class="meta-label">Geschäftsfall-Nr.:</span><span class="meta-value">${esc(rechnung.geschaeftsfallnummer)}</span></div>` : ''}
       </div>
     </div>
   </div>
@@ -293,18 +340,8 @@ export async function GET(
     </div>
   </div>
 
-  <!-- TEST: Fußzeile debug -->
-  <div style="background:red;color:white;padding:10px;font-size:9pt;">
-    FUSSZEILE TEST: ${fusstext ? esc(fusstext) : 'LEER'}
-  </div>
-
   ${fusstext ? `
-  <div style="margin-top: 15pt; padding: 8pt 12pt;
-    border-left: 3px solid #999;
-    background: #fafafa;
-    font-size: 8.5pt; color: #444; line-height: 1.6;
-    white-space: pre-wrap;
-    margin-bottom: 15pt;">${esc(fusstext)}</div>` : ''}
+  <div style="margin-top: 20pt; margin-bottom: 15pt; padding-top: 10pt; border-top: 1px solid #ddd; font-size: 9pt; color: #333; line-height: 1.6; white-space: pre-wrap;">${esc(fusstext)}</div>` : ''}
 
   <div class="closing">
     <div class="signature">
@@ -323,6 +360,15 @@ export async function GET(
 </div>
 </body>
 </html>`
+
+  if (isPreview) {
+    return new NextResponse(html, {
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+      },
+    })
+  }
 
   // pdf_url wird NICHT mehr automatisch beim Render geschrieben — sie wird
   // nur von "Speichern & in Zoho ablegen" gesetzt.

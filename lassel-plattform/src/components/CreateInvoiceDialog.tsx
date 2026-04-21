@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,6 +16,18 @@ export interface CreateInvoiceOptions {
   teilbetragNetto?: number
   zahlungskondition: string
   alleNeuPositionen: boolean
+  /** IDs der Angebots-Positionen, die übernommen werden sollen.
+   *  null → alle übernehmen (z.B. wenn Auswahl-Liste nicht gerendert wurde). */
+  selectedPositionIds?: string[] | null
+}
+
+export interface InvoiceDialogPosition {
+  id: string
+  beschreibung: string
+  menge: number | string
+  einheit?: string
+  einzelpreis?: number | string
+  gesamtpreis?: number | string
 }
 
 interface Props {
@@ -31,6 +43,8 @@ interface Props {
   /** Bereits fakturiert (Netto) */
   bereitsFakturiertNetto: number
   loading?: boolean
+  /** Verfügbare Angebots-Positionen für die Auswahl. Leeres Array → keine Auswahl-UI. */
+  positionen?: InvoiceDialogPosition[]
 }
 
 const TYP_OPTIONS: { value: Rechnungstyp; description: string }[] = [
@@ -53,6 +67,7 @@ export default function CreateInvoiceDialog({
   bereitsFakturiertBrutto,
   bereitsFakturiertNetto,
   loading,
+  positionen = [],
 }: Props) {
   const [typ, setTyp] = useState<Rechnungstyp>('normal')
   const [istSchlussrechnung, setIstSchlussrechnung] = useState(false)
@@ -60,6 +75,36 @@ export default function CreateInvoiceDialog({
   const [teilbetragNetto, setTeilbetragNetto] = useState<string>('')
   const [zahlungskondition, setZahlungskondition] = useState('30 Tage netto')
   const [alleNeuPositionen, setAlleNeuPositionen] = useState(true)
+  const [selectedPosIds, setSelectedPosIds] = useState<Set<string>>(
+    () => new Set(positionen.map((p) => p.id))
+  )
+
+  // Wenn Dialog frisch geöffnet wird oder Positionen sich ändern: alle vorselektieren
+  useEffect(() => {
+    if (open) {
+      setSelectedPosIds(new Set(positionen.map((p) => p.id)))
+      setAlleNeuPositionen(true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, positionen.length])
+
+  // Checkbox "Alle übernehmen" steuert die Liste mit
+  useEffect(() => {
+    if (alleNeuPositionen) {
+      setSelectedPosIds(new Set(positionen.map((p) => p.id)))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alleNeuPositionen])
+
+  const togglePos = (id: string) => {
+    setSelectedPosIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+    setAlleNeuPositionen(false)
+  }
 
   const offenBrutto = Math.max(0, angebotsbrutto - bereitsFakturiertBrutto)
 
@@ -78,6 +123,10 @@ export default function CreateInvoiceDialog({
         : undefined,
       zahlungskondition,
       alleNeuPositionen,
+      selectedPositionIds:
+        typ === 'normal' && positionen.length > 0
+          ? Array.from(selectedPosIds)
+          : null,
     }
     onConfirm(opts)
   }
@@ -160,6 +209,46 @@ export default function CreateInvoiceDialog({
                 />
                 <span className="text-sm">Alle Positionen aus dem Angebot übernehmen</span>
               </label>
+
+              {positionen.length > 0 && (
+                <div className="rounded-lg border border-slate-200 bg-white">
+                  <div className="px-3 py-2 border-b border-slate-200 text-xs font-semibold text-slate-600 flex justify-between">
+                    <span>Positionen aus Angebot</span>
+                    <span>{selectedPosIds.size} / {positionen.length} ausgewählt</span>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
+                    {positionen.map((p, i) => {
+                      const titel = String(p.beschreibung || '').split('\n')[0] || `Position ${i + 1}`
+                      const checked = selectedPosIds.has(p.id)
+                      return (
+                        <label
+                          key={p.id}
+                          className={`flex items-start gap-3 px-3 py-2 cursor-pointer hover:bg-slate-50 ${checked ? 'bg-blue-50/40' : ''}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => togglePos(p.id)}
+                            className="mt-1"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-slate-800 truncate">
+                              {i + 1}. {titel}
+                            </div>
+                            <div className="text-xs text-slate-500">
+                              {p.menge} {p.einheit || 'Stk'}
+                              {p.gesamtpreis !== undefined && p.gesamtpreis !== null
+                                ? ` · ${formatEuro(Number(p.gesamtpreis) || 0)}`
+                                : ''}
+                            </div>
+                          </div>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
@@ -214,8 +303,8 @@ export default function CreateInvoiceDialog({
 
           {isGutschrift && (
             <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
-              Gutschriften werden mit leeren Positionen erzeugt. Du musst die Positionen
-              und den Betrag in der Detailansicht der Gutschrift anpassen.
+              Alle Positionen aus dem Angebot werden übernommen. Mengen/Preise in der
+              Detailansicht anpassen (z.B. negative Beträge für Korrektur).
             </div>
           )}
 
@@ -237,7 +326,11 @@ export default function CreateInvoiceDialog({
           <Button
             type="button"
             onClick={handleSubmit}
-            disabled={loading || (needsBetrag && (parseFloat(teilbetragNetto) || 0) <= 0)}
+            disabled={
+              loading ||
+              (needsBetrag && (parseFloat(teilbetragNetto) || 0) <= 0) ||
+              (typ === 'normal' && positionen.length > 0 && selectedPosIds.size === 0)
+            }
             className="bg-[#E85A1B] hover:bg-[#d45116] text-white"
           >
             {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}

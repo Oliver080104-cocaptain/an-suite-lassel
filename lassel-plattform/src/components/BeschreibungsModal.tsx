@@ -75,7 +75,21 @@ export default function BeschreibungsModal({ open, onOpenChange, value, onSave, 
           const res = await fetch('/api/ki/transkription', { method: 'POST', body: formData })
           const data = await res.json()
           if (data.text) {
-            appendText(data.text)
+            // Raw-Transkript via KI in professionellen Angebotstext umformulieren,
+            // bevor es angehängt wird. Fallback: Rohtext, falls Polish-Endpoint fehlschlägt.
+            let finalText = data.text
+            try {
+              const polishRes = await fetch('/api/ki/beschreibung-polish', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: data.text }),
+              })
+              const polishData = await polishRes.json()
+              if (polishData.text) finalText = polishData.text
+            } catch (polishErr) {
+              console.error('Polish fehlgeschlagen, nutze Rohtranskript:', polishErr)
+            }
+            appendText(finalText)
             toast.success('Beschreibung übernommen')
           } else {
             toast.error('Keine Sprache erkannt')

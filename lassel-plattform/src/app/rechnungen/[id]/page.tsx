@@ -12,12 +12,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { toast } from 'sonner'
-import { FileDown, Loader2, CheckCircle2, Ban, Send, Calendar as CalendarIcon, ArrowLeft, Download, FileText, ChevronDown, Plus, Trash2 } from 'lucide-react'
+import { FileDown, Loader2, CheckCircle2, Ban, Send, Calendar as CalendarIcon, ArrowLeft, Download, FileText, ChevronDown, Plus, Trash2, X } from 'lucide-react'
 import { format, addDays, parseISO, isValid } from 'date-fns'
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import Link from 'next/link'
 import InvoicePositionsTable from '@/components/invoices/InvoicePositionsTable'
+import EditableDocNumber from '@/components/shared/EditableDocNumber'
 import OfferSummary from '@/components/offers/OfferSummary'
 import { getTypInfo } from '@/lib/rechnung-typ'
 
@@ -113,6 +114,7 @@ export default function InvoiceDetailPage() {
   const [vorlagenOpen, setVorlagenOpen] = useState(false)
   const [teilzahlungModalOpen, setTeilzahlungModalOpen] = useState(false)
   const [newTeilzahlung, setNewTeilzahlung] = useState({ betrag: '', datum: format(new Date(), 'yyyy-MM-dd'), zahlungsart: 'überweisung', notizen: '' })
+  const [previewVersion, setPreviewVersion] = useState(0)
 
   const invoiceInitialized = useRef(false)
   const positionsInitialized = useRef(false)
@@ -225,6 +227,7 @@ export default function InvoiceDetailPage() {
         uidVonHI: existingInvoice.uid_von_hi || '',
         leistungszeitraumVon: existingInvoice.leistungszeitraum_von || '',
         leistungszeitraumBis: existingInvoice.leistungszeitraum_bis || '',
+        arbeitstage: Array.isArray(existingInvoice.arbeitstage) ? existingInvoice.arbeitstage : [],
         zahlungskondition: existingInvoice.zahlungskondition || '30 Tage netto',
         zahlungszielTage: existingInvoice.zahlungsziel_tage || 30,
         geschaeftsfallnummer: existingInvoice.geschaeftsfallnummer || '',
@@ -241,6 +244,20 @@ export default function InvoiceDetailPage() {
         skontoTage: existingInvoice.skonto_tage ?? defaultInvoice.skontoTage,
         stornoVonRechnung: existingInvoice.storno_von || '',
       })
+      // Arbeitstage → selectedDates (UTC-safe parsing auf Mittag, damit lokale TZ nicht rückwärts kippt)
+      const at = Array.isArray(existingInvoice.arbeitstage) ? existingInvoice.arbeitstage : []
+      if (at.length > 0) {
+        setSelectedDates(at.map((s: string) => new Date(`${s}T12:00:00`)))
+      } else if (existingInvoice.leistungszeitraum_von && existingInvoice.leistungszeitraum_bis) {
+        // Fallback für Altdaten: von/bis → Range expandieren
+        const start = new Date(`${existingInvoice.leistungszeitraum_von}T12:00:00`)
+        const end = new Date(`${existingInvoice.leistungszeitraum_bis}T12:00:00`)
+        const days: Date[] = []
+        for (let d = new Date(start); d.getTime() <= end.getTime(); d.setDate(d.getDate() + 1)) {
+          days.push(new Date(d))
+        }
+        setSelectedDates(days)
+      }
       invoiceInitialized.current = true
     }
   }, [existingInvoice])
@@ -301,7 +318,7 @@ export default function InvoiceDetailPage() {
     }
   }, [invoice, positions, isNew, invoiceId])
 
-  // Debounced autosave: 2 seconds after last change
+  // Debounced autosave: 1 Sekunde nach letzter Änderung → Echtzeit-PDF-Vorschau
   useEffect(() => {
     if (isNew || !invoiceId || !invoiceInitialized.current) return
     if (debounceTimer.current) clearTimeout(debounceTimer.current)
@@ -310,7 +327,7 @@ export default function InvoiceDetailPage() {
         autoSaveLock.current = true
         performAutoSave().finally(() => { autoSaveLock.current = false })
       }
-    }, 2000)
+    }, 1000)
     return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current) }
   }, [invoice, positions])
 
@@ -360,8 +377,75 @@ export default function InvoiceDetailPage() {
       ...toUpdate.map(p => supabase.from('rechnung_positionen').update(buildPosData(p, targetId)).eq('id', p.id!)),
     ])
     if (toCreate.length > 0) {
-      await supabase.from('rechnung_positionen').insert(toCreate.map(p => ({ ...buildPosData(p, targetId), id: undefined })))
+      const { data: inserted } = await supabase
+        .from('rechnung_positionen')
+        .insert(toCreate.map(p => buildPosData(p, targetId)))
+        .select()
+      // Neu erstellte DB-IDs sofort in lokalen State mergen — sonst werden
+      // beim nächsten Auto-Save dieselben Positionen nochmal als "toCreate"
+      // interpretiert (= Duplikate / desync in der PDF-Vorschau).
+      if (inserted && inserted.length > 0) {
+        setPositions(prev => prev.map(p => {
+          if (p.id) return p
+          const match = inserted.find((i: any) => i.position === p.pos)
+          return match ? { ...p, id: match.id } : p
+        }))
+      }
     }
+  }
+
+  // Flag: wird beim ersten 400-Error auf `arbeitstage` gesetzt und verhindert
+  // danach, dass die Spalte überhaupt noch mitgeschickt wird. So vermeiden
+  // wir bei jedem Auto-Save den 400-Roundtrip, solange Migration 012 nicht
+  // ausgeführt wurde. Wird nach Tab-Reload zurückgesetzt.
+  const arbeitstageColumnMissing = useRef(false)
+
+  const stripOptionalColumns = (data: Record<string, unknown>) => {
+    if (!arbeitstageColumnMissing.current) return data
+    const clean = { ...data }
+    delete clean.arbeitstage
+    return clean
+  }
+
+  /**
+   * Update mit defensivem Fallback: wenn `arbeitstage` in der DB
+   * (noch) nicht existiert (Migration 012 nicht gelaufen), wird
+   * das Feld entfernt und der Update retried. Danach cachen wir das
+   * fehlen der Spalte für die aktuelle Session, damit nicht jeder
+   * Auto-Save erst einen 400-Fehler produziert.
+   */
+  const updateRechnungSafe = async (id: string, data: Record<string, unknown>) => {
+    const payload = stripOptionalColumns(data)
+    const { error } = await supabase.from('rechnungen').update(payload).eq('id', id)
+    if (!error) return
+    // Bei jedem Fehler, der auf arbeitstage-Spalte hinweist oder einfach noch
+    // nicht auftrat: flag setzen, Spalte droppen, retry.
+    if ('arbeitstage' in payload) {
+      console.warn('[rechnungen.update] retry ohne arbeitstage. Grund:', error.message)
+      arbeitstageColumnMissing.current = true
+      const clean = { ...payload }
+      delete clean.arbeitstage
+      const retry = await supabase.from('rechnungen').update(clean).eq('id', id)
+      if (retry.error) throw retry.error
+      return
+    }
+    throw error
+  }
+
+  const insertRechnungSafe = async (data: Record<string, unknown>) => {
+    const payload = stripOptionalColumns(data)
+    const first = await supabase.from('rechnungen').insert([payload]).select().single()
+    if (!first.error) return first.data
+    if ('arbeitstage' in payload) {
+      console.warn('[rechnungen.insert] retry ohne arbeitstage. Grund:', first.error.message)
+      arbeitstageColumnMissing.current = true
+      const clean = { ...payload }
+      delete clean.arbeitstage
+      const retry = await supabase.from('rechnungen').insert([clean]).select().single()
+      if (retry.error) throw retry.error
+      return retry.data
+    }
+    throw first.error
   }
 
   const buildRechnungData = (inv: typeof defaultInvoice, t: typeof totals) => ({
@@ -386,6 +470,7 @@ export default function InvoiceDetailPage() {
     zahlungsziel_tage: inv.zahlungszielTage || 30,
     leistungszeitraum_von: inv.leistungszeitraumVon || null,
     leistungszeitraum_bis: inv.leistungszeitraumBis || null,
+    arbeitstage: Array.isArray(inv.arbeitstage) ? inv.arbeitstage : [],
     objekt_adresse: inv.objektBezeichnung || null,
     ticket_nummer: inv.ticketNumber || null,
     zoho_ticket_id: inv.ticketId || null,
@@ -416,8 +501,9 @@ export default function InvoiceDetailPage() {
   const performAutoSave = async () => {
     if (!invoiceId || !invoice.kundeName) return
     try {
-      await supabase.from('rechnungen').update(buildRechnungData(invoice, totals)).eq('id', invoiceId)
+      await updateRechnungSafe(invoiceId, buildRechnungData(invoice, totals))
       await savePositions(invoiceId, positions, existingPositions)
+      setPreviewVersion((v) => v + 1)
     } catch (err) {
       console.error('Auto-save error:', err)
     }
@@ -445,19 +531,18 @@ export default function InvoiceDetailPage() {
         invCopy.rechnungsNummer = await generateInvoiceNumber()
         setInvoice(invCopy)
         const dbData = buildRechnungData(invCopy, totals)
-        const { data, error } = await supabase.from('rechnungen').insert([dbData]).select().single()
-        if (error) throw error
+        const data = await insertRechnungSafe(dbData)
         savedId = data.id
         router.replace(`/rechnungen/${savedId}`)
       } else {
-        const { error } = await supabase.from('rechnungen').update(buildRechnungData(invCopy, totals)).eq('id', invoiceId!)
-        if (error) throw error
+        await updateRechnungSafe(invoiceId!, buildRechnungData(invCopy, totals))
       }
 
       await savePositions(savedId!, positions, isNew ? [] : existingPositions)
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
       queryClient.invalidateQueries({ queryKey: ['invoice', savedId] })
       queryClient.invalidateQueries({ queryKey: ['invoicePositions', savedId] })
+      setPreviewVersion((v) => v + 1)
       toast.success(isNew ? 'Rechnung erstellt' : 'Rechnung gespeichert')
     } catch (err: any) {
       toast.error('Fehler beim Speichern: ' + err.message)
@@ -477,13 +562,11 @@ export default function InvoiceDetailPage() {
         invCopy.rechnungsNummer = await generateInvoiceNumber()
         setInvoice(invCopy)
         const dbData = buildRechnungData(invCopy, totals)
-        const { data, error } = await supabase.from('rechnungen').insert([dbData]).select().single()
-        if (error) throw error
+        const data = await insertRechnungSafe(dbData)
         savedId = data.id
         router.replace(`/rechnungen/${savedId}`)
       } else {
-        const { error } = await supabase.from('rechnungen').update(buildRechnungData(invCopy, totals)).eq('id', invoiceId!)
-        if (error) throw error
+        await updateRechnungSafe(invoiceId!, buildRechnungData(invCopy, totals))
       }
 
       await savePositions(savedId!, positions, isNew ? [] : existingPositions)
@@ -763,9 +846,23 @@ export default function InvoiceDetailPage() {
               </Button>
             </Link>
             <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
-                {isNew ? 'Neue Rechnung' : (invoice.rechnungsNummer || 'Rechnung')}
-              </h1>
+              {isNew ? (
+                <h1 className="text-xl sm:text-2xl font-bold text-slate-900">Neue Rechnung</h1>
+              ) : (
+                <EditableDocNumber
+                  value={invoice.rechnungsNummer || ''}
+                  table="rechnungen"
+                  column="rechnungsnummer"
+                  id={invoiceId || ''}
+                  expectedPrefix="RE-"
+                  placeholder="Rechnung"
+                  className="text-xl sm:text-2xl font-bold text-slate-900"
+                  onSaved={(next) => {
+                    setInvoice((p) => ({ ...p, rechnungsNummer: next }))
+                    setPreviewVersion((v) => v + 1)
+                  }}
+                />
+              )}
               {!isNew && (() => {
                 const typInfo = getTypInfo(invoice.rechnungstyp)
                 const teilNetto = Number((invoice as any).teilbetragNetto ?? (invoice as any).teilbetrag_netto ?? 0)
@@ -927,28 +1024,6 @@ export default function InvoiceDetailPage() {
                   <div className="space-y-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
                     <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Hausinhabungs-Adresse</p>
                     <div>
-                      <Label>Hausinhabung (Name)</Label>
-                      <Input value={invoice.hausinhabung || ''} onChange={e => setInvoice(p => ({ ...p, hausinhabung: e.target.value }))} placeholder="Name des Eigentümers" className="mt-1" />
-                    </div>
-                    <div>
-                      <Label>Hausverwaltung (p.A.)</Label>
-                      <Input value={invoice.hausverwaltungName || ''} onChange={e => setInvoice(p => ({ ...p, hausverwaltungName: e.target.value }))} placeholder="Hausverwaltungs-Name" className="mt-1" />
-                    </div>
-                    <div>
-                      <Label>Straße</Label>
-                      <Input value={invoice.hausverwaltungStrasse || ''} onChange={e => setInvoice(p => ({ ...p, hausverwaltungStrasse: e.target.value }))} placeholder="Straße und Hausnummer" className="mt-1" />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label>PLZ</Label>
-                        <Input value={invoice.hausverwaltungPlz || ''} onChange={e => setInvoice(p => ({ ...p, hausverwaltungPlz: e.target.value }))} placeholder="PLZ" className="mt-1" />
-                      </div>
-                      <div>
-                        <Label>Ort</Label>
-                        <Input value={invoice.hausverwaltungOrt || ''} onChange={e => setInvoice(p => ({ ...p, hausverwaltungOrt: e.target.value }))} placeholder="Ort" className="mt-1" />
-                      </div>
-                    </div>
-                    <div>
                       <Label>UID der Hausinhabung</Label>
                       <Input value={invoice.uidVonHI || ''} onChange={e => setInvoice(p => ({ ...p, uidVonHI: e.target.value }))} placeholder="z.B. ATU12345678" className="mt-1" />
                     </div>
@@ -1059,52 +1134,82 @@ export default function InvoiceDetailPage() {
                 {/* Leistungszeitraum calendar picker */}
                 <div>
                   <Label>Leistungszeitraum (Arbeitstage auswählen)</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" className="w-full justify-start text-left font-normal mt-1">
-                        <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
-                        <span className="truncate">
-                          {selectedDates.length > 0
-                            ? formatSelectedDates(selectedDates)
-                            : <span className="text-slate-500">Tage auswählen...</span>
-                          }
-                        </span>
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="multiple"
-                        selected={selectedDates}
-                        onSelect={(dates) => {
-                          const newDates = dates || []
-                          setSelectedDates(newDates)
-                          if (newDates.length > 0) {
-                            const sorted = [...newDates].sort((a, b) => a.getTime() - b.getTime())
-                            setInvoice(prev => ({
-                              ...prev,
-                              leistungszeitraumVon: format(sorted[0], 'yyyy-MM-dd'),
-                              leistungszeitraumBis: format(sorted[sorted.length - 1], 'yyyy-MM-dd'),
-                            }))
-                          } else {
-                            setInvoice(prev => ({ ...prev, leistungszeitraumVon: '', leistungszeitraumBis: '' }))
-                          }
-                        }}
-                        initialFocus
-                      />
-                      {selectedDates.length > 0 && (
-                        <div className="p-3 border-t">
-                          <p className="text-sm font-medium text-slate-700 mb-2">Ausgewählte Tage ({selectedDates.length}):</p>
-                          <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
-                            {[...selectedDates].sort((a, b) => a.getTime() - b.getTime()).map((date, idx) => (
-                              <span key={idx} className="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded">
-                                {format(date, 'dd.MM.')}
-                              </span>
-                            ))}
+                  <div className="flex items-center gap-2 mt-1">
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" className="flex-1 justify-start text-left font-normal">
+                          <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+                          <span className="truncate">
+                            {selectedDates.length > 0
+                              ? formatSelectedDates(selectedDates)
+                              : <span className="text-slate-500">Tage auswählen...</span>
+                            }
+                          </span>
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="multiple"
+                          selected={selectedDates}
+                          onSelect={(dates) => {
+                            const newDates = dates || []
+                            setSelectedDates(newDates)
+                            if (newDates.length > 0) {
+                              const sorted = [...newDates].sort((a, b) => a.getTime() - b.getTime())
+                              setInvoice(prev => ({
+                                ...prev,
+                                arbeitstage: sorted.map(d => format(d, 'yyyy-MM-dd')),
+                                leistungszeitraumVon: format(sorted[0], 'yyyy-MM-dd'),
+                                leistungszeitraumBis: format(sorted[sorted.length - 1], 'yyyy-MM-dd'),
+                              }))
+                            } else {
+                              setInvoice(prev => ({ ...prev, arbeitstage: [], leistungszeitraumVon: '', leistungszeitraumBis: '' }))
+                            }
+                          }}
+                          initialFocus
+                        />
+                        {selectedDates.length > 0 && (
+                          <div className="p-3 border-t space-y-2">
+                            <div className="flex items-center justify-between">
+                              <p className="text-sm font-medium text-slate-700">Ausgewählte Tage ({selectedDates.length}):</p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedDates([])
+                                  setInvoice(prev => ({ ...prev, arbeitstage: [], leistungszeitraumVon: '', leistungszeitraumBis: '' }))
+                                }}
+                                className="text-xs text-red-600 hover:text-red-700 hover:underline"
+                              >
+                                Alle löschen
+                              </button>
+                            </div>
+                            <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                              {[...selectedDates].sort((a, b) => a.getTime() - b.getTime()).map((date, idx) => (
+                                <span key={idx} className="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded">
+                                  {format(date, 'dd.MM.')}
+                                </span>
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      )}
-                    </PopoverContent>
-                  </Popover>
+                        )}
+                      </PopoverContent>
+                    </Popover>
+                    {selectedDates.length > 0 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setSelectedDates([])
+                          setInvoice(prev => ({ ...prev, arbeitstage: [], leistungszeitraumVon: '', leistungszeitraumBis: '' }))
+                        }}
+                        className="text-slate-500 hover:text-red-600 hover:bg-red-50 shrink-0"
+                        title="Leistungszeitraum zurücksetzen"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
                 <div>
@@ -1149,7 +1254,12 @@ export default function InvoiceDetailPage() {
                   <Label>Fällig am</Label>
                   <Input type="date" value={invoice.faelligAm || ''} onChange={e => setInvoice(p => ({ ...p, faelligAm: e.target.value }))} className="mt-1" />
                 </div>
+              </div>
+            </Card>
 
+            <Card className="p-6">
+              <h2 className="text-lg font-semibold text-slate-900 mb-4">Metadaten & Referenzen</h2>
+              <div className="space-y-4">
                 <div>
                   <Label>Erstellt durch</Label>
                   <Input value={invoice.erstelltDurch || ''} onChange={e => setInvoice(p => ({ ...p, erstelltDurch: e.target.value }))} placeholder="z.B. Reinhard Lassel" className="mt-1" />
@@ -1393,8 +1503,21 @@ export default function InvoiceDetailPage() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-slate-900">Rechnungs-Vorschau</h2>
             </div>
-            <div className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-inner" style={{ aspectRatio: '1 / 1.414' }}>
-              <iframe src={`/api/pdf/rechnung/${invoiceId}`} className="w-full h-full" title="Rechnungs-Vorschau" />
+            <div className="rounded-lg bg-slate-100 overflow-x-auto flex justify-center p-4">
+              <iframe
+                src={`/api/pdf/rechnung/${invoiceId}?preview=1&v=${previewVersion}`}
+                title="Rechnungs-Vorschau"
+                className="bg-white shadow-md"
+                scrolling="no"
+                style={{ width: '794px', minHeight: '1123px', border: 'none', flexShrink: 0 }}
+                onLoad={(e) => {
+                  const iframe = e.currentTarget
+                  try {
+                    const body = iframe.contentDocument?.body
+                    if (body) iframe.style.height = `${body.scrollHeight}px`
+                  } catch {}
+                }}
+              />
             </div>
             <div className="mt-3 text-right">
               <a

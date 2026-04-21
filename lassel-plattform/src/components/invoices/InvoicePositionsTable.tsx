@@ -1,11 +1,14 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Trash2, Plus, Check, ChevronsUpDown, FileText } from 'lucide-react'
+import { Trash2, Plus, Check, ChevronsUpDown, FileText, GripVertical } from 'lucide-react'
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core'
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import CurrencyDisplay from '@/components/shared/CurrencyDisplay'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command'
@@ -40,6 +43,22 @@ interface Props {
 export default function InvoicePositionsTable({ positions, onChange, readOnly = false, showTeilfaktura = false }: Props) {
   const [openIndex, setOpenIndex] = useState<number | null>(null)
   const [editingDescription, setEditingDescription] = useState<number | null>(null)
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+  const itemIds = useMemo(() => positions.map((_, i) => `row-${i}`), [positions.length])
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = itemIds.indexOf(String(active.id))
+    const newIndex = itemIds.indexOf(String(over.id))
+    if (oldIndex < 0 || newIndex < 0) return
+    const reordered = arrayMove(positions, oldIndex, newIndex).map((p, i) => ({ ...p, pos: i + 1 }))
+    onChange(reordered)
+  }
 
   const { data: products = [] } = useQuery({
     queryKey: ['products', 'active'],
@@ -125,6 +144,7 @@ export default function InvoicePositionsTable({ positions, onChange, readOnly = 
         <Table className="min-w-full text-sm sm:text-base">
           <TableHeader>
             <TableRow className="bg-slate-50">
+              {!readOnly && <TableHead className="w-8 p-0"></TableHead>}
               <TableHead className="w-12 sm:w-16 text-center text-xs sm:text-sm">Pos.</TableHead>
               <TableHead className="min-w-[150px] sm:min-w-[200px] text-xs sm:text-sm">Produkt</TableHead>
               <TableHead className="w-16 sm:w-24 text-right text-xs sm:text-sm">Menge</TableHead>
@@ -143,8 +163,10 @@ export default function InvoicePositionsTable({ positions, onChange, readOnly = 
             </TableRow>
           </TableHeader>
           <TableBody>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
             {positions.map((pos, index) => (
-              <TableRow key={index} className="group">
+              <SortablePositionRow key={itemIds[index]} id={itemIds[index]} readOnly={readOnly}>
                 <TableCell className="text-center font-medium text-slate-500">{index + 1}</TableCell>
                 <TableCell>
                   {readOnly ? (
@@ -306,14 +328,17 @@ export default function InvoicePositionsTable({ positions, onChange, readOnly = 
                       variant="ghost"
                       size="sm"
                       onClick={() => removePosition(index)}
-                      className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-600 h-8 w-8 sm:h-9 sm:w-9"
+                      className="text-slate-400 hover:text-rose-600 h-8 w-8 sm:h-9 sm:w-9"
+                      title="Position entfernen"
                     >
                       <Trash2 className="w-3 sm:w-4 h-3 sm:h-4" />
                     </Button>
                   </TableCell>
                 )}
-              </TableRow>
+              </SortablePositionRow>
             ))}
+              </SortableContext>
+            </DndContext>
           </TableBody>
         </Table>
       </div>
@@ -325,5 +350,33 @@ export default function InvoicePositionsTable({ positions, onChange, readOnly = 
         </Button>
       )}
     </div>
+  )
+}
+
+function SortablePositionRow({ id, readOnly, children }: { id: string; readOnly: boolean; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    background: isDragging ? '#fef3e8' : undefined,
+  }
+  return (
+    <TableRow ref={setNodeRef} style={style} className="group">
+      {!readOnly && (
+        <TableCell className="p-0 w-8">
+          <button
+            type="button"
+            {...attributes}
+            {...listeners}
+            className="cursor-grab active:cursor-grabbing touch-none text-slate-300 hover:text-slate-600 h-full w-full flex items-center justify-center py-2"
+            title="Zum Verschieben ziehen"
+          >
+            <GripVertical className="w-4 h-4" />
+          </button>
+        </TableCell>
+      )}
+      {children}
+    </TableRow>
   )
 }

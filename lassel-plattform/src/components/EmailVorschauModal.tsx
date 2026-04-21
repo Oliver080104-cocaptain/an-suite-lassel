@@ -41,15 +41,25 @@ export default function EmailVorschauModal({
   const [signaturId, setSignaturId] = useState('')
   const [kiPrompt, setKiPrompt] = useState('')
   const [generating, setGenerating] = useState(false)
+  const [generatingStil, setGeneratingStil] = useState<string>('')
+  const [stil, setStil] = useState<'formell' | 'ausfuehrlich' | 'locker'>('formell')
   const [sending, setSending] = useState(false)
 
   const { data: mitarbeiterList = [] } = useQuery({
-    queryKey: ['mitarbeiter'],
+    queryKey: ['mitarbeiter-aktiv'],
     queryFn: async () => {
-      const { data } = await supabase.from('mitarbeiter').select('*').eq('aktiv', true).order('name')
-      return data || []
+      // Erst nur aktive laden — wenn das fehlschlägt (z.B. weil die
+      // aktiv-Spalte im Cache fehlt) fallback auf alle Mitarbeiter.
+      const { data, error } = await supabase
+        .from('mitarbeiter')
+        .select('*')
+        .eq('aktiv', true)
+        .order('name')
+      if (!error && data && data.length > 0) return data
+      const fb = await supabase.from('mitarbeiter').select('*').order('name')
+      return fb.data || []
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: 60 * 1000,
   })
 
   const selectedMitarbeiter = (mitarbeiterList as any[]).find((m: any) => m.id === signaturId)
@@ -57,27 +67,40 @@ export default function EmailVorschauModal({
     ? (SIGNATUREN[selectedMitarbeiter.name] || `Mit freundlichen Grüßen\n${selectedMitarbeiter.name}\n\nHöhenarbeiten Lassel GmbH\nHetzmannsdorf 25, 2041 Wullersdorf\nE-Mail: office@hoehenarbeiten-lassel.at`)
     : ''
 
-  const generateEmail = async (zusatzAnweisung?: string) => {
+  const generateEmail = async (
+    zusatzAnweisung?: string,
+    stilOverride?: 'formell' | 'ausfuehrlich' | 'locker'
+  ) => {
+    const aktiverStil = stilOverride || stil
     setGenerating(true)
+    setGeneratingStil(aktiverStil)
     try {
       const res = await fetch('/api/ki/email-generieren', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ typ: 'angebot', angebotsnummer, kundeName, objektAdresse, bruttoGesamt, erstelltVon, zusatzAnweisung }),
+        body: JSON.stringify({
+          typ: 'angebot',
+          angebotsnummer, kundeName, objektAdresse, bruttoGesamt, erstelltVon,
+          zusatzAnweisung,
+          stil: aktiverStil,
+        }),
       })
       if (res.ok) {
         const data = await res.json()
         setNachricht(data.text || '')
+        if (stilOverride) setStil(stilOverride)
       }
     } catch (err) {
       console.error('Email generation error:', err)
     } finally {
       setGenerating(false)
+      setGeneratingStil('')
     }
   }
 
   useEffect(() => {
-    if (open && !nachricht) generateEmail()
+    if (open && !nachricht) generateEmail(undefined, 'formell')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   useEffect(() => {
@@ -148,7 +171,37 @@ export default function EmailVorschauModal({
 
           {/* Nachricht */}
           <div>
-            <Label className="font-semibold">Nachricht:</Label>
+            <div className="flex items-center justify-between mb-2">
+              <Label className="font-semibold">Nachricht:</Label>
+              <div className="flex items-center gap-1">
+                {([
+                  { key: 'formell', label: 'Formell' },
+                  { key: 'ausfuehrlich', label: 'Ausführlicher' },
+                  { key: 'locker', label: 'Lockerer' },
+                ] as const).map((b) => {
+                  const active = stil === b.key
+                  const busy = generating && generatingStil === b.key
+                  return (
+                    <Button
+                      key={b.key}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={generating}
+                      onClick={() => generateEmail(undefined, b.key)}
+                      className={`h-7 px-2.5 text-xs ${
+                        active
+                          ? 'border-[#E85A1B] bg-[#E85A1B]/10 text-[#E85A1B] hover:bg-[#E85A1B]/15'
+                          : ''
+                      }`}
+                    >
+                      {busy ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Sparkles className="w-3 h-3 mr-1" />}
+                      {b.label}
+                    </Button>
+                  )
+                })}
+              </div>
+            </div>
             {generating ? (
               <div className="flex items-center gap-2 mt-3 text-slate-500">
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -166,14 +219,26 @@ export default function EmailVorschauModal({
               <Label className="font-semibold">Signatur auswählen: <span className="text-red-500">*</span></Label>
               <Button variant="outline" size="sm">Eigene Signatur</Button>
             </div>
-            <Select value={signaturId} onValueChange={(val) => setSignaturId(val || '')}>
+            <Select
+              key={`signatur-select-${(mitarbeiterList as any[]).length}`}
+              value={signaturId}
+              onValueChange={(val) => setSignaturId(val || '')}
+            >
               <SelectTrigger>
-                <SelectValue placeholder="Mitarbeiter auswählen..." />
+                <SelectValue placeholder={
+                  (mitarbeiterList as any[]).length === 0
+                    ? 'Mitarbeiter werden geladen…'
+                    : 'Mitarbeiter auswählen...'
+                } />
               </SelectTrigger>
               <SelectContent>
-                {(mitarbeiterList as any[]).map((m: any) => (
-                  <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
-                ))}
+                {(mitarbeiterList as any[]).length === 0 ? (
+                  <div className="px-3 py-2 text-sm text-slate-400">Keine Mitarbeiter gefunden</div>
+                ) : (
+                  (mitarbeiterList as any[]).map((m: any) => (
+                    <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                  ))
+                )}
               </SelectContent>
             </Select>
             {signaturText && (

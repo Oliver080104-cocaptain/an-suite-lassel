@@ -76,12 +76,21 @@ const CSS = `
   @media print { .print-btn { display: none; } @page { size: A4; } }
 `
 
+const PREVIEW_CSS = `
+  @media screen {
+    html, body { background: #ffffff !important; }
+    body { padding: 15mm 20mm !important; margin: 0 !important; min-height: 297mm; box-sizing: border-box; }
+  }
+`
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  const disposition = new URL(req.url).searchParams.get('download') === '1'
+  const searchParams = new URL(req.url).searchParams
+  const isPreview = searchParams.get('preview') === '1'
+  const disposition = searchParams.get('download') === '1'
     ? 'attachment'
     : 'inline'
 
@@ -151,7 +160,7 @@ export async function GET(
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>${CSS}</style>
+<style>${CSS}${isPreview ? PREVIEW_CSS : ''}</style>
 </head>
 <body>
 <div class="container">
@@ -175,6 +184,7 @@ export async function GET(
         <div class="meta-row"><span class="meta-label">Datum:</span><span class="meta-value">${formatDate(angebot.angebotsdatum || angebot.created_at)}</span></div>
         ${angebot.gueltig_bis ? `<div class="meta-row"><span class="meta-label">Gültig bis:</span><span class="meta-value">${formatDate(angebot.gueltig_bis)}</span></div>` : ''}
         ${erstelltVon ? `<div class="meta-row"><span class="meta-label">Ihr Ansprechpartner:</span><span class="meta-value">${esc(erstelltVon)}</span></div>` : ''}
+        ${angebot.geschaeftsfallnummer ? `<div class="meta-row"><span class="meta-label">Geschäftsfall-Nr.:</span><span class="meta-value">${esc(angebot.geschaeftsfallnummer)}</span></div>` : ''}
       </div>
     </div>
   </div>
@@ -240,6 +250,15 @@ export async function GET(
 </div>
 </body>
 </html>`
+
+  if (isPreview) {
+    return new NextResponse(html, {
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+      },
+    })
+  }
 
   // pdf_url wird NICHT mehr automatisch beim Render geschrieben — sie wird
   // nur von "Speichern & in Zoho ablegen" gesetzt.
