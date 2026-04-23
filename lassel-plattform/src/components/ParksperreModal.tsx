@@ -153,12 +153,45 @@ export default function ParksperreModal({ open, onClose, angebotsnummer, objektA
     e.target.value = ''
   }
 
+  /**
+   * Lädt Anhänge direkt aus dem Browser in den public Bucket
+   * `parksperre-anhaenge` (Migration 018). Umgeht Vercel's 4.5MB
+   * Body-Limit — war vorher die Ursache für 502 beim Senden mit
+   * größeren Skizzen. Returnt [{url, name}] für den Webhook.
+   */
+  const uploadAttachmentsDirect = async (): Promise<{ url: string; name: string }[]> => {
+    if (dateien.length === 0) return []
+    const results: { url: string; name: string }[] = []
+    for (const f of dateien) {
+      const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const path = `${Date.now()}-${safeName}`
+      const { error } = await supabase.storage
+        .from('parksperre-anhaenge')
+        .upload(path, f, { upsert: false, contentType: f.type || 'application/octet-stream' })
+      if (error) {
+        // Bucket fehlt → klarer Hinweis auf Migration 018
+        if (/bucket not found/i.test(error.message || '')) {
+          throw new Error(
+            'Storage-Bucket fehlt. Bitte Migration 018_parksperre_anhaenge_bucket.sql in Supabase ausführen.'
+          )
+        }
+        throw new Error(`Upload fehlgeschlagen für ${f.name}: ${error.message}`)
+      }
+      const { data } = supabase.storage.from('parksperre-anhaenge').getPublicUrl(path)
+      results.push({ url: data.publicUrl, name: f.name })
+    }
+    return results
+  }
+
   const handleSenden = async () => {
     if (!emailAn.trim()) { toast.error('Empfänger-E-Mail fehlt'); return }
     if (!signaturId) { toast.error('Bitte eine Signatur auswählen'); return }
     setSending(true)
     try {
-      // Signatur + Nachricht HTML-safe + \n → <br>
+      // 1) Anhänge zuerst direkt nach Supabase — keine Vercel-Body-Grenze.
+      const attachments = await uploadAttachmentsDirect()
+
+      // 2) HTML-Body zusammenbauen (escaped + \n → <br>).
       const escapeHtml = (s: string) =>
         s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
       const bodyHtml = `
@@ -170,22 +203,29 @@ export default function ParksperreModal({ open, onClose, angebotsnummer, objektA
         </div>
       `.trim()
 
-      // Multipart FormData — Server lädt Files in Supabase Storage hoch
-      // und ruft n8n server-to-server auf (keine CORS-Probleme).
-      const form = new FormData()
-      form.append('email.to', emailAn)
-      form.append('email.subject', betreff)
-      form.append('email.body', bodyHtml)
-      form.append('email.mitarbeiter', selectedSig?.name || '')
-      form.append('email.signatur', signaturText)
-      form.append('angebotsnummer', angebotsnummer || '')
-      form.append('objektAdresse', objektAdresse || '')
-      for (const f of dateien) form.append('files', f, f.name)
-
-      const resp = await fetch(PARKSPERRE_API, { method: 'POST', body: form })
+      // 3) JSON-POST an Proxy-Route — die triggert n8n server-to-server
+      //    (umgeht CORS) und hat keine Body-Größen-Sorgen weil wir nur
+      //    noch die URLs + Mail-Text schicken.
+      const resp = await fetch(PARKSPERRE_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          angebotsnummer,
+          objektAdresse,
+          attachments,
+          email: {
+            to: emailAn,
+            subject: betreff,
+            body: bodyHtml,
+            mitarbeiter: selectedSig?.name || '',
+            signatur: signaturText,
+          },
+        }),
+      })
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({}))
-        throw new Error(err?.error || `HTTP ${resp.status}`)
+        const extra = err?.n8nStatus ? ` (n8n ${err.n8nStatus})` : ''
+        throw new Error((err?.error || `HTTP ${resp.status}`) + extra)
       }
 
       toast.success('Parksperre-Antrag versendet')

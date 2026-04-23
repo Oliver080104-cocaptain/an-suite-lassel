@@ -1,98 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 
 /**
- * Server-Side Proxy für den Parksperre-Versand.
+ * Parksperre-Versand — dünner Proxy zum n8n-Webhook.
  *
- * Frisst multipart/form-data mit:
- *  - email.to, email.subject, email.body, email.mitarbeiter, email.signatur
- *  - angebotsnummer, objektAdresse
- *  - files[]: einzelne File-Felder (max 3)
+ * Nimmt nur noch JSON (kein multipart mehr): attachment-URLs + email.
+ * Datei-Uploads passieren CLIENT-SEITIG direkt gegen Supabase Storage
+ * (siehe Migration 018 für Bucket + Policies). Dadurch umgehen wir
+ * Vercel's 4.5MB Body-Limit.
  *
- * Macht zwei Dinge die client-seitig scheitern würden:
- *  1) Upload der Anhänge in den Supabase Storage Bucket `parksperre-anhaenge`
- *     (Bucket wird automatisch angelegt wenn nicht vorhanden) mittels
- *     Service-Role-Key — RLS umgangen, public-URLs zurück.
- *  2) POST an den n8n-Webhook — serverseitig, also kein CORS-Problem
- *     (n8n-Hostinger-Webhook antwortet browserseitig ohne
- *     Access-Control-Allow-Origin-Header).
+ * Der einzige Grund warum der Client nicht selbst n8n ruft: CORS-
+ * Preflight vom n8n-Hostinger-Endpoint wird nicht beantwortet
+ * (kein Access-Control-Allow-Origin).
  */
 
-// n8n akzeptiert zwei URL-Varianten: den custom-path (mit space!) oder die
-// intern generierte UUID aus dem Webhook-Node. UUID ist zuverlässiger weil
-// der Path-mit-Leerzeichen bei fetch/URL-Encoding gern mal 404 gibt.
 const PARKSPERRE_WEBHOOK = 'https://n8n.srv1367876.hstgr.cloud/webhook/7836c00e-ddef-4c0a-90b9-be803b9dc3a9'
-const BUCKET = 'parksperre-anhaenge'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
-async function ensureBucketExists(admin: any) {
-  // getBucket wirft bei Fehlern; createBucket ist idempotent über try/catch.
-  try {
-    const { data } = await admin.storage.getBucket(BUCKET)
-    if (data) return
-  } catch {
-    // ignore — bucket existiert nicht
-  }
-  const { error } = await admin.storage.createBucket(BUCKET, {
-    public: true, // Öffentliche Lese-URL damit n8n die Datei fetchen kann.
-    fileSizeLimit: 20 * 1024 * 1024, // 20 MB pro Datei
-  })
-  if (error && !/already exists/i.test(error.message)) {
-    throw new Error(`Bucket-Anlage fehlgeschlagen: ${error.message}`)
-  }
+interface Attachment {
+  url: string
+  name: string
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    if (!supabaseUrl || !serviceKey) {
-      return NextResponse.json({ error: 'supabase-env-missing' }, { status: 500 })
+    const body = await req.json().catch(() => null)
+    if (!body || typeof body !== 'object') {
+      return NextResponse.json({ error: 'invalid-json-body' }, { status: 400 })
     }
-    const admin = createClient(supabaseUrl, serviceKey)
 
-    const form = await req.formData()
-
-    const emailTo = String(form.get('email.to') || '')
-    const emailSubject = String(form.get('email.subject') || '')
-    const emailBody = String(form.get('email.body') || '')
-    const emailMitarbeiter = String(form.get('email.mitarbeiter') || '')
-    const emailSignatur = String(form.get('email.signatur') || '')
-    const angebotsnummer = String(form.get('angebotsnummer') || '')
-    const objektAdresse = String(form.get('objektAdresse') || '')
-
-    if (!emailTo) {
+    const email = body.email
+    if (!email?.to) {
       return NextResponse.json({ error: 'email.to fehlt' }, { status: 400 })
     }
 
-    // Anhänge sammeln. Frontend schickt sie unter key "files" mehrfach.
-    const rawFiles = form.getAll('files').filter((x): x is File => x instanceof File)
-    const attachments: { url: string; name: string }[] = []
+    const attachments: Attachment[] = Array.isArray(body.attachments) ? body.attachments : []
+    const angebotsnummer = body.angebotsnummer || ''
+    const objektAdresse = body.objektAdresse || ''
 
-    if (rawFiles.length > 0) {
-      await ensureBucketExists(admin)
-      for (const file of rawFiles) {
-        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-        const path = `${Date.now()}-${safeName}`
-        const buf = Buffer.from(await file.arrayBuffer())
-        const { error: upErr } = await admin.storage
-          .from(BUCKET)
-          .upload(path, buf, { contentType: file.type || 'application/octet-stream', upsert: false })
-        if (upErr) {
-          console.error('[parksperre upload]', upErr)
-          return NextResponse.json(
-            { error: `Upload fehlgeschlagen für ${file.name}: ${upErr.message}` },
-            { status: 500 }
-          )
-        }
-        const { data } = admin.storage.from(BUCKET).getPublicUrl(path)
-        attachments.push({ url: data.publicUrl, name: file.name })
-      }
-    }
-
-    // n8n-Webhook feuern — server-zu-server, kein CORS.
     const n8nResp = await fetch(PARKSPERRE_WEBHOOK, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -102,11 +49,11 @@ export async function POST(req: NextRequest) {
         objektAdresse,
         attachments,
         email: {
-          to: emailTo,
-          subject: emailSubject,
-          body: emailBody,
-          mitarbeiter: emailMitarbeiter,
-          signatur: emailSignatur,
+          to: email.to,
+          subject: email.subject || '',
+          body: email.body || '',
+          mitarbeiter: email.mitarbeiter || '',
+          signatur: email.signatur || '',
         },
         timestamp: new Date().toISOString(),
       }),
@@ -126,15 +73,17 @@ export async function POST(req: NextRequest) {
           n8nStatus: n8nResp.status,
           n8nStatusText: n8nResp.statusText,
           n8nResponse: n8nText.slice(0, 500),
-          webhookUrl: PARKSPERRE_WEBHOOK,
         },
         { status: 502 }
       )
     }
 
-    return NextResponse.json({ ok: true, attachmentsUploaded: attachments.length })
+    return NextResponse.json({ ok: true, attachmentsCount: attachments.length })
   } catch (err: any) {
     console.error('[parksperre-senden]', err)
-    return NextResponse.json({ error: err?.message || 'unbekannter Fehler' }, { status: 500 })
+    return NextResponse.json(
+      { error: err?.message || 'unbekannter Fehler' },
+      { status: 500 }
+    )
   }
 }
