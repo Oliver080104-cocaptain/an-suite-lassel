@@ -533,12 +533,15 @@ export default function OfferDetailPage() {
         kunde_strasse: offer.kunde_strasse,
         kunde_plz: offer.kunde_plz,
         kunde_ort: offer.kunde_ort,
+        kunde_uid: offer.kunde_uid || null,
         objekt_adresse: offer.objekt_bezeichnung || offer.objekt_adresse,
         lieferdatum: format(new Date(), 'yyyy-MM-dd'),
         ticket_nummer: offer.ticket_nummer,
+        zoho_ticket_id: offer.zoho_ticket_id || null,
         erstellt_von: offer.erstellt_von || null,
         ansprechpartner: offer.ansprechpartner || null,
         geschaeftsfallnummer: offer.geschaeftsfallNummer || null,
+        referenz_angebot_nummer: offer.angebotsnummer || null,
         status: 'entwurf'
       }).select().single()
       if (error) throw error
@@ -686,9 +689,20 @@ export default function OfferDetailPage() {
         kunde_strasse: offer.kunde_strasse,
         kunde_plz: offer.kunde_plz,
         kunde_ort: offer.kunde_ort,
-        rechnung_an_hi: offer.rechnungAnHI || false,
+        kunde_uid: offer.kunde_uid || null,
+        kunde_email: offer.kunde_email || null,
+        email_rechnung: offer.email_rechnung || offer.kunde_email || null,
+        // Fix: DB-Spalte ist snake_case rechnung_an_hi, nicht camelCase.
+        // Vorher wurde offer.rechnungAnHI (undefined) gelesen und immer
+        // false an die Rechnung weitergegeben — auch wenn Zoho-Ticket
+        // rechnung_an_hi=true mitgegeben hatte.
+        rechnung_an_hi: !!offer.rechnung_an_hi,
+        uid_von_hi: offer.uid_von_hi || null,
+        hausverwaltung_name: offer.hausverwaltung_name || null,
         hausinhabung: offer.hausinhabung || null,
         objekt_adresse: offer.objekt_bezeichnung || offer.objekt_adresse,
+        objekt_plz: offer.objekt_plz || null,
+        objekt_ort: offer.objekt_ort || null,
         rechnungsdatum: format(new Date(), 'yyyy-MM-dd'),
         faellig_bis: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
         zahlungskondition: opts.zahlungskondition || '30 Tage netto',
@@ -696,9 +710,11 @@ export default function OfferDetailPage() {
         leistungszeitraum_von: null,
         leistungszeitraum_bis: null,
         ticket_nummer: offer.ticket_nummer,
+        zoho_ticket_id: offer.zoho_ticket_id || null,
         erstellt_von: offer.erstellt_von || null,
         ansprechpartner: offer.ansprechpartner || null,
         geschaeftsfallnummer: offer.geschaeftsfallNummer || null,
+        vermittler_id: offer.vermittler_id || null,
         status: 'entwurf',
         zahlungsstatus: 'offen',
         netto_gesamt: insertNetto,
