@@ -107,6 +107,10 @@ export default function CreateInvoiceDialog({
   }
 
   const offenBrutto = Math.max(0, angebotsbrutto - bereitsFakturiertBrutto)
+  const offenNetto = Math.max(0, angebotsnetto - bereitsFakturiertNetto)
+  const offenUst = Math.max(0, offenBrutto - offenNetto)
+  const angebotsUst = Math.max(0, angebotsbrutto - angebotsnetto)
+  const bereitsFakturiertUst = Math.max(0, bereitsFakturiertBrutto - bereitsFakturiertNetto)
 
   const teilbetragBrutto = useMemo(() => {
     const netto = parseFloat(teilbetragNetto) || 0
@@ -144,19 +148,29 @@ export default function CreateInvoiceDialog({
         <div className="space-y-5 mt-2">
           {/* Saldo-Anzeige */}
           <div className="rounded-lg bg-slate-50 border border-slate-200 p-4 text-sm">
-            <div className="flex justify-between mb-1">
-              <span className="text-slate-600">Angebotsbetrag (brutto):</span>
-              <span className="font-medium">{formatEuro(angebotsbrutto)}</span>
+            <div className="grid grid-cols-4 gap-2 text-xs text-slate-500 font-medium pb-1 border-b border-slate-200">
+              <span></span>
+              <span className="text-right">Netto</span>
+              <span className="text-right">USt</span>
+              <span className="text-right">Brutto</span>
             </div>
-            <div className="flex justify-between mb-1">
-              <span className="text-slate-600">Bereits fakturiert (brutto):</span>
-              <span className="font-medium">{formatEuro(bereitsFakturiertBrutto)}</span>
+            <div className="grid grid-cols-4 gap-2 mt-1">
+              <span className="text-slate-600">Angebotsbetrag:</span>
+              <span className="font-medium text-right">{formatEuro(angebotsnetto)}</span>
+              <span className="font-medium text-right">{formatEuro(angebotsUst)}</span>
+              <span className="font-medium text-right">{formatEuro(angebotsbrutto)}</span>
             </div>
-            <div className="flex justify-between border-t border-slate-200 pt-1 mt-1">
+            <div className="grid grid-cols-4 gap-2 mt-1">
+              <span className="text-slate-600">Bereits fakturiert:</span>
+              <span className="font-medium text-right">{formatEuro(bereitsFakturiertNetto)}</span>
+              <span className="font-medium text-right">{formatEuro(bereitsFakturiertUst)}</span>
+              <span className="font-medium text-right">{formatEuro(bereitsFakturiertBrutto)}</span>
+            </div>
+            <div className="grid grid-cols-4 gap-2 pt-1 mt-1 border-t border-slate-200">
               <span className="text-slate-700 font-semibold">Noch offen:</span>
-              <span className={`font-bold ${offenBrutto <= 0 ? 'text-emerald-600' : 'text-[#E85A1B]'}`}>
-                {formatEuro(offenBrutto)}
-              </span>
+              <span className={`font-bold text-right ${offenNetto <= 0 ? 'text-emerald-600' : 'text-[#E85A1B]'}`}>{formatEuro(offenNetto)}</span>
+              <span className={`font-bold text-right ${offenUst <= 0 ? 'text-emerald-600' : 'text-[#E85A1B]'}`}>{formatEuro(offenUst)}</span>
+              <span className={`font-bold text-right ${offenBrutto <= 0 ? 'text-emerald-600' : 'text-[#E85A1B]'}`}>{formatEuro(offenBrutto)}</span>
             </div>
           </div>
 

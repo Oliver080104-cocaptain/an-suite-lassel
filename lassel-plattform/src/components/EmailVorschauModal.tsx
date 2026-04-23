@@ -8,8 +8,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { supabase } from '@/lib/supabase'
-import { useQuery } from '@tanstack/react-query'
-import { Send, Paperclip, Sparkles, Loader2 } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Send, Paperclip, Sparkles, Loader2, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface Props {
@@ -31,10 +31,20 @@ const SIGNATUREN: Record<string, string> = {
   'Reinhard Lassel': `Mit freundlichen Grüßen\nReinhard Lassel\nGeschäftsführung\n\nHöhenarbeiten Lassel GmbH\nHetzmannsdorf 25\nTel.: +43 660 8060050\nE-Mail: office@hoehenarbeiten-lassel.at\nInternet: www.hoehenarbeiten-lassel.at`,
 }
 
+// Standard-Signaturen (werden immer im Dropdown angeboten, auch wenn
+// mitarbeiter-Tabelle leer ist). ID-Prefix `builtin:` um sie von
+// Mitarbeiter-UUIDs und DB-Signaturen zu unterscheiden.
+const BUILTIN_SIGNATUREN = Object.entries(SIGNATUREN).map(([name, text]) => ({
+  id: `builtin:${name}`,
+  name,
+  text,
+}))
+
 export default function EmailVorschauModal({
   open, onClose, offerId, angebotsnummer, kundeName,
   objektAdresse, bruttoGesamt, erstelltVon, emailAn: emailAnProp, onSent
 }: Props) {
+  const queryClient = useQueryClient()
   const [emailAn, setEmailAn] = useState(emailAnProp || '')
   const [betreff, setBetreff] = useState(`Ihr Angebot ${angebotsnummer}`)
   const [nachricht, setNachricht] = useState('')
@@ -44,12 +54,14 @@ export default function EmailVorschauModal({
   const [generatingStil, setGeneratingStil] = useState<string>('')
   const [stil, setStil] = useState<'formell' | 'ausfuehrlich' | 'locker'>('formell')
   const [sending, setSending] = useState(false)
+  const [newSigOpen, setNewSigOpen] = useState(false)
+  const [newSigName, setNewSigName] = useState('')
+  const [newSigText, setNewSigText] = useState('')
+  const [savingSig, setSavingSig] = useState(false)
 
   const { data: mitarbeiterList = [] } = useQuery({
     queryKey: ['mitarbeiter-aktiv'],
     queryFn: async () => {
-      // Erst nur aktive laden — wenn das fehlschlägt (z.B. weil die
-      // aktiv-Spalte im Cache fehlt) fallback auf alle Mitarbeiter.
       const { data, error } = await supabase
         .from('mitarbeiter')
         .select('*')
@@ -62,10 +74,83 @@ export default function EmailVorschauModal({
     staleTime: 60 * 1000,
   })
 
+  // Eigene Signaturen-Tabelle (Migration 015). Fallback auf leer, wenn die
+  // Tabelle noch nicht existiert — dann werden nur Mitarbeiter + Builtin-
+  // Signaturen angezeigt.
+  const { data: dbSignaturen = [] } = useQuery({
+    queryKey: ['signaturen'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('signaturen')
+        .select('*')
+        .eq('aktiv', true)
+        .order('name')
+      if (error) {
+        console.warn('[signaturen] load failed:', error.message)
+        return []
+      }
+      return data || []
+    },
+    staleTime: 60 * 1000,
+  })
+
+  /**
+   * Einheitliche Liste aller verfügbaren Signaturen für den Dropdown.
+   * Quellen: eigene signaturen-Tabelle, Mitarbeiter-Liste, Builtin-Fallback.
+   * Deduped by name: DB-Signaturen haben Vorrang vor Builtin-Einträgen.
+   */
+  const allSignaturen = (() => {
+    const byName = new Map<string, { id: string; name: string; text: string }>()
+    for (const s of BUILTIN_SIGNATUREN) byName.set(s.name, s)
+    for (const m of (mitarbeiterList as any[])) {
+      if (!m?.name) continue
+      const text = SIGNATUREN[m.name]
+        || `Mit freundlichen Grüßen\n${m.name}\n\nHöhenarbeiten Lassel GmbH\nHetzmannsdorf 25, 2041 Wullersdorf\nE-Mail: office@hoehenarbeiten-lassel.at`
+      byName.set(m.name, { id: m.id, name: m.name, text })
+    }
+    for (const s of (dbSignaturen as any[])) {
+      if (!s?.name) continue
+      byName.set(s.name, { id: `sig:${s.id}`, name: s.name, text: s.text || '' })
+    }
+    return Array.from(byName.values())
+  })()
+
+  const selectedSig = allSignaturen.find((s) => s.id === signaturId)
   const selectedMitarbeiter = (mitarbeiterList as any[]).find((m: any) => m.id === signaturId)
-  const signaturText = selectedMitarbeiter
-    ? (SIGNATUREN[selectedMitarbeiter.name] || `Mit freundlichen Grüßen\n${selectedMitarbeiter.name}\n\nHöhenarbeiten Lassel GmbH\nHetzmannsdorf 25, 2041 Wullersdorf\nE-Mail: office@hoehenarbeiten-lassel.at`)
-    : ''
+  const signaturText = selectedSig?.text || ''
+
+  const handleSaveNewSignatur = async () => {
+    const name = newSigName.trim()
+    const text = newSigText.trim()
+    if (!name || !text) {
+      toast.error('Name und Signatur-Text sind Pflicht')
+      return
+    }
+    setSavingSig(true)
+    try {
+      const { data, error } = await supabase
+        .from('signaturen')
+        .insert({ name, text, aktiv: true })
+        .select()
+        .single()
+      if (error) throw error
+      toast.success('Signatur gespeichert')
+      await queryClient.invalidateQueries({ queryKey: ['signaturen'] })
+      setSignaturId(`sig:${data.id}`)
+      setNewSigOpen(false)
+      setNewSigName('')
+      setNewSigText('')
+    } catch (err: any) {
+      const msg = err?.message || 'Unbekannter Fehler'
+      if (/signaturen/i.test(msg) && /does not exist|not found|schema cache/i.test(msg)) {
+        toast.error('Tabelle fehlt — bitte Migration 015_signaturen.sql ausführen')
+      } else {
+        toast.error('Fehler beim Speichern: ' + msg)
+      }
+    } finally {
+      setSavingSig(false)
+    }
+  }
 
   const generateEmail = async (
     zusatzAnweisung?: string,
@@ -114,13 +199,18 @@ export default function EmailVorschauModal({
     setSending(true)
     try {
       await supabase.from('angebote').update({ status: 'versendet' }).eq('id', offerId)
+      // Absolute PDF-URL bauen — n8n braucht http(s)://… (Dateiname im
+      // Content-Disposition wird in der PDF-Route gesetzt, dadurch heißt
+      // der Anhang im Mail "Angebot_AN-2026-XXXXX.pdf").
+      const pdfUrl = `${window.location.origin}/api/pdf/angebot/${offerId}`
       await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/ab34322b-aed4-4a93-b232-9178bf75ecaf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           offerId,
           angebotNummer: angebotsnummer,
-          pdfUrl: `/api/pdf/angebot/${offerId}`,
+          pdfUrl,
+          pdfFileName: `Angebot_${angebotsnummer}.pdf`,
           status: 'versendet',
           rechnungsempfaenger: { name: kundeName },
           objekt: { bezeichnung: objektAdresse },
@@ -129,7 +219,7 @@ export default function EmailVorschauModal({
             sendenAn: emailAn,
             betreff,
             nachrichtHtml: `<pre>${nachricht}</pre>`,
-            mitarbeiter: selectedMitarbeiter?.name || '',
+            mitarbeiter: selectedMitarbeiter?.name || selectedSig?.name || '',
             signatur: signaturText,
           },
           summen: { brutto: bruttoGesamt },
@@ -217,30 +307,82 @@ export default function EmailVorschauModal({
           <div>
             <div className="flex items-center justify-between mb-2">
               <Label className="font-semibold">Signatur auswählen: <span className="text-red-500">*</span></Label>
-              <Button variant="outline" size="sm">Eigene Signatur</Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setNewSigOpen((v) => !v)}
+                className="gap-1"
+              >
+                <Plus className="w-4 h-4" />
+                Neue Signatur
+              </Button>
             </div>
             <Select
-              key={`signatur-select-${(mitarbeiterList as any[]).length}`}
+              key={`signatur-select-${allSignaturen.length}`}
               value={signaturId}
               onValueChange={(val) => setSignaturId(val || '')}
             >
               <SelectTrigger>
                 <SelectValue placeholder={
-                  (mitarbeiterList as any[]).length === 0
-                    ? 'Mitarbeiter werden geladen…'
-                    : 'Mitarbeiter auswählen...'
+                  allSignaturen.length === 0
+                    ? 'Signaturen werden geladen…'
+                    : 'Signatur auswählen...'
                 } />
               </SelectTrigger>
               <SelectContent>
-                {(mitarbeiterList as any[]).length === 0 ? (
-                  <div className="px-3 py-2 text-sm text-slate-400">Keine Mitarbeiter gefunden</div>
+                {allSignaturen.length === 0 ? (
+                  <div className="px-3 py-2 text-sm text-slate-400">Keine Signaturen vorhanden</div>
                 ) : (
-                  (mitarbeiterList as any[]).map((m: any) => (
-                    <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                  allSignaturen.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
                   ))
                 )}
               </SelectContent>
             </Select>
+
+            {newSigOpen && (
+              <div className="mt-3 border border-slate-200 rounded-lg p-3 bg-slate-50 space-y-2">
+                <div>
+                  <Label className="text-xs">Name</Label>
+                  <Input
+                    value={newSigName}
+                    onChange={(e) => setNewSigName(e.target.value)}
+                    placeholder="z.B. Max Mustermann"
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Signatur-Text</Label>
+                  <Textarea
+                    value={newSigText}
+                    onChange={(e) => setNewSigText(e.target.value)}
+                    rows={5}
+                    placeholder={'Mit freundlichen Grüßen\nMax Mustermann\n…'}
+                    className="mt-1 resize-none font-mono text-sm"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { setNewSigOpen(false); setNewSigName(''); setNewSigText('') }}
+                    disabled={savingSig}
+                  >
+                    Abbrechen
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleSaveNewSignatur}
+                    disabled={savingSig || !newSigName.trim() || !newSigText.trim()}
+                    className="bg-[#E85A1B] hover:bg-[#c94d17] text-white"
+                  >
+                    {savingSig ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
+                    Speichern
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {signaturText && (
               <Textarea readOnly value={signaturText} rows={5} className="mt-2 resize-none bg-slate-50 text-sm font-mono" />
             )}

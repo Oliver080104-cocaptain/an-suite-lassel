@@ -80,6 +80,10 @@ export default function OfferDetailPage() {
   const [creatingInvoice, setCreatingInvoice] = useState(false)
   const [uploadingToZoho, setUploadingToZoho] = useState(false)
   const autoSaveLock = useRef(false)
+  // Dirty-Flag: wird gesetzt wenn der User tippt während ein Save läuft.
+  // Nach dem Save wird dann automatisch nochmal gespeichert, damit keine
+  // Eingaben verloren gehen (Bugfix 2026-04-23 v2 — Race im autoSaveLock).
+  const pendingChangesDuringSave = useRef(false)
   const positionsInitialized = useRef(false)
   const offerInitialized = useRef(false)
   const statusResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -215,20 +219,6 @@ export default function OfferDetailPage() {
     window.scrollTo(0, 0)
   }, [])
 
-  useEffect(() => {
-    if (isNew) return
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden' && offerId && offer.kunde_name) {
-        handleAutoSave()
-      }
-    }
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-      if (offerId && offer.kunde_name) handleAutoSave()
-    }
-  }, [offer, positions, isNew, offerId])
-
   // Debounced autosave: 1 second after last change, with visible status badge
   const debouncedAutoSave = useDebouncedCallback(() => {
     handleAutoSave()
@@ -238,6 +228,20 @@ export default function OfferDetailPage() {
     if (isNew || !offerId || !offerInitialized.current) return
     debouncedAutoSave()
   }, [offer, positions, isNew, offerId, debouncedAutoSave])
+
+  // Flush pending debounce on tab-hide and on unmount — kein eigener Save-Call,
+  // sonst überschreibt ein stale Closure die frischen Eingaben (siehe Bugfix 2026-04-23).
+  useEffect(() => {
+    if (isNew || !offerId) return
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') debouncedAutoSave.flush()
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      debouncedAutoSave.flush()
+    }
+  }, [isNew, offerId, debouncedAutoSave])
 
   useEffect(() => {
     return () => {
@@ -302,8 +306,17 @@ export default function OfferDetailPage() {
   }
 
   const handleAutoSave = async () => {
-    if (isNew || !offerId || autoSaveLock.current) return
+    if (isNew || !offerId) return
+    // Race-Schutz: wenn gerade ein Save läuft, merken wir uns dass noch
+    // etwas gespeichert werden muss. Im finally-Block wird dann der nächste
+    // Save gestartet — sonst gehen Eingaben die während des Saves getippt
+    // wurden verloren.
+    if (autoSaveLock.current) {
+      pendingChangesDuringSave.current = true
+      return
+    }
     autoSaveLock.current = true
+    pendingChangesDuringSave.current = false
     setSaveStatus('saving')
     try {
       const { error: offerErr } = await supabase
@@ -313,7 +326,6 @@ export default function OfferDetailPage() {
       if (offerErr) throw offerErr
       const posToSave = positions.filter((p: any) => p.produktName?.trim() || p.beschreibung?.trim())
       await savePositions(offerId, posToSave)
-      // Query invalidieren damit existingPositions die neuen IDs lädt
       queryClient.invalidateQueries({ queryKey: ['offerPositions', offerId] })
       setPreviewVersion((v) => v + 1)
       setSaveStatus('saved')
@@ -324,6 +336,14 @@ export default function OfferDetailPage() {
       autoSaveLock.current = false
       if (statusResetTimer.current) clearTimeout(statusResetTimer.current)
       statusResetTimer.current = setTimeout(() => setSaveStatus('idle'), 2000)
+      // Während des Saves wurde getippt → nochmal speichern über die Debounce.
+      // (Debounce ruft die LATEST handleAutoSave auf, die den frischen offer-State
+      // aus dem zuletzt gerenderten Closure liest — direkte Rekursion würde
+      // dagegen den stale Closure dieser Instanz nutzen.)
+      if (pendingChangesDuringSave.current) {
+        pendingChangesDuringSave.current = false
+        debouncedAutoSave()
+      }
     }
   }
 
@@ -483,6 +503,9 @@ export default function OfferDetailPage() {
         objekt_adresse: offer.objekt_bezeichnung || offer.objekt_adresse,
         lieferdatum: format(new Date(), 'yyyy-MM-dd'),
         ticket_nummer: offer.ticket_nummer,
+        erstellt_von: offer.erstellt_von || null,
+        ansprechpartner: offer.ansprechpartner || null,
+        geschaeftsfallnummer: offer.geschaeftsfallNummer || null,
         status: 'entwurf'
       }).select().single()
       if (error) throw error
@@ -628,6 +651,9 @@ export default function OfferDetailPage() {
         leistungszeitraum_von: null,
         leistungszeitraum_bis: null,
         ticket_nummer: offer.ticket_nummer,
+        erstellt_von: offer.erstellt_von || null,
+        ansprechpartner: offer.ansprechpartner || null,
+        geschaeftsfallnummer: offer.geschaeftsfallNummer || null,
         status: 'entwurf',
         zahlungsstatus: 'offen',
         netto_gesamt: insertNetto,

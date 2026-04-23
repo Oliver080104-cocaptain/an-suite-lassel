@@ -66,7 +66,13 @@ export default function DeliveryNoteDetailPage() {
   const dnInitialized = useRef(false)
   const posInitialized = useRef(false)
   const autoSaveLock = useRef(false)
+  // Dirty-Flag für Race-Schutz: gesetzt wenn während eines laufenden Saves
+  // getippt wird. Nach dem Save wird dann nochmal gespeichert (Bugfix 2026-04-23 v2).
+  const pendingChangesDuringSave = useRef(false)
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Ref auf die IMMER latest performAutoSave — damit der Save-Callback
+  // keinen stale Closure mit veraltetem dn/positions nutzt.
+  const performAutoSaveRef = useRef<() => Promise<void>>(async () => {})
 
   const { data: existingDN, isLoading: loadingDN } = useQuery({
     queryKey: ['deliveryNote', deliveryNoteId],
@@ -145,16 +151,28 @@ export default function DeliveryNoteDetailPage() {
     }
   }, [existingPositions])
 
+  // Zentrale Auto-Save-Trigger-Funktion mit Race-Schutz.
+  const triggerAutoSave = () => {
+    if (autoSaveLock.current) {
+      pendingChangesDuringSave.current = true
+      return
+    }
+    autoSaveLock.current = true
+    pendingChangesDuringSave.current = false
+    performAutoSaveRef.current().finally(() => {
+      autoSaveLock.current = false
+      if (pendingChangesDuringSave.current) {
+        pendingChangesDuringSave.current = false
+        setTimeout(triggerAutoSave, 50)
+      }
+    })
+  }
+
   // Debounced autosave
   useEffect(() => {
     if (isNew || !deliveryNoteId || !dnInitialized.current) return
     if (debounceTimer.current) clearTimeout(debounceTimer.current)
-    debounceTimer.current = setTimeout(() => {
-      if (!autoSaveLock.current) {
-        autoSaveLock.current = true
-        performAutoSave().finally(() => { autoSaveLock.current = false })
-      }
-    }, 1000)
+    debounceTimer.current = setTimeout(triggerAutoSave, 1000)
     return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current) }
   }, [dn, positions])
 
@@ -179,7 +197,6 @@ export default function DeliveryNoteDetailPage() {
     kunde_plz: dn.kunde_plz || null,
     kunde_ort: dn.kunde_ort || null,
     kunde_uid: dn.kunde_uid || null,
-    objekt_bezeichnung: dn.objekt_bezeichnung || null,
     objekt_adresse: dn.objekt_adresse || null,
     ansprechpartner: dn.ansprechpartner || null,
     lieferdatum: dn.lieferdatum,
@@ -192,6 +209,52 @@ export default function DeliveryNoteDetailPage() {
     angebot_id: dn.angebot_id || null,
     referenz_angebot_nummer: dn.referenz_angebot_nummer || null,
   })
+
+  // Schema-Drift-Fallback: Set von Spalten, die in der Prod-DB (noch) fehlen.
+  // Wird beim ersten "Could not find the 'X' column"-Error pro Spalte
+  // befüllt, ab dann wird die Spalte nicht mehr mitgeschickt. Reset bei
+  // Tab-Reload. Analog zu rechnungen/[id]/page.tsx (Bugfix 2026-04-23).
+  const missingLieferscheinColumns = useRef<Set<string>>(new Set())
+
+  const missingColumnFromError = (message: string | undefined): string | null => {
+    if (!message) return null
+    const match = message.match(/Could not find the '([^']+)' column/i)
+    return match ? match[1] : null
+  }
+
+  const stripMissingColumns = (data: Record<string, unknown>) => {
+    const clean: Record<string, unknown> = { ...data }
+    for (const col of missingLieferscheinColumns.current) delete clean[col]
+    return clean
+  }
+
+  const updateLieferscheinSafe = async (id: string, data: Record<string, unknown>) => {
+    let payload = stripMissingColumns(data)
+    for (let i = 0; i < 5; i++) {
+      const { error } = await supabase.from('lieferscheine').update(payload).eq('id', id)
+      if (!error) return
+      const missingCol = missingColumnFromError(error.message)
+      if (!missingCol || !(missingCol in payload)) throw error
+      console.warn(`[lieferscheine.update] retry ohne '${missingCol}'. Grund:`, error.message)
+      missingLieferscheinColumns.current.add(missingCol)
+      payload = stripMissingColumns(data)
+    }
+    throw new Error('[lieferscheine.update] zu viele Schema-Drift-Retries abgebrochen')
+  }
+
+  const insertLieferscheinSafe = async (data: Record<string, unknown>) => {
+    let payload = stripMissingColumns(data)
+    for (let i = 0; i < 5; i++) {
+      const resp = await supabase.from('lieferscheine').insert([payload]).select().single()
+      if (!resp.error) return resp.data
+      const missingCol = missingColumnFromError(resp.error.message)
+      if (!missingCol || !(missingCol in payload)) throw resp.error
+      console.warn(`[lieferscheine.insert] retry ohne '${missingCol}'. Grund:`, resp.error.message)
+      missingLieferscheinColumns.current.add(missingCol)
+      payload = stripMissingColumns(data)
+    }
+    throw new Error('[lieferscheine.insert] zu viele Schema-Drift-Retries abgebrochen')
+  }
 
   const buildPosData = (p: DNPosition, lsId: string) => {
     // DB-Feld `beschreibung` enthält "Produktname\nBeschreibung" (analog Angebot)
@@ -210,7 +273,7 @@ export default function DeliveryNoteDetailPage() {
   const performAutoSave = async () => {
     if (!deliveryNoteId || !dn.kunde_name) return
     try {
-      await supabase.from('lieferscheine').update(buildDNData()).eq('id', deliveryNoteId)
+      await updateLieferscheinSafe(deliveryNoteId, buildDNData())
       await savePositions(deliveryNoteId, positions, existingPositions)
       await syncPositionsToTicket()
       setPreviewVersion((v) => v + 1)
@@ -218,6 +281,10 @@ export default function DeliveryNoteDetailPage() {
       console.error('Auto-save error:', err)
     }
   }
+  // Ref auf latest performAutoSave — damit triggerAutoSave (z.B. nach dem
+  // Finally-Block) den frischen Closure-State liest, nicht den stale von
+  // vor dem Save-Start.
+  performAutoSaveRef.current = performAutoSave
 
   /**
    * Wenn der Lieferschein eine Ticketnummer hat, spiegeln wir die Positionen
@@ -305,13 +372,11 @@ export default function DeliveryNoteDetailPage() {
       if (isNew) {
         dnCopy.lieferscheinnummer = await generateNumber()
         setDn(dnCopy)
-        const { data, error } = await supabase.from('lieferscheine').insert([buildDNData()]).select().single()
-        if (error) throw error
-        savedId = data.id
+        const inserted = await insertLieferscheinSafe(buildDNData())
+        savedId = inserted.id
         router.replace(`/lieferscheine/${savedId}`)
       } else {
-        const { error } = await supabase.from('lieferscheine').update(buildDNData()).eq('id', deliveryNoteId!)
-        if (error) throw error
+        await updateLieferscheinSafe(deliveryNoteId!, buildDNData())
       }
 
       await savePositions(savedId!, positions, isNew ? [] : existingPositions)
@@ -365,7 +430,7 @@ export default function DeliveryNoteDetailPage() {
     setUploadingToZoho(true)
     try {
       // Sicherstellen dass aktueller State persistiert ist
-      await supabase.from('lieferscheine').update(buildDNData()).eq('id', deliveryNoteId)
+      await updateLieferscheinSafe(deliveryNoteId, buildDNData())
       await savePositions(deliveryNoteId, positions, existingPositions)
       await syncPositionsToTicket()
 

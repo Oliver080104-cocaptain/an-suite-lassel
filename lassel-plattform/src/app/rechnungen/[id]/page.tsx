@@ -119,6 +119,10 @@ export default function InvoiceDetailPage() {
   const invoiceInitialized = useRef(false)
   const positionsInitialized = useRef(false)
   const autoSaveLock = useRef(false)
+  // Dirty-Flag: gesetzt wenn während eines laufenden Saves getippt wird.
+  // Nach dem Save wird dann nochmal gespeichert, damit keine Eingaben
+  // verloren gehen (Bugfix 2026-04-23 v2 — Race im autoSaveLock).
+  const pendingChangesDuringSave = useRef(false)
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Load invoice
@@ -299,7 +303,8 @@ export default function InvoiceDetailPage() {
     }
   }, [invoice.datum, invoice.zahlungszielTage])
 
-  // Auto-save on visibility change
+  // Auto-save on visibility change. KEIN Save im Cleanup — sonst überschreibt
+  // ein stale Closure die frischen Eingaben beim Tippen (Bugfix 2026-04-23).
   useEffect(() => {
     if (isNew) return
     const handleVisibility = () => {
@@ -309,25 +314,39 @@ export default function InvoiceDetailPage() {
       }
     }
     document.addEventListener('visibilitychange', handleVisibility)
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibility)
-      if (invoiceId && invoice.kundeName && !autoSaveLock.current) {
-        autoSaveLock.current = true
-        performAutoSave().finally(() => { autoSaveLock.current = false })
-      }
-    }
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
   }, [invoice, positions, isNew, invoiceId])
+
+  // Ref auf die IMMER latest performAutoSave — damit die Callback im setTimeout
+  // nicht einen stale Closure mit altem invoice/positions nutzt.
+  const performAutoSaveRef = useRef<() => Promise<void>>(async () => {})
+
+  // Zentrale Trigger-Funktion mit Race-Schutz: wenn bereits ein Save läuft,
+  // Dirty-Flag setzen und nach dem laufenden Save erneut triggern — sonst gehen
+  // Eingaben verloren die während eines laufenden Saves getippt wurden.
+  const triggerAutoSave = () => {
+    if (autoSaveLock.current) {
+      pendingChangesDuringSave.current = true
+      return
+    }
+    autoSaveLock.current = true
+    pendingChangesDuringSave.current = false
+    performAutoSaveRef.current().finally(() => {
+      autoSaveLock.current = false
+      if (pendingChangesDuringSave.current) {
+        pendingChangesDuringSave.current = false
+        // Kleines Delay damit React re-rendert und performAutoSaveRef die
+        // frischen Closure-Werte aufnimmt.
+        setTimeout(triggerAutoSave, 50)
+      }
+    })
+  }
 
   // Debounced autosave: 1 Sekunde nach letzter Änderung → Echtzeit-PDF-Vorschau
   useEffect(() => {
     if (isNew || !invoiceId || !invoiceInitialized.current) return
     if (debounceTimer.current) clearTimeout(debounceTimer.current)
-    debounceTimer.current = setTimeout(() => {
-      if (!autoSaveLock.current) {
-        autoSaveLock.current = true
-        performAutoSave().finally(() => { autoSaveLock.current = false })
-      }
-    }, 1000)
+    debounceTimer.current = setTimeout(triggerAutoSave, 1000)
     return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current) }
   }, [invoice, positions])
 
@@ -394,58 +413,63 @@ export default function InvoiceDetailPage() {
     }
   }
 
-  // Flag: wird beim ersten 400-Error auf `arbeitstage` gesetzt und verhindert
-  // danach, dass die Spalte überhaupt noch mitgeschickt wird. So vermeiden
-  // wir bei jedem Auto-Save den 400-Roundtrip, solange Migration 012 nicht
-  // ausgeführt wurde. Wird nach Tab-Reload zurückgesetzt.
-  const arbeitstageColumnMissing = useRef(false)
+  // Set von Spalten, die in der Prod-DB fehlen (Schema-Drift). Wird beim
+  // ersten "Could not find the 'X' column"-Error pro Spalte befüllt, damit
+  // die Spalte ab dann nicht mehr mitgeschickt wird. Reset bei Tab-Reload.
+  const missingColumns = useRef<Set<string>>(new Set())
 
   const stripOptionalColumns = (data: Record<string, unknown>) => {
-    if (!arbeitstageColumnMissing.current) return data
     const clean = { ...data }
-    delete clean.arbeitstage
+    for (const col of missingColumns.current) delete clean[col]
+    // vermittler_id nie mit null senden — wenn kein Vermittler gewählt ist,
+    // soll die Spalte gar nicht im Payload sein (vermeidet Schema-Drift-400
+    // in Prod-DBs ohne die Spalte).
+    if (clean.vermittler_id === null || clean.vermittler_id === undefined || clean.vermittler_id === '') {
+      delete clean.vermittler_id
+    }
     return clean
   }
 
+  // Liest aus einer PostgREST-Fehlermeldung den Spaltennamen aus, wenn der
+  // Fehler "Could not find the 'X' column of '...' in the schema cache" ist.
+  const missingColumnFromError = (message: string | undefined): string | null => {
+    if (!message) return null
+    const match = message.match(/Could not find the '([^']+)' column/i)
+    return match ? match[1] : null
+  }
+
   /**
-   * Update mit defensivem Fallback: wenn `arbeitstage` in der DB
-   * (noch) nicht existiert (Migration 012 nicht gelaufen), wird
-   * das Feld entfernt und der Update retried. Danach cachen wir das
-   * fehlen der Spalte für die aktuelle Session, damit nicht jeder
-   * Auto-Save erst einen 400-Fehler produziert.
+   * Update mit defensivem Fallback: bei Schema-Drift (Spalte fehlt in Prod)
+   * wird der Spaltenname aus der Fehlermeldung extrahiert, für die Session
+   * gecached und der Update ohne diese Spalte retried. Max 5 Retries um
+   * bei Kaskaden-Fehlern nicht endlos zu loopen.
    */
   const updateRechnungSafe = async (id: string, data: Record<string, unknown>) => {
-    const payload = stripOptionalColumns(data)
-    const { error } = await supabase.from('rechnungen').update(payload).eq('id', id)
-    if (!error) return
-    // Bei jedem Fehler, der auf arbeitstage-Spalte hinweist oder einfach noch
-    // nicht auftrat: flag setzen, Spalte droppen, retry.
-    if ('arbeitstage' in payload) {
-      console.warn('[rechnungen.update] retry ohne arbeitstage. Grund:', error.message)
-      arbeitstageColumnMissing.current = true
-      const clean = { ...payload }
-      delete clean.arbeitstage
-      const retry = await supabase.from('rechnungen').update(clean).eq('id', id)
-      if (retry.error) throw retry.error
-      return
+    let payload = stripOptionalColumns(data)
+    for (let i = 0; i < 5; i++) {
+      const { error } = await supabase.from('rechnungen').update(payload).eq('id', id)
+      if (!error) return
+      const missingCol = missingColumnFromError(error.message)
+      if (!missingCol || !(missingCol in payload)) throw error
+      console.warn(`[rechnungen.update] retry ohne '${missingCol}'. Grund:`, error.message)
+      missingColumns.current.add(missingCol)
+      payload = stripOptionalColumns(data)
     }
-    throw error
+    throw new Error('[rechnungen.update] zu viele Schema-Drift-Retries abgebrochen')
   }
 
   const insertRechnungSafe = async (data: Record<string, unknown>) => {
-    const payload = stripOptionalColumns(data)
-    const first = await supabase.from('rechnungen').insert([payload]).select().single()
-    if (!first.error) return first.data
-    if ('arbeitstage' in payload) {
-      console.warn('[rechnungen.insert] retry ohne arbeitstage. Grund:', first.error.message)
-      arbeitstageColumnMissing.current = true
-      const clean = { ...payload }
-      delete clean.arbeitstage
-      const retry = await supabase.from('rechnungen').insert([clean]).select().single()
-      if (retry.error) throw retry.error
-      return retry.data
+    let payload = stripOptionalColumns(data)
+    for (let i = 0; i < 5; i++) {
+      const resp = await supabase.from('rechnungen').insert([payload]).select().single()
+      if (!resp.error) return resp.data
+      const missingCol = missingColumnFromError(resp.error.message)
+      if (!missingCol || !(missingCol in payload)) throw resp.error
+      console.warn(`[rechnungen.insert] retry ohne '${missingCol}'. Grund:`, resp.error.message)
+      missingColumns.current.add(missingCol)
+      payload = stripOptionalColumns(data)
     }
-    throw first.error
+    throw new Error('[rechnungen.insert] zu viele Schema-Drift-Retries abgebrochen')
   }
 
   const buildRechnungData = (inv: typeof defaultInvoice, t: typeof totals) => ({
@@ -508,6 +532,10 @@ export default function InvoiceDetailPage() {
       console.error('Auto-save error:', err)
     }
   }
+  // Ref auf die AKTUELLE performAutoSave updaten — damit triggerAutoSave
+  // im finally-Block nicht einen stale Closure mit veraltetem invoice/
+  // positions-State verwendet (siehe Bugfix 2026-04-23 v2).
+  performAutoSaveRef.current = performAutoSave
 
   const handleSave = async () => {
     // Pflichtfeld-Validation für Anzahlung/Teilrechnung
@@ -1097,17 +1125,6 @@ export default function InvoiceDetailPage() {
                 <div>
                   <Label>Rechnungsdatum</Label>
                   <Input type="date" value={invoice.datum || ''} onChange={e => setInvoice(p => ({ ...p, datum: e.target.value }))} className="mt-1" />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label>Leistungszeitraum Von</Label>
-                    <Input type="date" value={invoice.leistungszeitraumVon || ''} onChange={e => setInvoice(p => ({ ...p, leistungszeitraumVon: e.target.value }))} className="mt-1" />
-                  </div>
-                  <div>
-                    <Label>Leistungszeitraum Bis</Label>
-                    <Input type="date" value={invoice.leistungszeitraumBis || ''} onChange={e => setInvoice(p => ({ ...p, leistungszeitraumBis: e.target.value }))} className="mt-1" />
-                  </div>
                 </div>
 
                 <div>
