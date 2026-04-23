@@ -168,7 +168,15 @@ export default function OfferDetailPage() {
   })
 
   useEffect(() => {
+    console.log('[DEBUG offer-init-effect]', {
+      hasExistingOffer: !!existingOffer,
+      initialized: offerInitialized.current,
+      willSetState: !!(existingOffer && !offerInitialized.current),
+      existingKundeStrasse: existingOffer?.kunde_strasse,
+      currentKundeStrasse: offer.kunde_strasse,
+    })
     if (existingOffer && !offerInitialized.current) {
+      console.log('[DEBUG offer-init-effect] SETTING STATE from existingOffer')
       setOffer({
         ...existingOffer,
         gueltig_bis: existingOffer.gueltig_bis || format(addDays(new Date(), 30), 'yyyy-MM-dd'),
@@ -186,6 +194,25 @@ export default function OfferDetailPage() {
       offerInitialized.current = true
     }
   }, [existingOffer])
+
+  // === DIAGNOSTICS: State-Reset-Bug-Hunt (2026-04-23) ===
+  // Track jeden Mount/Unmount der Detail-Page
+  useEffect(() => {
+    console.log('[DEBUG mount] OfferDetailPage mounted', { offerId, isNew })
+    return () => console.log('[DEBUG unmount] OfferDetailPage UNMOUNTED', { offerId })
+  }, [])
+
+  // Track jede offer-State-Änderung mit Stack-Trace
+  useEffect(() => {
+    console.log('[DEBUG offer-change]', {
+      kunde_name: offer.kunde_name,
+      kunde_strasse: offer.kunde_strasse,
+      kunde_plz: offer.kunde_plz,
+      kunde_ort: offer.kunde_ort,
+      initialized: offerInitialized.current,
+    })
+  }, [offer.kunde_strasse, offer.kunde_plz, offer.kunde_ort])
+  // === END DIAGNOSTICS ===
 
   useEffect(() => {
     if (existingPositions.length > 0 && !positionsInitialized.current) {
