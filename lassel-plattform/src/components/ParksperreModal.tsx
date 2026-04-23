@@ -34,7 +34,10 @@ const BUILTIN_SIGNATUREN = Object.entries(SIGNATUREN).map(([name, text]) => ({
   text,
 }))
 
-const PARKSPERRE_WEBHOOK = 'https://n8n.srv1367876.hstgr.cloud/webhook/parkraumsperre%20beantragen'
+// Server-side API-Route bündelt Upload + n8n-Versand. Client-seitiger Upload
+// zu Supabase Storage scheiterte an fehlendem Bucket (nur service-role kann
+// anlegen), direkter n8n-Call scheiterte an CORS. Beides gelöst durch Proxy.
+const PARKSPERRE_API = '/api/parksperre-senden'
 
 export default function ParksperreModal({ open, onClose, angebotsnummer, objektAdresse }: Props) {
   const queryClient = useQueryClient()
@@ -150,74 +153,41 @@ export default function ParksperreModal({ open, onClose, angebotsnummer, objektA
     e.target.value = ''
   }
 
-  /**
-   * Lädt alle ausgewählten Dateien in den `documents`-Bucket hoch und
-   * gibt ein Array von `{ url, name }` zurück — matched was der n8n-Flow
-   * unter body.attachments erwartet.
-   */
-  const uploadAttachmentsAndGetUrls = async () => {
-    if (dateien.length === 0) return [] as { url: string; name: string }[]
-    const results: { url: string; name: string }[] = []
-    for (const f of dateien) {
-      const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-      const filePath = `parksperre/${Date.now()}-${safeName}`
-      const { error: upErr } = await supabase.storage.from('documents').upload(filePath, f, { upsert: false })
-      if (upErr) {
-        console.error('[parksperre-upload]', upErr)
-        throw new Error(`Upload fehlgeschlagen für ${f.name}: ${upErr.message}`)
-      }
-      const { data } = supabase.storage.from('documents').getPublicUrl(filePath)
-      results.push({ url: data.publicUrl, name: f.name })
-    }
-    return results
-  }
-
   const handleSenden = async () => {
     if (!emailAn.trim()) { toast.error('Empfänger-E-Mail fehlt'); return }
     if (!signaturId) { toast.error('Bitte eine Signatur auswählen'); return }
     setSending(true)
     try {
-      // 1) Attachments hochladen um public URLs zu bekommen.
-      const attachments = await uploadAttachmentsAndGetUrls()
-
-      // 2) Signatur in HTML-safe + mit <br> umwandeln.
-      const signaturHtml = signaturText
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/\n/g, '<br>')
-      const nachrichtHtml = nachricht
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/\n/g, '<br>')
-
+      // Signatur + Nachricht HTML-safe + \n → <br>
+      const escapeHtml = (s: string) =>
+        s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
       const bodyHtml = `
         <div style="font-family: Arial, sans-serif; font-size: 14px; color: #222;">
-          ${nachrichtHtml}
+          ${escapeHtml(nachricht)}
           <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e5e5; color: #555;">
-            ${signaturHtml}
+            ${escapeHtml(signaturText)}
           </div>
         </div>
       `.trim()
 
-      // 3) Webhook feuern. Payload-Shape matched dem n8n-Flow:
-      //   body.attachments: [{ url, name }]
-      //   body.email: { to, subject, body }
-      await fetch(PARKSPERRE_WEBHOOK, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          typ: 'parksperre',
-          angebotsnummer,
-          objektAdresse,
-          attachments,
-          email: {
-            to: emailAn,
-            subject: betreff,
-            body: bodyHtml,
-            mitarbeiter: selectedSig?.name || '',
-            signatur: signaturText,
-          },
-          timestamp: new Date().toISOString(),
-        }),
-      })
+      // Multipart FormData — Server lädt Files in Supabase Storage hoch
+      // und ruft n8n server-to-server auf (keine CORS-Probleme).
+      const form = new FormData()
+      form.append('email.to', emailAn)
+      form.append('email.subject', betreff)
+      form.append('email.body', bodyHtml)
+      form.append('email.mitarbeiter', selectedSig?.name || '')
+      form.append('email.signatur', signaturText)
+      form.append('angebotsnummer', angebotsnummer || '')
+      form.append('objektAdresse', objektAdresse || '')
+      for (const f of dateien) form.append('files', f, f.name)
+
+      const resp = await fetch(PARKSPERRE_API, { method: 'POST', body: form })
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}))
+        throw new Error(err?.error || `HTTP ${resp.status}`)
+      }
+
       toast.success('Parksperre-Antrag versendet')
       onClose()
     } catch (err: any) {
