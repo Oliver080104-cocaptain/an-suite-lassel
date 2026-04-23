@@ -8,8 +8,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { supabase } from '@/lib/supabase'
-import { useQuery } from '@tanstack/react-query'
-import { Sparkles, Loader2, Send, Car, Paperclip, X } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Sparkles, Loader2, Send, Car, Paperclip, X, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface Props {
@@ -19,24 +19,101 @@ interface Props {
   objektAdresse?: string
 }
 
+// Gleiche Signaturen wie in EmailVorschauModal — beim nächsten Refactor
+// bitte in eine gemeinsame `signaturen.ts` auslagern (DRY), aktuell
+// bewusst dupliziert um beide Modals unabhängig änderbar zu halten.
+const SIGNATUREN: Record<string, string> = {
+  'Nikolas Schmadlak': `Mit freundlichen Grüßen\nNikolas Schmadlak\nInnendienst\n\nHöhenarbeiten Lassel GmbH\nHetzmannsdorf 25\nTel.: +43 660 3877214\nE-Mail: office@hoehenarbeiten-lassel.at\nInternet: www.hoehenarbeiten-lassel.at`,
+  'Christoph Kribala': `Mit freundlichen Grüßen\nChristoph Kribala\nInnendienst\n\nHöhenarbeiten Lassel GmbH\nHetzmannsdorf 25\nTel.: +43 660 1887474\nE-Mail: office@hoehenarbeiten-lassel.at\nInternet: www.hoehenarbeiten-lassel.at`,
+  'Reinhard Lassel': `Mit freundlichen Grüßen\nReinhard Lassel\nGeschäftsführung\n\nHöhenarbeiten Lassel GmbH\nHetzmannsdorf 25\nTel.: +43 660 8060050\nE-Mail: office@hoehenarbeiten-lassel.at\nInternet: www.hoehenarbeiten-lassel.at`,
+}
+const BUILTIN_SIGNATUREN = Object.entries(SIGNATUREN).map(([name, text]) => ({
+  id: `builtin:${name}`,
+  name,
+  text,
+}))
+
+const PARKSPERRE_WEBHOOK = 'https://n8n.srv1367876.hstgr.cloud/webhook/parkraumsperre%20beantragen'
+
 export default function ParksperreModal({ open, onClose, angebotsnummer, objektAdresse }: Props) {
+  const queryClient = useQueryClient()
   const [emailAn, setEmailAn] = useState('post@ma46.wien.gv.at')
   const [betreff, setBetreff] = useState('')
   const [nachricht, setNachricht] = useState('')
-  const [absenderId, setAbsenderId] = useState('')
+  const [signaturId, setSignaturId] = useState('')
   const [kiPrompt, setKiPrompt] = useState('')
   const [generating, setGenerating] = useState(false)
   const [sending, setSending] = useState(false)
   const [dateien, setDateien] = useState<File[]>([])
+  const [newSigOpen, setNewSigOpen] = useState(false)
+  const [newSigName, setNewSigName] = useState('')
+  const [newSigText, setNewSigText] = useState('')
+  const [savingSig, setSavingSig] = useState(false)
 
-  const { data: mitarbeiter = [] } = useQuery({
-    queryKey: ['mitarbeiter'],
+  const { data: mitarbeiterList = [] } = useQuery({
+    queryKey: ['mitarbeiter-aktiv'],
     queryFn: async () => {
-      const { data } = await supabase.from('mitarbeiter').select('id, name, rolle').eq('aktiv', true).order('name')
+      const { data, error } = await supabase
+        .from('mitarbeiter').select('*').eq('aktiv', true).order('name')
+      if (!error && data && data.length > 0) return data
+      const fb = await supabase.from('mitarbeiter').select('*').order('name')
+      return fb.data || []
+    },
+    staleTime: 60 * 1000,
+  })
+
+  const { data: dbSignaturen = [] } = useQuery({
+    queryKey: ['signaturen'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('signaturen').select('*').eq('aktiv', true).order('name')
+      if (error) return []
       return data || []
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: 60 * 1000,
   })
+
+  const allSignaturen = (() => {
+    const byName = new Map<string, { id: string; name: string; text: string }>()
+    for (const s of BUILTIN_SIGNATUREN) byName.set(s.name, s)
+    for (const m of (mitarbeiterList as any[])) {
+      if (!m?.name) continue
+      const text = SIGNATUREN[m.name]
+        || `Mit freundlichen Grüßen\n${m.name}\n\nHöhenarbeiten Lassel GmbH\nHetzmannsdorf 25, 2041 Wullersdorf\nE-Mail: office@hoehenarbeiten-lassel.at`
+      byName.set(m.name, { id: m.id, name: m.name, text })
+    }
+    for (const s of (dbSignaturen as any[])) {
+      if (!s?.name) continue
+      byName.set(s.name, { id: `sig:${s.id}`, name: s.name, text: s.text || '' })
+    }
+    return Array.from(byName.values())
+  })()
+
+  const selectedSig = allSignaturen.find(s => s.id === signaturId)
+  const signaturText = selectedSig?.text || ''
+
+  const handleSaveNewSignatur = async () => {
+    const name = newSigName.trim()
+    const text = newSigText.trim()
+    if (!name || !text) { toast.error('Name und Signatur-Text sind Pflicht'); return }
+    setSavingSig(true)
+    try {
+      const { data, error } = await supabase.from('signaturen').insert({ name, text, aktiv: true }).select().single()
+      if (error) throw error
+      toast.success('Signatur gespeichert')
+      await queryClient.invalidateQueries({ queryKey: ['signaturen'] })
+      setSignaturId(`sig:${data.id}`)
+      setNewSigOpen(false); setNewSigName(''); setNewSigText('')
+    } catch (err: any) {
+      const msg = err?.message || 'Unbekannter Fehler'
+      if (/signaturen/i.test(msg) && /does not exist|not found|schema cache/i.test(msg)) {
+        toast.error('Tabelle fehlt — bitte Migration 015_signaturen.sql ausführen')
+      } else {
+        toast.error('Fehler beim Speichern: ' + msg)
+      }
+    } finally {
+      setSavingSig(false)
+    }
+  }
 
   const generateText = async (zusatzAnweisung?: string) => {
     setGenerating(true)
@@ -62,6 +139,7 @@ export default function ParksperreModal({ open, onClose, angebotsnummer, objektA
       setBetreff(`Antrag auf Parkraumsperre – ${objektAdresse || '[Adresse]'}`)
       if (!nachricht) generateText()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, objektAdresse])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -70,23 +148,78 @@ export default function ParksperreModal({ open, onClose, angebotsnummer, objektA
     e.target.value = ''
   }
 
+  /**
+   * Lädt alle ausgewählten Dateien in den `documents`-Bucket hoch und
+   * gibt ein Array von `{ url, name }` zurück — matched was der n8n-Flow
+   * unter body.attachments erwartet.
+   */
+  const uploadAttachmentsAndGetUrls = async () => {
+    if (dateien.length === 0) return [] as { url: string; name: string }[]
+    const results: { url: string; name: string }[] = []
+    for (const f of dateien) {
+      const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const filePath = `parksperre/${Date.now()}-${safeName}`
+      const { error: upErr } = await supabase.storage.from('documents').upload(filePath, f, { upsert: false })
+      if (upErr) {
+        console.error('[parksperre-upload]', upErr)
+        throw new Error(`Upload fehlgeschlagen für ${f.name}: ${upErr.message}`)
+      }
+      const { data } = supabase.storage.from('documents').getPublicUrl(filePath)
+      results.push({ url: data.publicUrl, name: f.name })
+    }
+    return results
+  }
+
   const handleSenden = async () => {
+    if (!emailAn.trim()) { toast.error('Empfänger-E-Mail fehlt'); return }
+    if (!signaturId) { toast.error('Bitte eine Signatur auswählen'); return }
     setSending(true)
     try {
-      const absender = (mitarbeiter as any[]).find((m: any) => m.id === absenderId)?.name || ''
-      await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/ab34322b-aed4-4a93-b232-9178bf75ecaf', {
+      // 1) Attachments hochladen um public URLs zu bekommen.
+      const attachments = await uploadAttachmentsAndGetUrls()
+
+      // 2) Signatur in HTML-safe + mit <br> umwandeln.
+      const signaturHtml = signaturText
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>')
+      const nachrichtHtml = nachricht
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>')
+
+      const bodyHtml = `
+        <div style="font-family: Arial, sans-serif; font-size: 14px; color: #222;">
+          ${nachrichtHtml}
+          <div style="margin-top: 32px; padding-top: 16px; border-top: 1px solid #e5e5e5; color: #555;">
+            ${signaturHtml}
+          </div>
+        </div>
+      `.trim()
+
+      // 3) Webhook feuern. Payload-Shape matched dem n8n-Flow:
+      //   body.attachments: [{ url, name }]
+      //   body.email: { to, subject, body }
+      await fetch(PARKSPERRE_WEBHOOK, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          typ: 'parksperre', angebotsnummer, objektAdresse,
-          emailAn, betreff, nachricht, absender,
-          timestamp: new Date().toISOString()
+          typ: 'parksperre',
+          angebotsnummer,
+          objektAdresse,
+          attachments,
+          email: {
+            to: emailAn,
+            subject: betreff,
+            body: bodyHtml,
+            mitarbeiter: selectedSig?.name || '',
+            signatur: signaturText,
+          },
+          timestamp: new Date().toISOString(),
         }),
-      }).catch(console.error)
+      })
       toast.success('Parksperre-Antrag versendet')
       onClose()
     } catch (err: any) {
-      toast.error('Fehler: ' + err.message)
+      toast.error('Fehler: ' + (err?.message || 'unbekannt'))
     } finally {
       setSending(false)
     }
@@ -95,72 +228,178 @@ export default function ParksperreModal({ open, onClose, angebotsnummer, objektA
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="h-[92vh] max-h-[92vh] p-0 overflow-hidden flex flex-col">
-        {/* Header */}
-        <DialogHeader className="px-6 pt-5 pb-4 border-b flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-600 rounded-lg p-2 flex-shrink-0">
+        <DialogHeader className="px-8 pt-6 pb-4 flex-shrink-0">
+          <DialogTitle className="flex items-center gap-2 text-xl">
+            <span className="bg-blue-600 rounded-lg p-1.5 inline-flex">
               <Car className="h-5 w-5 text-white" />
-            </div>
-            <DialogTitle className="text-lg font-semibold">Parksperre beantragen</DialogTitle>
-          </div>
+            </span>
+            Parksperre beantragen
+          </DialogTitle>
         </DialogHeader>
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-5">
-          {/* Empfänger + Absender */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <Label className="text-sm font-medium text-slate-700">Senden an</Label>
-              <Input value={emailAn} onChange={e => setEmailAn(e.target.value)} className="mt-1" />
-              <p className="text-xs text-slate-400 mt-1">MA46 – Parkraum und Straßenrecht</p>
-            </div>
-            <div>
-              <Label className="text-sm font-medium text-slate-700">Absender (Mitarbeiter)</Label>
-              <Select value={absenderId} onValueChange={v => setAbsenderId(v || '')}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Mitarbeiter auswählen..." /></SelectTrigger>
-                <SelectContent>
-                  {(mitarbeiter as any[]).map((m: any) => (
-                    <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+        <div className="flex-1 overflow-y-auto px-8 pb-4 space-y-6">
+          {/* Empfänger */}
+          <div>
+            <Label className="font-semibold">Senden an: <span className="text-red-500">*</span></Label>
+            <Input
+              value={emailAn}
+              onChange={e => setEmailAn(e.target.value)}
+              placeholder="post@ma46.wien.gv.at"
+              className="mt-2"
+            />
+            <p className="text-xs text-slate-400 mt-1">MA46 – Parkraum und Straßenrecht (Wien)</p>
           </div>
 
           {/* Betreff */}
           <div>
-            <Label className="text-sm font-medium text-slate-700">Betreff</Label>
-            <Input value={betreff} onChange={e => setBetreff(e.target.value)} className="mt-1" />
+            <Label className="font-semibold">Betreff:</Label>
+            <Input value={betreff} onChange={e => setBetreff(e.target.value)} className="mt-2" />
           </div>
 
-          {/* Nachricht */}
+          {/* Nachricht + KI */}
           <div>
-            <Label className="text-sm font-medium text-slate-700">Nachricht</Label>
+            <div className="flex items-center justify-between mb-2">
+              <Label className="font-semibold">Nachricht:</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => generateText()}
+                disabled={generating}
+                className="text-[#E85A1B] hover:bg-orange-50 gap-1.5"
+              >
+                {generating
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <Sparkles className="w-3.5 h-3.5" />
+                }
+                Neu generieren
+              </Button>
+            </div>
             {generating ? (
-              <div className="flex items-center gap-2 mt-3 h-[200px] bg-slate-50 rounded-lg border border-slate-200 justify-center">
+              <div className="flex items-center gap-2 h-[180px] bg-slate-50 rounded-lg border border-slate-200 justify-center">
                 <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
-                <span className="text-sm text-slate-500">Text wird generiert...</span>
+                <span className="text-sm text-slate-500">Text wird generiert…</span>
               </div>
             ) : (
               <Textarea
                 value={nachricht}
                 onChange={e => setNachricht(e.target.value)}
                 rows={9}
-                className="mt-1 resize-none font-mono text-sm"
+                className="resize-none font-mono text-sm"
               />
             )}
             <p className="text-xs text-slate-400 mt-1">{nachricht.length} Zeichen</p>
+
+            {/* KI-Prompt-Feld */}
+            <div className="mt-3 bg-blue-50 rounded-lg p-3 border border-blue-200">
+              <div className="flex items-center gap-2 mb-2">
+                <Sparkles className="h-4 w-4 text-blue-600" />
+                <span className="font-medium text-sm text-blue-900">KI-Assistent</span>
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  value={kiPrompt}
+                  onChange={e => setKiPrompt(e.target.value)}
+                  placeholder='z.B. "Zeitraum 2 Wochen" oder "Formeller"'
+                  className="text-sm"
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && kiPrompt.trim()) {
+                      generateText(kiPrompt)
+                      setKiPrompt('')
+                    }
+                  }}
+                />
+                <Button
+                  disabled={generating || !kiPrompt.trim()}
+                  onClick={() => { generateText(kiPrompt); setKiPrompt('') }}
+                  className="bg-blue-600 hover:bg-blue-700 shrink-0"
+                  size="sm"
+                >
+                  {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Generieren'}
+                </Button>
+              </div>
+            </div>
           </div>
 
-          {/* Screenshots Upload */}
+          {/* Signatur */}
           <div>
-            <Label className="text-sm font-medium text-slate-700">Anhänge (max. 3 Dateien)</Label>
-            <div className="mt-1 flex flex-wrap gap-2">
+            <div className="flex items-center justify-between mb-2">
+              <Label className="font-semibold">Signatur auswählen: <span className="text-red-500">*</span></Label>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setNewSigOpen(v => !v)}
+                className="gap-1"
+              >
+                <Plus className="w-4 h-4" />
+                Neue Signatur
+              </Button>
+            </div>
+            <Select
+              key={`signatur-select-${allSignaturen.length}`}
+              value={signaturId}
+              onValueChange={v => setSignaturId(v || '')}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={allSignaturen.length === 0 ? 'Signaturen werden geladen…' : 'Signatur auswählen…'} />
+              </SelectTrigger>
+              <SelectContent>
+                {allSignaturen.length === 0 ? (
+                  <div className="px-3 py-2 text-sm text-slate-400">Keine Signaturen vorhanden</div>
+                ) : (
+                  allSignaturen.map(s => (
+                    <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+
+            {newSigOpen && (
+              <div className="mt-3 border border-slate-200 rounded-lg p-3 bg-slate-50 space-y-2">
+                <div>
+                  <Label className="text-xs">Name</Label>
+                  <Input value={newSigName} onChange={e => setNewSigName(e.target.value)} placeholder="z.B. Max Mustermann" className="mt-1" />
+                </div>
+                <div>
+                  <Label className="text-xs">Signatur-Text</Label>
+                  <Textarea
+                    value={newSigText}
+                    onChange={e => setNewSigText(e.target.value)}
+                    rows={5}
+                    placeholder={'Mit freundlichen Grüßen\nMax Mustermann\n…'}
+                    className="mt-1 resize-none font-mono text-sm"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-1">
+                  <Button variant="outline" size="sm" onClick={() => { setNewSigOpen(false); setNewSigName(''); setNewSigText('') }} disabled={savingSig}>
+                    Abbrechen
+                  </Button>
+                  <Button size="sm" onClick={handleSaveNewSignatur} disabled={savingSig || !newSigName.trim() || !newSigText.trim()} className="bg-[#E85A1B] hover:bg-[#c94d17] text-white">
+                    {savingSig ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
+                    Speichern
+                  </Button>
+                </div>
+              </div>
+            )}
+            {signaturText && (
+              <Textarea readOnly value={signaturText} rows={5} className="mt-2 resize-none bg-slate-50 text-sm font-mono" />
+            )}
+          </div>
+
+          {/* Skizzen / Anhänge */}
+          <div>
+            <Label className="font-semibold">Anhänge (Skizzen, max. 3 Dateien):</Label>
+            <div className="mt-2 flex flex-wrap gap-2">
               {dateien.map((f, i) => (
                 <div key={i} className="flex items-center gap-1 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5 text-xs">
                   <Paperclip className="w-3 h-3 text-blue-600" />
-                  <span className="text-blue-700 max-w-[120px] truncate">{f.name}</span>
-                  <button onClick={() => setDateien(d => d.filter((_, j) => j !== i))} className="text-blue-400 hover:text-blue-600 ml-1">
+                  <span className="text-blue-700 max-w-[160px] truncate" title={f.name}>{f.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => setDateien(d => d.filter((_, j) => j !== i))}
+                    className="text-blue-400 hover:text-blue-600 ml-1"
+                    disabled={sending}
+                  >
                     <X className="w-3 h-3" />
                   </button>
                 </div>
@@ -173,38 +412,22 @@ export default function ParksperreModal({ open, onClose, angebotsnummer, objektA
                 </label>
               )}
             </div>
-          </div>
-
-          {/* KI-Assistent */}
-          <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
-            <div className="flex items-center gap-2 mb-3">
-              <Sparkles className="h-4 w-4 text-blue-600" />
-              <span className="font-medium text-sm text-blue-900">KI-Assistent</span>
-            </div>
-            <div className="flex gap-2">
-              <Input
-                value={kiPrompt}
-                onChange={e => setKiPrompt(e.target.value)}
-                placeholder='z.B. "Zeitraum 2 Wochen" oder "Formeller"'
-                className="text-sm"
-                onKeyDown={e => { if (e.key === 'Enter' && kiPrompt.trim()) { generateText(kiPrompt); setKiPrompt('') } }}
-              />
-              <Button
-                disabled={generating || !kiPrompt.trim()}
-                onClick={() => { generateText(kiPrompt); setKiPrompt('') }}
-                className="bg-blue-600 hover:bg-blue-700 shrink-0"
-                size="sm"
-              >
-                {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Generieren'}
-              </Button>
-            </div>
+            {dateien.length > 0 && (
+              <p className="text-xs text-slate-400 mt-1">
+                Dateien werden beim Senden hochgeladen und per URL an n8n übergeben (Zip-Anhang).
+              </p>
+            )}
           </div>
         </div>
 
         {/* Footer */}
-        <div className="border-t px-6 py-4 flex justify-end gap-3 flex-shrink-0 bg-white">
-          <Button variant="outline" onClick={onClose}>Abbrechen</Button>
-          <Button onClick={handleSenden} disabled={sending} className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
+        <div className="border-t px-8 py-4 flex justify-end gap-3 flex-shrink-0 bg-white">
+          <Button variant="outline" onClick={onClose} disabled={sending}>Abbrechen</Button>
+          <Button
+            onClick={handleSenden}
+            disabled={sending || !emailAn.trim() || !signaturId}
+            className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+          >
             {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="h-4 w-4" />}
             Antrag absenden
           </Button>
