@@ -970,8 +970,10 @@ export default function OfferDetailPage() {
             }
           }}
         >
-          {/* Left: Rechnungsempfänger + Objekt */}
-          <div className="space-y-6">
+          {/* Left: Rechnungsempfänger + Objekt — flex-col + Objekt-Card als
+              flex-1 damit die letzte Karte bis zum unteren Ende der rechten
+              Spalte reicht (sonst Weißraum darunter). */}
+          <div className="space-y-6 flex flex-col">
             <Card className="p-6">
               <div className="flex items-start justify-between mb-4">
                 <h2 className="text-lg font-semibold text-slate-900">Rechnungsempfänger</h2>
@@ -1009,7 +1011,7 @@ export default function OfferDetailPage() {
               </div>
             </Card>
 
-            <Card className="p-6">
+            <Card className="p-6 flex-1">
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Objekt (Baustellenadresse)</h2>
               <div className="grid grid-cols-1 gap-4">
                 <div>

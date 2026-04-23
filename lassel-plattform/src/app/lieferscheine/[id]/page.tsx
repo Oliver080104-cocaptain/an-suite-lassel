@@ -659,10 +659,11 @@ export default function DeliveryNoteDetailPage() {
             </Card>
           </div>
 
-          {/* Right */}
-          <div className="space-y-6">
+          {/* Right — h-full damit die Lieferscheindaten-Karte bis zum unteren
+              Rand der linken Spalte reicht (sonst Weißraum unter der Kachel). */}
+          <div className="space-y-6 flex flex-col">
             {/* Lieferscheindaten */}
-            <Card className="p-6">
+            <Card className="p-6 flex-1">
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Lieferscheindaten</h2>
               <div className="space-y-4">
                 <div>
