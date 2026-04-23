@@ -514,7 +514,7 @@ export default function DeliveryNoteDetailPage() {
                   expectedPrefix="LI-"
                   placeholder="Lieferschein"
                   onSaved={(next) => {
-                    setDn({ ...dn, lieferscheinnummer: next })
+                    setDn(prev => ({ ...prev, lieferscheinnummer: next }))
                     setPreviewVersion((v) => v + 1)
                   }}
                 />
