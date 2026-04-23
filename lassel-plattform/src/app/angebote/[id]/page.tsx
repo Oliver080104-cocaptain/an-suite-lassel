@@ -114,7 +114,13 @@ export default function OfferDetailPage() {
     queryKey: ['linkedInvoices', offerId],
     queryFn: async () => {
       if (!offerId) return []
-      const { data, error } = await supabase.from('rechnungen').select('*').eq('angebot_id', offerId)
+      // Papierkorb-Docs (geloescht_am != null) ausblenden, damit die
+      // Verknüpfte-Dokumente-Karte synchron mit dem Papierkorb bleibt.
+      const { data, error } = await supabase
+        .from('rechnungen')
+        .select('*')
+        .eq('angebot_id', offerId)
+        .is('geloescht_am', null)
       if (error) return []
       return data || []
     },
@@ -125,7 +131,11 @@ export default function OfferDetailPage() {
     queryKey: ['linkedDeliveryNotes', offerId],
     queryFn: async () => {
       if (!offerId) return []
-      const { data, error } = await supabase.from('lieferscheine').select('*').eq('angebot_id', offerId)
+      const { data, error } = await supabase
+        .from('lieferscheine')
+        .select('*')
+        .eq('angebot_id', offerId)
+        .is('geloescht_am', null)
       if (error) return []
       return data || []
     },

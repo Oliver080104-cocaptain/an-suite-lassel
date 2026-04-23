@@ -45,9 +45,11 @@ export default function RechnungenPage() {
   const { data: invoices = [], isLoading } = useQuery({
     queryKey: ['rechnungen'],
     queryFn: async () => {
+      // Nur nicht-gelöschte (Papierkorb ausgeblendet). Analog zu Angebote.
       const { data, error } = await supabase
         .from('rechnungen')
         .select('*')
+        .is('geloescht_am', null)
         .order('created_at', { ascending: false })
       if (error) throw error
       return data || []
@@ -84,15 +86,19 @@ export default function RechnungenPage() {
 
   const deleteInvoiceMutation = useMutation({
     mutationFn: async (invoiceId: string) => {
+      // Soft-Delete (konsistent zu Angebote). Dokument landet im Papierkorb,
+      // geloescht_am-Timestamp wird gesetzt. Nach 10 Tagen räumt ein Job
+      // den Papierkorb.
       const { error } = await supabase
         .from('rechnungen')
-        .delete()
+        .update({ geloescht_am: new Date().toISOString() })
         .eq('id', invoiceId)
       if (error) throw error
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['rechnungen'] })
-      toast.success('Rechnung gelöscht')
+      queryClient.invalidateQueries({ queryKey: ['linkedInvoices'] })
+      toast.success('Rechnung in Papierkorb verschoben')
     },
     onError: (error: Error) => {
       toast.error('Fehler beim Löschen: ' + error.message)

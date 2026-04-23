@@ -53,7 +53,7 @@ export default function AnalyticsPage() {
   const { data: invoices = [] } = useQuery({
     queryKey: ['invoices'],
     queryFn: async () => {
-      const { data } = await supabase.from('rechnungen').select('*')
+      const { data } = await supabase.from('rechnungen').select('*').is('geloescht_am', null)
       return data || []
     },
     enabled: isAuthenticated,

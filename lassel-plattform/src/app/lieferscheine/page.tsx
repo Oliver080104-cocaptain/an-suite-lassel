@@ -32,9 +32,11 @@ export default function LieferscheinePage() {
   const { data: deliveryNotes = [], isLoading } = useQuery({
     queryKey: ['lieferscheine'],
     queryFn: async () => {
+      // Papierkorb-Docs ausblenden (konsistent zu Angebote + Rechnungen).
       const { data, error } = await supabase
         .from('lieferscheine')
         .select('*')
+        .is('geloescht_am', null)
         .order('created_at', { ascending: false })
       if (error) throw error
       return data || []
@@ -62,15 +64,18 @@ export default function LieferscheinePage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
+      // Soft-Delete (konsistent zu Angebote + Rechnungen). Wandert in den
+      // Papierkorb, nach 10 Tagen endgültige Löschung durch Job.
       const { error } = await supabase
         .from('lieferscheine')
-        .delete()
+        .update({ geloescht_am: new Date().toISOString() })
         .eq('id', id)
       if (error) throw error
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['lieferscheine'] })
-      toast.success('Lieferschein gelöscht')
+      queryClient.invalidateQueries({ queryKey: ['linkedDeliveryNotes'] })
+      toast.success('Lieferschein in Papierkorb verschoben')
     },
     onError: (error: Error) => {
       toast.error('Fehler beim Löschen: ' + error.message)
