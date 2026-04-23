@@ -13,7 +13,14 @@ import { NextRequest, NextResponse } from 'next/server'
  * (kein Access-Control-Allow-Origin).
  */
 
-const PARKSPERRE_WEBHOOK = 'https://n8n.srv1367876.hstgr.cloud/webhook/7836c00e-ddef-4c0a-90b9-be803b9dc3a9'
+// Zwei URL-Varianten probieren — je nach n8n-Deploy matched mal die UUID,
+// mal der Custom-Path. Wir probieren erst UUID, dann den percent-encodeten
+// Custom-Path. Hilfreich falls der User die Webhook-Node neu anlegt oder
+// den Path ändert ohne UUID zu wissen.
+const PARKSPERRE_WEBHOOKS = [
+  'https://n8n.srv1367876.hstgr.cloud/webhook/7836c00e-ddef-4c0a-90b9-be803b9dc3a9',
+  'https://n8n.srv1367876.hstgr.cloud/webhook/parkraumsperre%20beantragen',
+]
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -40,39 +47,57 @@ export async function POST(req: NextRequest) {
     const angebotsnummer = body.angebotsnummer || ''
     const objektAdresse = body.objektAdresse || ''
 
-    const n8nResp = await fetch(PARKSPERRE_WEBHOOK, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        typ: 'parksperre',
-        angebotsnummer,
-        objektAdresse,
-        attachments,
-        email: {
-          to: email.to,
-          subject: email.subject || '',
-          body: email.body || '',
-          mitarbeiter: email.mitarbeiter || '',
-          signatur: email.signatur || '',
-        },
-        timestamp: new Date().toISOString(),
-      }),
+    const payload = JSON.stringify({
+      typ: 'parksperre',
+      angebotsnummer,
+      objektAdresse,
+      attachments,
+      email: {
+        to: email.to,
+        subject: email.subject || '',
+        body: email.body || '',
+        mitarbeiter: email.mitarbeiter || '',
+        signatur: email.signatur || '',
+      },
+      timestamp: new Date().toISOString(),
     })
 
-    const n8nText = await n8nResp.text().catch(() => '')
-    if (!n8nResp.ok) {
-      console.error('[parksperre-senden] n8n failed', {
-        status: n8nResp.status,
-        statusText: n8nResp.statusText,
-        body: n8nText.slice(0, 1000),
-        url: PARKSPERRE_WEBHOOK,
-      })
+    // Fallback-Chain: ersten Webhook probieren, bei non-2xx den nächsten.
+    // So tauchen 404/405 auf UUID-Route nicht als sofortiger Fehler auf,
+    // wenn n8n den Webhook unter dem custom-Path registriert hat.
+    const attempts: { url: string; status: number; statusText: string; body: string }[] = []
+    let okResp: Response | null = null
+
+    for (const url of PARKSPERRE_WEBHOOKS) {
+      try {
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+        })
+        if (resp.ok) {
+          okResp = resp
+          break
+        }
+        const txt = await resp.text().catch(() => '')
+        attempts.push({ url, status: resp.status, statusText: resp.statusText, body: txt.slice(0, 500) })
+      } catch (fetchErr: any) {
+        attempts.push({
+          url,
+          status: 0,
+          statusText: fetchErr?.message || 'fetch-threw',
+          body: '',
+        })
+      }
+    }
+
+    if (!okResp) {
+      console.error('[parksperre-senden] all n8n attempts failed', attempts)
       return NextResponse.json(
         {
           error: 'n8n-webhook-failed',
-          n8nStatus: n8nResp.status,
-          n8nStatusText: n8nResp.statusText,
-          n8nResponse: n8nText.slice(0, 500),
+          hint: 'Alle n8n-Webhook-URLs haben non-2xx geliefert. Prüfe ob der Flow in n8n AKTIV ist (nicht nur gespeichert — "Active"-Toggle oben rechts muss grün sein).',
+          attempts,
         },
         { status: 502 }
       )

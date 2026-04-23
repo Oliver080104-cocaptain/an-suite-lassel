@@ -223,9 +223,15 @@ export default function ParksperreModal({ open, onClose, angebotsnummer, objektA
         }),
       })
       if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}))
-        const extra = err?.n8nStatus ? ` (n8n ${err.n8nStatus})` : ''
-        throw new Error((err?.error || `HTTP ${resp.status}`) + extra)
+        const err: any = await resp.json().catch(() => ({}))
+        console.error('[parksperre-senden] server error', err)
+        let msg = err?.error || `HTTP ${resp.status}`
+        if (err?.hint) msg += ` — ${err.hint}`
+        if (Array.isArray(err?.attempts) && err.attempts.length > 0) {
+          const first = err.attempts[0]
+          msg += ` (letzter n8n-Response: ${first.status} ${first.statusText})`
+        }
+        throw new Error(msg)
       }
 
       toast.success('Parksperre-Antrag versendet')
