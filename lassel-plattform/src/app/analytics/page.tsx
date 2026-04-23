@@ -87,26 +87,47 @@ export default function AnalyticsPage() {
     .map((m: any) => m.id as string)
 
   const addMitarbeiterMutation = useMutation({
-    mutationFn: async (name: string) => {
-      // Defensiver Insert: wenn die 'aktiv'-Spalte in der Prod-DB fehlt
-      // (Schema-Drift — Migration 019 nicht gelaufen) strippen wir sie
-      // aus dem payload und retryen. Sonst bekommen User 400-Fehler die
-      // sie nicht interpretieren können.
-      const tryInsert = async (payload: Record<string, unknown>) =>
-        supabase.from('mitarbeiter').insert(payload)
+    mutationFn: async (fullName: string) => {
+      // Die Prod-DB wird von einer anderen Software mitgenutzt, die
+      // vorname (NOT NULL) + nachname-Spalten auf mitarbeiter angelegt
+      // hat. Wir splitten den eingegebenen Namen an der ersten Lücke:
+      // alles vor dem Leerzeichen = vorname, der Rest = nachname.
+      // Wenn kein Leerzeichen vorhanden: alles = vorname, nachname = ''.
+      const trimmed = fullName.trim()
+      const firstSpace = trimmed.indexOf(' ')
+      const vorname = firstSpace === -1 ? trimmed : trimmed.slice(0, firstSpace)
+      // Fallback '-' falls der User nur einen Namen eingibt — falls die andere
+      // Software nachname ebenfalls NOT NULL hat, satisfied das die Constraint.
+      // User kann den Nachnamen später in der anderen Software anpassen.
+      const nachname = firstSpace === -1 ? '-' : (trimmed.slice(firstSpace + 1).trim() || '-')
 
-      let { error } = await tryInsert({ name, aktiv: true })
-      if (error) {
+      // Payload mit allen potentiell relevanten Spalten — wir wissen nicht
+      // welche die andere Software NOT-NULL-required hat. Liste wird bei
+      // Schema-Drift-Errors automatisch gekürzt (siehe Retry-Loop unten).
+      const basePayload: Record<string, unknown> = {
+        name: trimmed,        // unser app-eigenes Feld
+        vorname,              // von der anderen software, NOT NULL
+        nachname,             // von der anderen software, ggf. auch NOT NULL
+        aktiv: true,          // von unserem schema, default true
+      }
+
+      // Retry-Loop: bis zu 5x versuchen. Bei "Could not find the 'X' column"-
+      // Fehlern wird die fehlende Spalte aus dem payload gestrippt und neu
+      // versucht. Andere Fehler (z.B. NOT-NULL-Violation) werden sofort
+      // durchgereicht.
+      let payload = { ...basePayload }
+      for (let i = 0; i < 5; i++) {
+        const { error } = await supabase.from('mitarbeiter').insert(payload)
+        if (!error) return
         const missingCol = /Could not find the '(\w+)' column/i.exec(error.message || '')?.[1]
-        if (missingCol && missingCol in { name: true, aktiv: true }) {
-          const fallbackPayload: Record<string, unknown> = { name, aktiv: true }
-          delete fallbackPayload[missingCol]
-          const retry = await tryInsert(fallbackPayload)
-          if (retry.error) throw retry.error
-          return
+        if (missingCol && missingCol in payload) {
+          console.warn(`[mitarbeiter.insert] Spalte '${missingCol}' fehlt im Schema — retry ohne.`)
+          delete payload[missingCol]
+          continue
         }
         throw error
       }
+      throw new Error('[mitarbeiter.insert] zu viele Schema-Drift-Retries')
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mitarbeiter'] })
@@ -526,7 +547,7 @@ export default function AnalyticsPage() {
           </h2>
           <div className="flex gap-3 mb-4">
             <Input
-              placeholder="Name des Mitarbeiters"
+              placeholder="Vorname Nachname — z.B. Max Mustermann"
               value={newMitarbeiterName}
               onChange={(e) => setNewMitarbeiterName(e.target.value)}
               onKeyDown={(e) => {
