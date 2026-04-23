@@ -186,15 +186,7 @@ export default function OfferDetailPage() {
   })
 
   useEffect(() => {
-    console.log('[DEBUG offer-init-effect]', {
-      hasExistingOffer: !!existingOffer,
-      initialized: offerInitialized.current,
-      willSetState: !!(existingOffer && !offerInitialized.current),
-      existingKundeStrasse: existingOffer?.kunde_strasse,
-      currentKundeStrasse: offer.kunde_strasse,
-    })
     if (existingOffer && !offerInitialized.current) {
-      console.log('[DEBUG offer-init-effect] SETTING STATE from existingOffer')
       setOffer({
         ...existingOffer,
         gueltig_bis: existingOffer.gueltig_bis || format(addDays(new Date(), 30), 'yyyy-MM-dd'),
@@ -213,25 +205,6 @@ export default function OfferDetailPage() {
       justInitialized.current = true // verhindert den Phantom-Autosave-mit-Init-Daten
     }
   }, [existingOffer])
-
-  // === DIAGNOSTICS: State-Reset-Bug-Hunt (2026-04-23) ===
-  // Track jeden Mount/Unmount der Detail-Page
-  useEffect(() => {
-    console.log('[DEBUG mount] OfferDetailPage mounted', { offerId, isNew })
-    return () => console.log('[DEBUG unmount] OfferDetailPage UNMOUNTED', { offerId })
-  }, [])
-
-  // Track jede offer-State-Änderung mit Stack-Trace
-  useEffect(() => {
-    console.log('[DEBUG offer-change]', {
-      kunde_name: offer.kunde_name,
-      kunde_strasse: offer.kunde_strasse,
-      kunde_plz: offer.kunde_plz,
-      kunde_ort: offer.kunde_ort,
-      initialized: offerInitialized.current,
-    })
-  }, [offer.kunde_strasse, offer.kunde_plz, offer.kunde_ort])
-  // === END DIAGNOSTICS ===
 
   useEffect(() => {
     if (existingPositions.length > 0 && !positionsInitialized.current) {
@@ -279,7 +252,6 @@ export default function OfferDetailPage() {
     // mit den stale-cache-Werten überschreibt.
     if (justInitialized.current) {
       justInitialized.current = false
-      console.log('[DEBUG autosave] skipping init-triggered change')
       return
     }
     debouncedAutoSave()
@@ -376,12 +348,6 @@ export default function OfferDetailPage() {
     setSaveStatus('saving')
     try {
       const saveData = buildOfferData({ ...offer, ...totals })
-      console.log('[DEBUG autosave] sending to DB:', {
-        kunde_strasse: saveData.kunde_strasse,
-        kunde_plz: saveData.kunde_plz,
-        kunde_ort: saveData.kunde_ort,
-        kunde_uid: saveData.kunde_uid,
-      })
       const { error: offerErr } = await supabase
         .from('angebote')
         .update(saveData)
@@ -916,12 +882,6 @@ export default function OfferDetailPage() {
               <p className="text-sm text-slate-600 mt-1">
                 {isNew ? 'Angebot erstellen' : (createdAt ? `Erstellt am ${format(new Date(createdAt), 'dd.MM.yyyy')}` : '')}
               </p>
-              {/* TEMP DEBUG BANNER — zeigt live den state für adress-felder.
-                  Wenn dieser banner "leer" zeigt nachdem du getippt hast,
-                  wissen wir dass state weg ist (nicht nur die DB).  */}
-              <div className="text-[10px] font-mono text-slate-400 mt-1 bg-yellow-50 border border-yellow-200 rounded px-2 py-0.5 inline-block">
-                state: strasse=[{offer.kunde_strasse || '∅'}] plz=[{offer.kunde_plz || '∅'}] ort=[{offer.kunde_ort || '∅'}] uid=[{offer.kunde_uid || '∅'}]
-              </div>
             </div>
           </div>
           <div className="ml-auto">
@@ -998,7 +958,18 @@ export default function OfferDetailPage() {
         </div>
 
         {/* 2-column layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        {/* onBlurCapture sorgt dafür dass beim Verlassen jedes Feldes der
+            pending autosave sofort ausgeführt wird (kein Warten auf die 1s-
+            Debounce mehr). Schützt gegen Datenverlust wenn User direkt nach
+            dem Tippen den Tab schließt oder weg-navigiert. */}
+        <div
+          className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8"
+          onBlurCapture={() => {
+            if (!isNew && offerId && offerInitialized.current) {
+              debouncedAutoSave.flush()
+            }
+          }}
+        >
           {/* Left: Rechnungsempfänger + Objekt */}
           <div className="space-y-6">
             <Card className="p-6">
