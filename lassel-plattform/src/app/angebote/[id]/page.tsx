@@ -86,6 +86,14 @@ export default function OfferDetailPage() {
   const pendingChangesDuringSave = useRef(false)
   const positionsInitialized = useRef(false)
   const offerInitialized = useRef(false)
+  // KRITISCH: "gerade initialisiert" — wird ON true gesetzt wenn der init
+  // useEffect den state aus existingOffer lädt. Die autosave-useEffect
+  // skippt dann den ERSTEN state-change der durch das init kommt, damit
+  // wir nicht direkt nach dem Laden einen autosave mit stale-cache-daten
+  // rausfeuern (und damit z.B. gerade erst gespeicherte Werte wieder
+  // nullen wenn die Seite mid-save unmounted+remounted wurde).
+  // Siehe Bugfix 2026-04-23 v3 — Logs zeigten unmount→remount→autosave-mit-null.
+  const justInitialized = useRef(false)
   const statusResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const { data: existingOffer, isLoading: loadingOffer } = useQuery({
@@ -202,6 +210,7 @@ export default function OfferDetailPage() {
         ansprechpartner: existingOffer.ansprechpartner || '',
       })
       offerInitialized.current = true
+      justInitialized.current = true // verhindert den Phantom-Autosave-mit-Init-Daten
     }
   }, [existingOffer])
 
@@ -263,6 +272,16 @@ export default function OfferDetailPage() {
 
   useEffect(() => {
     if (isNew || !offerId || !offerInitialized.current) return
+    // Der erste offer-change nach dem init kommt vom init selbst (setOffer mit
+    // existingOffer-Daten), NICHT vom User. Diesen einen skippen, sonst
+    // feuern wir beim Laden direkt einen autosave mit cache-state raus —
+    // was auf einem Remount mid-save die frisch gespeicherten Daten wieder
+    // mit den stale-cache-Werten überschreibt.
+    if (justInitialized.current) {
+      justInitialized.current = false
+      console.log('[DEBUG autosave] skipping init-triggered change')
+      return
+    }
     debouncedAutoSave()
   }, [offer, positions, isNew, offerId, debouncedAutoSave])
 
@@ -371,6 +390,10 @@ export default function OfferDetailPage() {
       const posToSave = positions.filter((p: any) => p.produktName?.trim() || p.beschreibung?.trim())
       await savePositions(offerId, posToSave)
       queryClient.invalidateQueries({ queryKey: ['offerPositions', offerId] })
+      // WICHTIG: den offer-cache ebenfalls invalidieren, sonst zeigt ein
+      // Remount der Seite (z.B. durch Browser-Extension-DOM-Manipulation
+      // oder Suspense-Reparenting) die stale cache-Daten statt DB-Werten.
+      queryClient.invalidateQueries({ queryKey: ['offer', offerId] })
       setPreviewVersion((v) => v + 1)
       setSaveStatus('saved')
     } catch (error) {
