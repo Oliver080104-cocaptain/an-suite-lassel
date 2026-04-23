@@ -434,34 +434,61 @@ export default function DeliveryNoteDetailPage() {
       await savePositions(deliveryNoteId, positions, existingPositions)
       await syncPositionsToTicket()
 
-      await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/b15d8baa-e8ec-4d8a-aa85-0865048b9c31', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lieferscheinId: deliveryNoteId,
-          lieferscheinNummer: dn.lieferscheinnummer,
-          pdfUrl: `${window.location.origin}/api/pdf/lieferschein/${deliveryNoteId}`,
-          ticketId: dn.zoho_ticket_id,
-          ticketNumber: dn.ticket_nummer,
-          datum: dn.lieferdatum,
-          status: dn.status,
-          kundeName: dn.kunde_name,
-          objektBezeichnung: dn.objekt_adresse || dn.objekt_bezeichnung,
-          erstelltDurch: dn.erstellt_von,
-          referenzAngebotNummer: dn.referenz_angebot_nummer,
-          positionen: positions.map(p => {
-            const lines = (p.beschreibung || '').split('\n')
-            return {
-              pos: p.pos,
-              produktName: lines[0] || '',
-              beschreibung: lines.slice(1).join('\n'),
-              menge: parseFloat(p.menge as string) || 1,
-              einheit: p.einheit || 'Stk',
-            }
-          }),
-          timestamp: new Date().toISOString(),
-        }),
+      // Positionen einmal für beide Webhooks aufbereiten.
+      const positionenForWebhook = positions.map(p => {
+        const lines = (p.beschreibung || '').split('\n')
+        return {
+          pos: p.pos,
+          produktName: lines[0] || '',
+          beschreibung: lines.slice(1).join('\n'),
+          menge: parseFloat(p.menge as string) || 1,
+          einheit: p.einheit || 'Stk',
+        }
       })
+      const editUrl = `${window.location.origin}/lieferscheine/${deliveryNoteId}`
+
+      // Beide n8n-Flows parallel anstoßen:
+      // 1) b15d8baa — Workdrive-Ablage + generic Lieferschein-Event
+      // 2) 5e4e9681 — Zoho CRM Ticket updaten (Lieferschein_Formular Subform + Projektstatus)
+      await Promise.allSettled([
+        fetch('https://n8n.srv1367876.hstgr.cloud/webhook/b15d8baa-e8ec-4d8a-aa85-0865048b9c31', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lieferscheinId: deliveryNoteId,
+            lieferscheinNummer: dn.lieferscheinnummer,
+            pdfUrl: `${window.location.origin}/api/pdf/lieferschein/${deliveryNoteId}`,
+            ticketId: dn.zoho_ticket_id,
+            ticketNumber: dn.ticket_nummer,
+            datum: dn.lieferdatum,
+            status: dn.status,
+            kundeName: dn.kunde_name,
+            objektBezeichnung: dn.objekt_adresse || dn.objekt_bezeichnung,
+            erstelltDurch: dn.erstellt_von,
+            referenzAngebotNummer: dn.referenz_angebot_nummer,
+            editUrl,
+            positionen: positionenForWebhook,
+            timestamp: new Date().toISOString(),
+          }),
+        }),
+        fetch('https://n8n.srv1367876.hstgr.cloud/webhook/5e4e9681-a79e-42be-a1d0-309bfdc36909', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lieferscheinId: deliveryNoteId,
+            lieferscheinNummer: dn.lieferscheinnummer,
+            editUrl,
+            angebot: {
+              ticketId: dn.zoho_ticket_id || null,
+              ticketNumber: dn.ticket_nummer || null,
+              angebotId: dn.angebot_id || null,
+              referenzAngebotNummer: dn.referenz_angebot_nummer || null,
+            },
+            positionen: positionenForWebhook,
+            timestamp: new Date().toISOString(),
+          }),
+        }),
+      ])
       toast.success('In Zoho & Tourenplaner übertragen')
     } catch (err: any) {
       console.error('Push to Zoho error:', err)
