@@ -151,6 +151,20 @@ export default function DeliveryNoteDetailPage() {
     }
   }, [existingPositions])
 
+  /**
+   * Synchroner "Flush": bricht den pending Debounce ab und startet sofort
+   * einen autosave. Wird von onBlurCapture auf dem Form-Grid aufgerufen,
+   * damit der Save nicht erst 1 sec nach Feldwechsel losläuft.
+   */
+  const flushAutoSaveNow = () => {
+    if (isNew || !deliveryNoteId || !dnInitialized.current) return
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current)
+      debounceTimer.current = null
+    }
+    triggerAutoSave()
+  }
+
   // Zentrale Auto-Save-Trigger-Funktion mit Race-Schutz.
   const triggerAutoSave = () => {
     if (autoSaveLock.current) {
@@ -581,8 +595,13 @@ export default function DeliveryNoteDetailPage() {
           </div>
         </div>
 
-        {/* 2-column layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        {/* 2-column layout — onBlurCapture flusht pending autosave sobald
+            ein Feld verlassen wird. Schützt gegen Datenverlust bei Tab-Close
+            innerhalb der 1s-Debounce-Fenster. */}
+        <div
+          className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8"
+          onBlurCapture={flushAutoSaveNow}
+        >
 
           {/* Left */}
           <div className="space-y-6">

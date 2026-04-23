@@ -345,6 +345,20 @@ export default function InvoiceDetailPage() {
     autoSaveLock.current = true
   }
 
+  /**
+   * Synchroner "Flush": bricht den pending Debounce ab und startet sofort
+   * einen autosave. Wird von onBlurCapture auf den Form-Grids aufgerufen,
+   * damit der Save nicht erst 1 sec nach Feldwechsel losläuft.
+   */
+  const flushAutoSaveNow = () => {
+    if (isNew || !invoiceId || !invoiceInitialized.current) return
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current)
+      debounceTimer.current = null
+    }
+    triggerAutoSave()
+  }
+
   // Zentrale Trigger-Funktion mit Race-Schutz: wenn bereits ein Save läuft,
   // Dirty-Flag setzen und nach dem laufenden Save erneut triggern — sonst gehen
   // Eingaben verloren die während eines laufenden Saves getippt wurden.
@@ -997,8 +1011,13 @@ export default function InvoiceDetailPage() {
           </Card>
         )}
 
-        {/* Main grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        {/* Main grid — onBlurCapture flusht pending autosave sobald ein Feld
+            verlassen wird. Schützt gegen Datenverlust bei Tab-Close innerhalb
+            der 1s-Debounce-Fenster. */}
+        <div
+          className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6"
+          onBlurCapture={flushAutoSaveNow}
+        >
           {/* Left: Kundendaten + Objekt */}
           <div className="space-y-6">
             <Card className="p-6">
@@ -1484,8 +1503,11 @@ export default function InvoiceDetailPage() {
           </Card>
         )}
 
-        {/* Anmerkungen + Summary */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        {/* Anmerkungen + Summary — gleicher Blur-Flush wie oben */}
+        <div
+          className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6"
+          onBlurCapture={flushAutoSaveNow}
+        >
           <Card className="p-6">
             <h2 className="text-lg font-semibold text-slate-900 mb-4">Anmerkungen</h2>
             <Textarea
