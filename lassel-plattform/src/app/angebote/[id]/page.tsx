@@ -1388,8 +1388,9 @@ export default function OfferDetailPage() {
           <EmailVorschauModal
             open={emailModalOpen}
             onClose={() => setEmailModalOpen(false)}
-            offerId={offerId}
-            angebotsnummer={offer.angebotsnummer || ''}
+            docId={offerId}
+            docNummer={offer.angebotsnummer || ''}
+            docType="angebot"
             kundeName={offer.kunde_name || ''}
             objektAdresse={offer.objekt_adresse || offer.objekt_bezeichnung || ''}
             bruttoGesamt={totals.brutto_gesamt}

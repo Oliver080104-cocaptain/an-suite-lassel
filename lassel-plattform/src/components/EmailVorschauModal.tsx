@@ -15,8 +15,13 @@ import { toast } from 'sonner'
 interface Props {
   open: boolean
   onClose: () => void
-  offerId: string
-  angebotsnummer: string
+  /** ID des Dokuments (angebote.id oder rechnungen.id). */
+  docId: string
+  /** Dokumentnummer wie "AN-2026-00059" oder "RE-2026-00012". */
+  docNummer: string
+  /** Dokumenttyp steuert Betreff-Default, Supabase-Table, Webhook + PDF-Pfad.
+   *  Default 'angebot' für Backward-Compat zu bestehenden Aufrufen. */
+  docType?: 'angebot' | 'rechnung'
   kundeName: string
   objektAdresse?: string
   bruttoGesamt?: number
@@ -24,6 +29,27 @@ interface Props {
   emailAn?: string
   onSent?: () => void
 }
+
+const DOC_CONFIG = {
+  angebot: {
+    tabelle: 'angebote',
+    statusUpdate: 'versendet',
+    pdfPath: 'angebot',
+    pdfFilePrefix: 'Angebot',
+    webhook: 'https://n8n.srv1367876.hstgr.cloud/webhook/ab34322b-aed4-4a93-b232-9178bf75ecaf',
+    betreff: (nr: string) => `Ihr Angebot ${nr}`,
+    kiTyp: 'angebot',
+  },
+  rechnung: {
+    tabelle: 'rechnungen',
+    statusUpdate: 'offen',
+    pdfPath: 'rechnung',
+    pdfFilePrefix: 'Rechnung',
+    webhook: 'https://n8n.srv1367876.hstgr.cloud/webhook/rechnung-versenden',
+    betreff: (nr: string) => `Ihre Rechnung ${nr}`,
+    kiTyp: 'rechnung',
+  },
+} as const
 
 const SIGNATUREN: Record<string, string> = {
   'Nikolas Schmadlak': `Mit freundlichen Grüßen\nNikolas Schmadlak\nInnendienst\n\nHöhenarbeiten Lassel GmbH\nHetzmannsdorf 25\nTel.: +43 660 3877214\nE-Mail: office@hoehenarbeiten-lassel.at\nInternet: www.hoehenarbeiten-lassel.at`,
@@ -41,12 +67,13 @@ const BUILTIN_SIGNATUREN = Object.entries(SIGNATUREN).map(([name, text]) => ({
 }))
 
 export default function EmailVorschauModal({
-  open, onClose, offerId, angebotsnummer, kundeName,
+  open, onClose, docId, docNummer, docType = 'angebot', kundeName,
   objektAdresse, bruttoGesamt, erstelltVon, emailAn: emailAnProp, onSent
 }: Props) {
+  const cfg = DOC_CONFIG[docType]
   const queryClient = useQueryClient()
   const [emailAn, setEmailAn] = useState(emailAnProp || '')
-  const [betreff, setBetreff] = useState(`Ihr Angebot ${angebotsnummer}`)
+  const [betreff, setBetreff] = useState(cfg.betreff(docNummer))
   const [nachricht, setNachricht] = useState('')
   const [signaturId, setSignaturId] = useState('')
   const [kiPrompt, setKiPrompt] = useState('')
@@ -164,8 +191,11 @@ export default function EmailVorschauModal({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          typ: 'angebot',
-          angebotsnummer, kundeName, objektAdresse, bruttoGesamt, erstelltVon,
+          typ: cfg.kiTyp,
+          // Feldname "angebotsnummer" aus Legacy-Gründen in der API beibehalten —
+          // trägt bei rechnung einfach die Rechnungsnummer.
+          angebotsnummer: docNummer,
+          kundeName, objektAdresse, bruttoGesamt, erstelltVon,
           zusatzAnweisung,
           stil: aktiverStil,
         }),
@@ -191,40 +221,66 @@ export default function EmailVorschauModal({
   useEffect(() => {
     if (open) {
       setEmailAn(emailAnProp || '')
-      setBetreff(`Ihr Angebot ${angebotsnummer}`)
+      setBetreff(cfg.betreff(docNummer))
     }
-  }, [open, angebotsnummer, emailAnProp])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, docNummer, emailAnProp, docType])
 
   const handleSenden = async () => {
     setSending(true)
     try {
-      await supabase.from('angebote').update({ status: 'versendet' }).eq('id', offerId)
-      // Absolute PDF-URL bauen — n8n braucht http(s)://… (Dateiname im
-      // Content-Disposition wird in der PDF-Route gesetzt, dadurch heißt
-      // der Anhang im Mail "Angebot_AN-2026-XXXXX.pdf").
-      const pdfUrl = `${window.location.origin}/api/pdf/angebot/${offerId}`
-      await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/ab34322b-aed4-4a93-b232-9178bf75ecaf', {
+      await supabase.from(cfg.tabelle).update({ status: cfg.statusUpdate }).eq('id', docId)
+      // Absolute PDF-URL bauen — n8n braucht http(s)://…
+      const pdfUrl = `${window.location.origin}/api/pdf/${cfg.pdfPath}/${docId}`
+      const pdfFileName = `${cfg.pdfFilePrefix}_${docNummer}.pdf`
+
+      // Payload leicht unterschiedlich je nach Doc-Type: für angebote nutzen
+      // wir offerId/angebotNummer/rechnungsempfaenger (historisch gewachsen);
+      // für rechnungen entsprechend rechnungsId/rechnungsNummer/kunde.
+      const payload = docType === 'rechnung'
+        ? {
+            rechnungsId: docId,
+            rechnungsNummer: docNummer,
+            pdfUrl,
+            pdfFileName,
+            status: cfg.statusUpdate,
+            kunde: { name: kundeName },
+            objekt: { bezeichnung: objektAdresse },
+            erstelltDurch: erstelltVon,
+            email: {
+              sendenAn: emailAn,
+              betreff,
+              nachrichtHtml: `<pre>${nachricht}</pre>`,
+              mitarbeiter: selectedMitarbeiter?.name || selectedSig?.name || '',
+              signatur: signaturText,
+            },
+            summen: { brutto: bruttoGesamt },
+            timestamp: new Date().toISOString(),
+          }
+        : {
+            offerId: docId,
+            angebotNummer: docNummer,
+            pdfUrl,
+            pdfFileName,
+            status: cfg.statusUpdate,
+            rechnungsempfaenger: { name: kundeName },
+            objekt: { bezeichnung: objektAdresse },
+            erstelltDurch: erstelltVon,
+            email: {
+              sendenAn: emailAn,
+              betreff,
+              nachrichtHtml: `<pre>${nachricht}</pre>`,
+              mitarbeiter: selectedMitarbeiter?.name || selectedSig?.name || '',
+              signatur: signaturText,
+            },
+            summen: { brutto: bruttoGesamt },
+            timestamp: new Date().toISOString(),
+          }
+
+      await fetch(cfg.webhook, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          offerId,
-          angebotNummer: angebotsnummer,
-          pdfUrl,
-          pdfFileName: `Angebot_${angebotsnummer}.pdf`,
-          status: 'versendet',
-          rechnungsempfaenger: { name: kundeName },
-          objekt: { bezeichnung: objektAdresse },
-          erstelltDurch: erstelltVon,
-          email: {
-            sendenAn: emailAn,
-            betreff,
-            nachrichtHtml: `<pre>${nachricht}</pre>`,
-            mitarbeiter: selectedMitarbeiter?.name || selectedSig?.name || '',
-            signatur: signaturText,
-          },
-          summen: { brutto: bruttoGesamt },
-          timestamp: new Date().toISOString()
-        }),
+        body: JSON.stringify(payload),
       }).catch(console.error)
       toast.success('E-Mail versendet')
       onSent?.()

@@ -20,6 +20,7 @@ import Link from 'next/link'
 import InvoicePositionsTable from '@/components/invoices/InvoicePositionsTable'
 import EditableDocNumber from '@/components/shared/EditableDocNumber'
 import OfferSummary from '@/components/offers/OfferSummary'
+import EmailVorschauModal from '@/components/EmailVorschauModal'
 import { getTypInfo } from '@/lib/rechnung-typ'
 
 interface InvoicePosition {
@@ -113,6 +114,7 @@ export default function InvoiceDetailPage() {
   const [uploadingToZoho, setUploadingToZoho] = useState(false)
   const [vorlagenOpen, setVorlagenOpen] = useState(false)
   const [teilzahlungModalOpen, setTeilzahlungModalOpen] = useState(false)
+  const [emailModalOpen, setEmailModalOpen] = useState(false)
   const [newTeilzahlung, setNewTeilzahlung] = useState({ betrag: '', datum: format(new Date(), 'yyyy-MM-dd'), zahlungsart: 'überweisung', notizen: '' })
   const [previewVersion, setPreviewVersion] = useState(0)
 
@@ -650,49 +652,11 @@ export default function InvoiceDetailPage() {
     }
   }
 
-  const handleSendInvoice = async () => {
+  const handleSendInvoice = () => {
     if (!invoiceId) { toast.error('Rechnung muss zuerst gespeichert werden'); return }
-    try {
-      await supabase.from('rechnungen').update({ status: 'offen' }).eq('id', invoiceId)
-      setInvoice(prev => ({ ...prev, status: 'offen' }))
-
-      await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/rechnung-versenden', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rechnungsId: invoiceId,
-          rechnungsNummer: invoice.rechnungsNummer,
-          rechnungstyp: invoice.rechnungstyp,
-          pdfUrl: invoice.pdfUrl,
-          status: 'offen',
-          datum: invoice.datum,
-          faelligAm: invoice.faelligAm,
-          ticketId: invoice.ticketId,
-          ticketNumber: invoice.ticketNumber,
-          source: invoice.source,
-          referenzAngebotNummer: invoice.referenzAngebotNummer,
-          stornoVonRechnung: invoice.stornoVonRechnung,
-          kunde: {
-            name: invoice.kundeName,
-            strasse: invoice.kundeStrasse,
-            plz: invoice.kundePlz,
-            ort: invoice.kundeOrt,
-            ansprechpartner: invoice.kundeAnsprechpartner
-          },
-          objekt: { bezeichnung: invoice.objektBezeichnung },
-          erstelltDurch: invoice.erstelltDurch,
-          bemerkung: invoice.bemerkung,
-          positionen: positions,
-          summen: totals,
-          timestamp: new Date().toISOString()
-        })
-      }).catch(err => console.error('Send webhook failed:', err))
-
-      queryClient.invalidateQueries({ queryKey: ['invoices'] })
-      toast.success('Rechnung versendet')
-    } catch (err: any) {
-      toast.error('Fehler: ' + err.message)
-    }
+    // Öffnet EmailVorschauModal — analog zu Angebot-Versand.
+    // Der Modal erledigt dann Status-Update + Webhook beim "Senden"-Click.
+    setEmailModalOpen(true)
   }
 
   const handleStorno = async () => {
@@ -1570,6 +1534,25 @@ export default function InvoiceDetailPage() {
           </div>
         )}
       </div>
+
+      {invoiceId && (
+        <EmailVorschauModal
+          open={emailModalOpen}
+          onClose={() => setEmailModalOpen(false)}
+          docId={invoiceId}
+          docNummer={invoice.rechnungsNummer || ''}
+          docType="rechnung"
+          kundeName={invoice.kundeName || ''}
+          objektAdresse={invoice.objektBezeichnung || invoice.objektStrasse || ''}
+          bruttoGesamt={totals.summeBrutto}
+          erstelltVon={invoice.erstelltDurch || ''}
+          emailAn={(invoice as any).emailRechnung || (invoice as any).kunde_email || ''}
+          onSent={() => {
+            setInvoice(prev => ({ ...prev, status: 'offen' }))
+            queryClient.invalidateQueries({ queryKey: ['invoices'] })
+          }}
+        />
+      )}
     </div>
   )
 }

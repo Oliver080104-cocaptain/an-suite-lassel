@@ -7,6 +7,43 @@ function euroFormat(n: number) {
 function buildTemplate(body: any): string {
   const { typ, angebotsnummer, kundeName, objektAdresse, bruttoGesamt, zusatzAnweisung, stil } = body
 
+  if (typ === 'rechnung') {
+    const betrag = (bruttoGesamt !== null && bruttoGesamt !== undefined) ? euroFormat(Number(bruttoGesamt)) : '[Betrag]'
+    const zusatz = zusatzAnweisung ? `\n\n[Hinweis: ${zusatzAnweisung}]` : ''
+
+    if (stil === 'ausfuehrlich') {
+      return `Sehr geehrte/r ${kundeName || 'Damen und Herren'},
+
+vielen Dank für die angenehme Zusammenarbeit. Anbei erhalten Sie unsere Rechnung mit der Nummer ${angebotsnummer}${objektAdresse ? ` für das Objekt in der ${objektAdresse}` : ''}.
+
+Der Rechnungsbetrag in Höhe von ${betrag} (inkl. USt.) ist zu den vereinbarten Zahlungsbedingungen fällig. Wir bitten höflich um fristgerechte Überweisung auf das auf der Rechnung angegebene Konto unter Angabe der Rechnungsnummer als Verwendungszweck.
+
+Bei Fragen zur Rechnung oder den ausgeführten Leistungen stehen wir Ihnen jederzeit gerne zur Verfügung.${zusatz}
+
+Mit freundlichen Grüßen`
+    }
+
+    if (stil === 'locker') {
+      return `Hallo ${kundeName || 'zusammen'},
+
+anbei unsere Rechnung ${angebotsnummer}${objektAdresse ? ` zum Objekt ${objektAdresse}` : ''}. Bitte den Betrag von ${betrag} auf das auf der Rechnung angegebene Konto überweisen (Rechnungsnummer bitte als Verwendungszweck angeben).
+
+Bei Rückfragen einfach kurz melden.${zusatz}
+
+Beste Grüße`
+    }
+
+    return `Sehr geehrte/r ${kundeName || 'Damen und Herren'},
+
+anbei übersenden wir Ihnen unsere Rechnung mit der Nummer ${angebotsnummer}${objektAdresse ? ` für das Objekt in der ${objektAdresse}` : ''}.
+
+Bitte überweisen Sie den Rechnungsbetrag in Höhe von ${betrag} unter Angabe der Rechnungsnummer auf das unten angegebene Konto.
+
+Bei Fragen stehen wir Ihnen jederzeit gerne zur Verfügung.${zusatz}
+
+Mit freundlichen Grüßen`
+  }
+
   if (typ === 'parksperre') {
     return `Sehr geehrte Damen und Herren,
 
@@ -102,8 +139,15 @@ Formell, präzise, auf Deutsch. Nur den Text, keine Anredeformel außen.`
       }
       const stilHinweis = stilDirektive[stil] || stilDirektive.formell
 
-      prompt = `Schreibe eine E-Mail auf Deutsch für ein Angebot.
-Angebotsnummer: ${angebotsnummer}
+      const isRechnung = typ === 'rechnung'
+      const docBezeichnung = isRechnung ? 'eine Rechnung' : 'ein Angebot'
+      const docFeld = isRechnung ? 'Rechnungsnummer' : 'Angebotsnummer'
+      const extraHinweis = isRechnung
+        ? 'Erwähne die Rechnungsnummer und den Rechnungsbetrag. Höfliche Bitte um Überweisung unter Angabe der Rechnungsnummer. Keine erneute Leistungsbeschreibung (die steht schon im PDF).'
+        : 'Erwähne die Angebotsnummer und den Gesamtbetrag. Bitte um Rückmeldung.'
+
+      prompt = `Schreibe eine E-Mail auf Deutsch für ${docBezeichnung}.
+${docFeld}: ${angebotsnummer}
 Kundenname: ${kundeName}
 Objekt: ${objektAdresse || ''}
 Betrag: ${betrag}
@@ -112,8 +156,7 @@ ${zusatzAnweisung ? `Zusätzliche Anweisung: ${zusatzAnweisung}` : ''}
 
 ${stilHinweis}
 
-Erwähne die Angebotsnummer und den Gesamtbetrag.
-Bitte um Rückmeldung.
+${extraHinweis}
 Nur den E-Mail-Text, keine Betreffzeile, keine Signatur.`
     }
 
