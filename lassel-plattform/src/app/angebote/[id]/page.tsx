@@ -640,12 +640,24 @@ export default function OfferDetailPage() {
         .select('*').eq('angebot_id', offerId).order('position')
       if (posPreLoadErr) console.error('Angebot-Positionen Pre-Load:', posPreLoadErr)
 
-      const filteredDbPositions =
-        opts.selectedPositionIds && opts.selectedPositionIds.length >= 0
-          ? (dbPositionsPre || []).filter((p: any) =>
-              opts.selectedPositionIds!.includes(String(p.id))
-            )
-          : (dbPositionsPre || [])
+      // selectedPositionIds === null  → alle DB-Positionen übernehmen
+      //                     === []    → nichts (user hat alles abgewählt — UI blockt das eigentlich)
+      //                     === [ids] → nur die ausgewählten
+      // Fallback: wenn IDs übergeben wurden aber NICHTS matched (Stale-IDs nach
+      // angebote.savePositions delete+insert → local state hat alte IDs während
+      // DB schon neue hat), nehmen wir ALLE DB-Positionen. Sonst wäre die
+      // Rechnung leer was der User definitiv nicht will (Bugfix 2026-04-23).
+      let filteredDbPositions: any[] = dbPositionsPre || []
+      if (opts.selectedPositionIds && opts.selectedPositionIds.length > 0) {
+        const matched = filteredDbPositions.filter((p: any) =>
+          opts.selectedPositionIds!.includes(String(p.id))
+        )
+        if (matched.length > 0) {
+          filteredDbPositions = matched
+        } else {
+          console.warn('[createInvoice] selectedPositionIds stale — übernehme ALLE Positionen als Fallback')
+        }
+      }
 
       const selectedNetto = filteredDbPositions.reduce(
         (s: number, p: any) => s + (Number(p.gesamtpreis) || 0),
@@ -1416,16 +1428,23 @@ export default function OfferDetailPage() {
                 bereitsFakturiertBrutto={fakturiertBrutto}
                 bereitsFakturiertNetto={fakturiertNetto}
                 loading={creatingInvoice}
-                positionen={positions
-                  .filter((p: any) => p.id && (p.beschreibung || p.produktName))
-                  .map((p: any) => ({
+                // Dialog-Positionen direkt aus der DB-Query (existingPositions),
+                // NICHT aus local state — local state hat nach savePositions
+                // (delete+insert) noch die alten IDs, die dann beim Filter in
+                // handleCreateInvoice nicht mehr matchen.
+                positionen={(existingPositions as any[]).map((p: any, i: number) => {
+                  const lines = String(p.beschreibung || '').split('\n')
+                  const produktName = lines[0] || ''
+                  const beschreibungRest = lines.slice(1).join('\n')
+                  return {
                     id: String(p.id),
-                    beschreibung: p.beschreibung || p.produktName || '',
+                    beschreibung: produktName || beschreibungRest || `Position ${i + 1}`,
                     menge: p.menge,
                     einheit: p.einheit,
                     einzelpreis: p.einzelpreis,
                     gesamtpreis: p.gesamtpreis,
-                  }))}
+                  }
+                })}
               />
             )
           })()}
