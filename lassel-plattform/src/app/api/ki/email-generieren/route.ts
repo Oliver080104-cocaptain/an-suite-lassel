@@ -45,6 +45,10 @@ Mit freundlichen Grüßen`
   }
 
   if (typ === 'parksperre') {
+    // ACHTUNG: KEINE Signatur-/Unterschriftenzeilen am Ende — die Signatur
+    // wird clientseitig als separater Block angehängt (EmailVorschauModal/
+    // ParksperreModal), sonst sieht der User zwei "Mit freundlichen Grüßen"
+    // untereinander.
     return `Sehr geehrte Damen und Herren,
 
 hiermit beantragen wir eine Parkraumsperre für folgende Adresse:
@@ -54,10 +58,7 @@ ${objektAdresse || '[Objektadresse]'}
 Die Sperre wird für die Einrichtung einer Baustelle im Rahmen von Höhenarbeiten benötigt.
 Wir bitten um rechtzeitige Bearbeitung und Bewilligung.
 
-Für Rückfragen stehen wir Ihnen jederzeit gerne zur Verfügung.
-
-Mit freundlichen Grüßen
-Höhenarbeiten Lassel GmbH`
+Für Rückfragen stehen wir Ihnen jederzeit gerne zur Verfügung.`
   }
 
   const betrag = (bruttoGesamt !== null && bruttoGesamt !== undefined) ? euroFormat(Number(bruttoGesamt)) : '[Betrag]'
@@ -125,7 +126,16 @@ Adresse: ${objektAdresse || ''}
 Zweck: Baustelleneinrichtung für Höhenarbeiten (Lassel GmbH)
 ${zusatzAnweisung ? `Zusätzliche Anweisung: ${zusatzAnweisung}` : ''}
 
-Formell, präzise, auf Deutsch. Nur den Text, keine Anredeformel außen.`
+Formell, präzise, auf Deutsch. 5-8 Sätze.
+
+WICHTIG:
+- Nur den E-Mail-TEXT.
+- KEINE Grußformel am Ende (kein "Mit freundlichen Grüßen", keine Unterschrift).
+- KEINE Platzhalter wie [Ihr Name], [Ihr Kontakt], [Datum], [Startdatum] usw.
+  Der Text endet nach dem letzten inhaltlichen Satz.
+- KEINE Betreffzeile.
+- Die Signatur (Absender, Firma, Kontaktdaten) wird danach automatisch
+  angehängt, also nicht selbst generieren.`
     } else {
       const betrag = (bruttoGesamt !== null && bruttoGesamt !== undefined) ? euroFormat(Number(bruttoGesamt)) : ''
 
