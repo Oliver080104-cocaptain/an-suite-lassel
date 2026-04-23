@@ -139,10 +139,10 @@ export default function EditableDocNumber({
         <button
           type="button"
           onClick={() => setEditing(true)}
-          className="p-1.5 rounded-md opacity-0 group-hover:opacity-100 hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-opacity"
-          title="Nummer bearbeiten"
+          className="p-1.5 rounded-md bg-slate-50 hover:bg-slate-200 text-slate-500 hover:text-slate-900 opacity-70 hover:opacity-100 transition-all"
+          title="Nummer bearbeiten — Änderung wird sofort in der DB gespeichert und die PDF-Vorschau aktualisiert."
         >
-          <Pencil className="w-4 h-4" />
+          <Pencil className="w-3.5 h-3.5" />
         </button>
       )}
     </div>
