@@ -65,6 +65,9 @@ export default function DeliveryNoteDetailPage() {
 
   const dnInitialized = useRef(false)
   const posInitialized = useRef(false)
+  // Verhindert phantom-autosave nach dem initialen setDn(existingDN)
+  // (siehe Angebot/Rechnung Bugfix 2026-04-23 v3).
+  const justInitialized = useRef(false)
   const autoSaveLock = useRef(false)
   // Dirty-Flag für Race-Schutz: gesetzt wenn während eines laufenden Saves
   // getippt wird. Nach dem Save wird dann nochmal gespeichert (Bugfix 2026-04-23 v2).
@@ -130,6 +133,7 @@ export default function DeliveryNoteDetailPage() {
         referenz_angebot_nummer: (existingDN as any).referenz_angebot_nummer || '',
       })
       dnInitialized.current = true
+      justInitialized.current = true // phantom-autosave-schutz
     }
   }, [existingDN])
 
@@ -185,6 +189,13 @@ export default function DeliveryNoteDetailPage() {
   // Debounced autosave
   useEffect(() => {
     if (isNew || !deliveryNoteId || !dnInitialized.current) return
+    // Erster state-change nach init kommt vom init selbst → skippen,
+    // sonst überschreibt ein Phantom-Autosave nach Remount die grad
+    // gespeicherten Werte mit stale cache.
+    if (justInitialized.current) {
+      justInitialized.current = false
+      return
+    }
     if (debounceTimer.current) clearTimeout(debounceTimer.current)
     debounceTimer.current = setTimeout(triggerAutoSave, 1000)
     return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current) }
@@ -290,6 +301,10 @@ export default function DeliveryNoteDetailPage() {
       await updateLieferscheinSafe(deliveryNoteId, buildDNData())
       await savePositions(deliveryNoteId, positions, existingPositions)
       await syncPositionsToTicket()
+      // Cache invalidieren damit ein Remount der Seite frische DB-Daten
+      // lädt statt stale cache — schützt gegen Phantom-Overwrite nach
+      // Extension-induziertem Reparenting.
+      queryClient.invalidateQueries({ queryKey: ['deliveryNote', deliveryNoteId] })
       setPreviewVersion((v) => v + 1)
     } catch (err) {
       console.error('Auto-save error:', err)

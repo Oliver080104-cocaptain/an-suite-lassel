@@ -125,6 +125,13 @@ export default function InvoiceDetailPage() {
   // Nach dem Save wird dann nochmal gespeichert, damit keine Eingaben
   // verloren gehen (Bugfix 2026-04-23 v2 — Race im autoSaveLock).
   const pendingChangesDuringSave = useRef(false)
+  // KRITISCH (Bugfix 2026-04-23 v3): "gerade initialisiert"-Flag. Wird
+  // on true gesetzt nachdem der init-useEffect den state aus existingInvoice
+  // lädt. Die autosave-useEffect skippt dann den ERSTEN state-change vom
+  // init selbst, damit wir nicht direkt nach Laden einen autosave mit
+  // stale-cache-Daten rausfeuern — was bei Remount mid-save gespeicherte
+  // Werte wieder mit null überschreibt.
+  const justInitialized = useRef(false)
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Load invoice
@@ -265,6 +272,7 @@ export default function InvoiceDetailPage() {
         setSelectedDates(days)
       }
       invoiceInitialized.current = true
+      justInitialized.current = true // verhindert phantom-autosave auf init-daten
     }
   }, [existingInvoice])
 
@@ -383,6 +391,14 @@ export default function InvoiceDetailPage() {
   // Debounced autosave: 1 Sekunde nach letzter Änderung → Echtzeit-PDF-Vorschau
   useEffect(() => {
     if (isNew || !invoiceId || !invoiceInitialized.current) return
+    // Erster state-change nach init kommt vom init selbst (setInvoice mit
+    // existingInvoice-Daten) — NICHT vom User. Skippen, sonst würde ein
+    // Remount mid-save die frisch gespeicherten Werte wieder mit stale
+    // cache-Werten überschreiben.
+    if (justInitialized.current) {
+      justInitialized.current = false
+      return
+    }
     if (debounceTimer.current) clearTimeout(debounceTimer.current)
     debounceTimer.current = setTimeout(triggerAutoSave, 1000)
     return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current) }
@@ -565,6 +581,10 @@ export default function InvoiceDetailPage() {
     try {
       await updateRechnungSafe(invoiceId, buildRechnungData(invoice, totals))
       await savePositions(invoiceId, positions, existingPositions)
+      // Cache invalidieren damit ein Remount der Seite frische DB-Daten
+      // lädt statt stale cache-Werte — verhindert Phantom-Overwrites
+      // nach Extension-induziertem Reparenting.
+      queryClient.invalidateQueries({ queryKey: ['invoice', invoiceId] })
       setPreviewVersion((v) => v + 1)
     } catch (err) {
       console.error('Auto-save error:', err)
