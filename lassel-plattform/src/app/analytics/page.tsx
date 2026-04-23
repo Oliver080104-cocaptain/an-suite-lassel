@@ -88,13 +88,34 @@ export default function AnalyticsPage() {
 
   const addMitarbeiterMutation = useMutation({
     mutationFn: async (name: string) => {
-      const { error } = await supabase.from('mitarbeiter').insert({ name, aktiv: true })
-      if (error) throw error
+      // Defensiver Insert: wenn die 'aktiv'-Spalte in der Prod-DB fehlt
+      // (Schema-Drift — Migration 019 nicht gelaufen) strippen wir sie
+      // aus dem payload und retryen. Sonst bekommen User 400-Fehler die
+      // sie nicht interpretieren können.
+      const tryInsert = async (payload: Record<string, unknown>) =>
+        supabase.from('mitarbeiter').insert(payload)
+
+      let { error } = await tryInsert({ name, aktiv: true })
+      if (error) {
+        const missingCol = /Could not find the '(\w+)' column/i.exec(error.message || '')?.[1]
+        if (missingCol && missingCol in { name: true, aktiv: true }) {
+          const fallbackPayload: Record<string, unknown> = { name, aktiv: true }
+          delete fallbackPayload[missingCol]
+          const retry = await tryInsert(fallbackPayload)
+          if (retry.error) throw retry.error
+          return
+        }
+        throw error
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mitarbeiter'] })
+      queryClient.invalidateQueries({ queryKey: ['mitarbeiter-aktiv'] })
       toast.success('Mitarbeiter hinzugefügt')
       setNewMitarbeiterName('')
+    },
+    onError: (err: any) => {
+      toast.error('Fehler: ' + (err?.message || 'Mitarbeiter konnte nicht angelegt werden'))
     },
   })
 
