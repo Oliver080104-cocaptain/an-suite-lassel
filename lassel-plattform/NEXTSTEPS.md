@@ -1,5 +1,245 @@
 # NEXTSTEPS – Lassel GmbH AN-Suite
-Stand: 21.04.2026
+Stand: 23.04.2026
+
+## 🟥 OFFEN – wichtigste Baustellen für nächste Session
+
+### 1. Zoho → App: Angebot-Erzeugung
+User berichtet: Beim Anlegen eines Angebots aus Zoho werden **manche
+Felder nicht gematcht**, und beim **2. mal Überarbeiten** werden
+Änderungen nicht übernommen. Muss analysiert werden.
+
+Ansatzpunkte:
+- `src/app/api/webhooks/offer/route.ts` — Mapping von Zoho-Feldnamen
+  auf unsere DB-Spalten prüfen. Gibt's neue Zoho-Felder die wir
+  nicht mappen?
+- Beim 2. Überarbeiten (= Zoho sendet Update statt Insert): nutzt
+  unser Webhook `upsert` oder prüft auf Ticket-Nr.? Falls insert,
+  wäre Duplikat → vermutlich wird nur der erste Eintrag aktualisiert.
+- n8n-Flow-Seite: welcher Payload wird von Zoho an uns geschickt?
+  n8n-Execution-Log als Referenz nehmen.
+
+### 2. Alte Baustellen aus früheren Sessions
+n8n-Versand/Ablage-Flows (siehe unten), Teilzahlungen-Tabelle, API
+Logs Seite. Größtenteils unverändert seit 2026-04-21.
+
+---
+
+## ✅ HEUTE (23.04.2026) – Mega-Session: State-Reliability + UX-Polish
+
+### Autosave-Overhaul auf allen 3 Detail-Pages (AN/RE/LI)
+Der größte Themen-Komplex der Session. Wir haben einen fiesen
+Phantom-Overwrite-Bug gejagd: User tippte, Werte verschwanden nach
+click-out-click-in. Logs zeigten eindeutig:
+1. Save läuft los mit richtigen Werten
+2. Browser-Extension (classifier.js) triggert React-Reparenting
+3. Component unmounted mid-save
+4. Remount liest `useQuery`-cache (stale, pre-save-Werte, null für
+   adress-felder)
+5. Init-Effect `setOffer(stale)` → useEffect `[offer, positions]`
+   feuert → autosave **mit nullwerten** → **überschreibt DB**
+
+**Defensive Schutzschichten die jetzt alle drei Detail-Pages haben:**
+
+- **`pendingChangesDuringSave`-Flag** (Race-Schutz): tippen während
+  Save läuft → Dirty-Flag → nach Save nochmal speichern. Sonst ging
+  zuletzt getippte Zeichen verloren.
+
+- **`justInitialized`-Flag** (Phantom-Schutz): der ERSTE State-Change
+  nach dem init kommt vom `setOffer(existingOffer)` selbst, nicht
+  vom User. Autosave-useEffect skippt diesen einen. Verhindert, dass
+  Remount auf stale-cache direkt einen Autosave mit null-Werten
+  raustriggert.
+
+- **`invalidateQueries(['offer'|'invoice'|'deliveryNote', id])` nach
+  Save**: Cache ist direkt nach Save frisch → ein Remount liest die
+  korrekten DB-Werte statt stale-cache.
+
+- **Save-on-Blur** (`onBlurCapture` auf Form-Grid-Containern): jede
+  Feld-Verlassen-Geste flusht den pending Debounce sofort, statt 1s
+  zu warten. Protect gegen Tab-Close mitten in der Debounce-Fenster.
+
+- **Functional `setState`-Form überall**: alle 28+ `setOffer({
+  ...offer, X })` → `setOffer(prev => ({ ...prev, X }))` umgestellt
+  (via sed). Defensiv gegen stale-closure in React 19 concurrent
+  rendering.
+
+- **`autoComplete="off"`** auf allen 10 Adress-Inputs im Angebot
+  (kunde_*, objekt_*, hausinhabung). Blockt Opera GX's aggressiven
+  Password-Manager der Felder beim Refocus zurücksetzen wollte.
+
+### Rechnung-spezifisch: acquireAutosaveLock
+Neuer Helper für direkte DB-Writes (`handleMarkAsPaid`,
+`handleStorno`, `handleAddTeilzahlung`, `deleteTeilzahlung`):
+1) Cancel pending autosave-Timer
+2) Wait bis laufender autosave fertig ist
+3) Acquire Lock, direct-write machen, Lock freigeben
+
+Verhinderte Race: "Als bezahlt markieren" konnte von parallel
+laufendem Autosave mit stale state (status='offen') überschrieben
+werden.
+
+### EmailVorschauModal generisch gemacht — docType
+Vorher nur für Angebot. Jetzt unterstützt `docType: 'angebot' |
+'rechnung'` mit gemeinsamer UI, Signatur-Logik, KI-Gen. Pro Typ:
+- Andere Webhook-URL + default Betreff + PDF-Pfad
+- Payload-Shape (`offerId` vs `rechnungsId` usw.)
+- Optionale `extraPayload`-Prop zum Mit-Schicken von
+  ticket_refs, positionen, summen etc.
+
+**Rechnung-versenden** ruft jetzt den Modal statt direkt zu feuern.
+User-Flow identisch mit Angebot-Versand.
+
+### ParksperreModal Architektur-Umbau
+Der Modal hatte zwei Bugs:
+1. Falsche Webhook-URL (feuerte gegen Angebot-Endpoint)
+2. Datei-Upload über Vercel-Body → 4.5MB Limit → 502
+
+**Lösung:**
+- Client lädt Dateien **direkt in Supabase Storage** (`parksperre-
+  anhaenge` Bucket, Migration 018). Keine Vercel-Body-Grenze.
+- Server-Route `/api/parksperre-senden` bekommt nur JSON mit
+  URLs + Mail-Text. Triggert n8n server-zu-server (kein CORS-
+  Problem).
+- UI-Style identisch zu EmailVorschauModal: Signatur-Dropdown,
+  KI-Prompt-Card, File-Upload-Section.
+- Fallback-URL-Chain: versucht erst UUID, dann custom-path. Falls
+  beide fehlschlagen: aussagekräftige Fehlermeldung mit n8n-Status.
+- KI-Prompt überarbeitet: keine Platzhalter `[Ihr Name]` mehr, Text
+  endet nach dem letzten inhaltlichen Satz (Signatur wird
+  angehängt).
+
+### Signaturen-Verwaltung
+Neuer shared Dialog `SignaturenVerwaltenDialog.tsx`:
+- Liste aller DB-Signaturen (aus `signaturen`-Tabelle, Migration
+  015)
+- Inline-Edit, Aktiv/Inaktiv-Toggle, Löschen
+- Neue-Signatur-Formular oben
+- Eingebunden in EmailVorschauModal + ParksperreModal über
+  **"Verwalten"**-Button. Mitarbeiter-abgeleitete und Builtin-
+  Signaturen sind read-only, erscheinen nicht in diesem Dialog.
+
+### Soft-Delete Konsistenz + 30-Tage-Auto-Cleanup
+Vorher: Angebot hatte soft-delete (`geloescht_am`), Rechnung +
+Lieferschein **hard-delete** → Papierkorb zeigte die nie.
+
+**Jetzt einheitlich:**
+- Alle drei Tabellen haben `geloescht_am` (Migration 017)
+- List-Pages filtern `.is('geloescht_am', null)`
+- `linkedInvoices`/`linkedDeliveryNotes` im Angebot-Detail filtern
+  auch → Papierkorb-Docs tauchen nicht mehr als "verknüpft" auf
+- Delete-Mutations machen `UPDATE geloescht_am` statt `DELETE`
+- Papierkorb-Page zeigt alle drei Typen nebeneinander
+
+**Auto-Cleanup:** Neuer Vercel-Cron `/api/cron/cleanup-papierkorb`
+läuft täglich 03:00 UTC, löscht endgültig was > **30 Tagen** im
+Papierkorb liegt (vorher war die UI-Lüge "10 Tage", ohne Job
+dahinter). Inkl. zugehöriger Positions + Teilzahlungen.
+
+### Lieferschein-Positionen in Zoho CRM übertragen (neuer Flow)
+Button "Lieferschein Pos in Zoho übertragen" feuert jetzt ZWEI
+Webhooks parallel via Promise.allSettled:
+- `b15d8baa-…` (alt, Workdrive-Upload)
+- `5e4e9681-…` (neu, Zoho-CRM-Ticket-Update)
+
+Beide bekommen Positions-Array + editUrl + angebot.ticketId.
+
+### Rechnung aus Angebot — Positionen wieder übernommen
+War kaputt wegen ID-Mismatch: Angebot-`savePositions` macht
+delete+insert → neue IDs in DB nach jedem autosave, local state
+behielt alte. Dialog schickte alte IDs → Filter in
+handleCreateInvoice fand keine → leere Rechnung.
+
+Fix: Dialog bekommt jetzt `existingPositions` (aus useQuery, frisch
+nach Invalidate) statt local-state. Plus Defensive Fallback: wenn
+IDs trotzdem nicht matchen, werden ALLE DB-Positionen genommen.
+
+### Parksperre Mail-Body/KI
+- KI-Prompt für `typ='parksperre'`: explizit "KEINE Grußformel am
+  Ende, KEINE Platzhalter, Signatur wird angehängt"
+- Fallback-Template endet nach letztem inhaltlichen Satz
+- Kein doppeltes "Mit freundlichen Grüßen" mehr
+
+### Rechnungsversand Payload-Erweiterung
+EmailVorschauModal nimmt jetzt optionale `extraPayload` Prop. Beim
+Rechnung-versenden schickt rechnungen/[id]/page.tsx mit:
+ticketId, ticketNumber, referenzAngebotId/Nummer, stornoVonRechnung,
+kunde-full (strasse/plz/ort/uid/ansprechpartner), objekt-full,
+bemerkung, positionen, summen (netto/ust/brutto).
+
+### UI/UX Polish
+- **EditableDocNumber**: Pencil-Button war versteckt (`opacity-0`),
+  User kannten Edit-Feature nicht. Jetzt dauerhaft sichtbar mit
+  Hover-Effekt + Tooltip.
+- **Analytics Mitarbeiter-Verwaltung**: leere Einträge aus der
+  mitarbeiter-Tabelle (historische Datenmüll) werden gefiltert,
+  "Leere Einträge löschen" Button räumt auf.
+- **Mitarbeiter-Insert**: Schema-Drift-Fallback + Split
+  Vorname/Nachname (andere Software nutzt dieselbe Tabelle mit
+  NOT NULL `vorname`).
+- **Leistungszeitraum Chips**: Einzelne Tage entfernbar (waren
+  vorher nur Read-only-Labels). "Alle löschen"-Link bleibt.
+- **Signatur-Management-Dialog** mit CRUD für DB-Signaturen.
+- **Save-on-Blur** für alle 3 Detail-Pages. Save startet beim
+  Feld-Verlassen (nicht erst 1s Debounce). Schützt vor Datenverlust
+  bei Tab-Close.
+- **Layout-Stretch**: Rechts-/Links-Spalten in Detail-Seiten
+  schließen bündig ab — `flex flex-col` auf Spalten-Wrapper,
+  `flex-1` auf letzter Karte. Kein Weißraum mehr unter kürzerer
+  Spalte.
+
+### Migrationen (alle idempotent)
+- `014_rechnungen_vermittler_id.sql` — UUID FK zu vermittler
+- `015_signaturen.sql` — eigene Signatur-Tabelle + RLS
+- `016_lieferscheine_referenz_angebot_nummer.sql` — Spalte nach
+  Analog zu Rechnung
+- `017_rechnungen_lieferscheine_geloescht_am.sql` — Soft-Delete
+  + Partial Indexe
+- `018_parksperre_anhaenge_bucket.sql` — Storage-Bucket + Policies
+  für anon upload/read
+- `019_mitarbeiter_aktiv.sql` — `aktiv`, `email`, `telefon`,
+  `rolle` auf mitarbeiter
+
+### Kritische Vercel-Env-Vars (müssen gesetzt sein)
+- `CRON_SECRET` — zufälliger String, für Papierkorb-Cron-Auth
+- `SUPABASE_SERVICE_ROLE_KEY` — für Cron + Parksperre-Storage-Setup
+
+### Kleinigkeiten
+- Rechnung/Lieferschein list: Soft-Delete, Toast
+  "in Papierkorb verschoben"
+- Analytics-Query filtert gelöschte Rechnungen
+- Cache-Invalidate auch für `linkedInvoices`/`linkedDeliveryNotes`
+  beim Löschen einer Rechnung/Lieferschein → offene Angebot-Detail-
+  Seiten sehen sofort die Änderung
+- PDF-URL bei E-Mail-Versand immer absolut (war relativ → n8n konnte
+  nicht fetchen)
+
+---
+
+## 📋 WICHTIGE REGELN für nächste Session
+
+- **Bei direkten `supabase.update()`-Writes IMMER** `acquireAutosaveLock()`
+  aufrufen vor dem Write. Sonst race mit autosave der stale state
+  zurückschreiben kann.
+- **`setOffer`/`setInvoice`/`setDn` IMMER** in functional form
+  `(prev: any) => ({ ...prev, X: ... })`. Niemals object-spread
+  `{ ...offer, X }`.
+- **Nach jedem autosave** `queryClient.invalidateQueries([key, id])`
+  aufrufen. Sonst liest Remount stale cache.
+- **`justInitialized.current = true`** nach jedem
+  `setOffer(existingOffer)` im init-useEffect. Autosave-useEffect
+  skippt dann den ersten state-change.
+- **Shared DB mit anderer Software** — Schema-Drift ist NORMAL,
+  defensive inserts mit retry-on-"Could not find column" Pattern
+  nutzen.
+- **n8n-Webhooks mit Sonderzeichen im Pfad** — immer URL-encoden
+  oder direkt die UUID verwenden (aus Flow-JSON `webhookId`).
+- **File-Uploads > 4MB** — NICHT über Vercel-Body-Route. Direkt
+  zu Supabase Storage mit public bucket + anon-policy, dann nur
+  URLs an den Server schicken.
+- **Migrationen sofort anwenden** — User führt sie oft erst später
+  aus, daher IMMER defensive Fallbacks im Client.
+
+---
 
 ## 🟥 OFFEN – n8n Flows für Versand & Zoho-Ablage (6-7 Flows)
 
