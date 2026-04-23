@@ -323,6 +323,28 @@ export default function InvoiceDetailPage() {
   // nicht einen stale Closure mit altem invoice/positions nutzt.
   const performAutoSaveRef = useRef<() => Promise<void>>(async () => {})
 
+  /**
+   * Blocking-Helper für direkte DB-Writes (z.B. "Als bezahlt markieren"):
+   * 1) Pending autosave-Timer abbrechen (sonst würde der ggf. in 0.x sec
+   *    mit stale state unsere frische änderung überschreiben).
+   * 2) Warten bis ein aktuell LAUFENDES autosave fertig ist (lock frei).
+   * 3) Lock selbst acquiren, damit während unseres direct-write kein
+   *    parallel-autosave starten kann.
+   * Caller muss im finally-Block `autoSaveLock.current = false` setzen.
+   */
+  const acquireAutosaveLock = async () => {
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current)
+      debounceTimer.current = null
+    }
+    pendingChangesDuringSave.current = false
+    // busy-wait mit 50ms polling — autosave ist typisch 200-1500ms
+    while (autoSaveLock.current) {
+      await new Promise(r => setTimeout(r, 50))
+    }
+    autoSaveLock.current = true
+  }
+
   // Zentrale Trigger-Funktion mit Race-Schutz: wenn bereits ein Save läuft,
   // Dirty-Flag setzen und nach dem laufenden Save erneut triggern — sonst gehen
   // Eingaben verloren die während eines laufenden Saves getippt wurden.
@@ -642,13 +664,20 @@ export default function InvoiceDetailPage() {
 
   const handleMarkAsPaid = async () => {
     if (!invoiceId) return
+    // Race-Schutz: pending autosave abbrechen + lock acquiren, damit
+    // kein paralleler autosave mit stale state unseren status='bezahlt'
+    // überschreibt.
+    await acquireAutosaveLock()
     try {
       await supabase.from('rechnungen').update({ status: 'bezahlt', brutto_gesamt: totals.summeBrutto }).eq('id', invoiceId)
       setInvoice(prev => ({ ...prev, status: 'bezahlt', summeBrutto: totals.summeBrutto }))
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      queryClient.invalidateQueries({ queryKey: ['invoice', invoiceId] })
       toast.success('Rechnung als bezahlt markiert')
     } catch (err: any) {
       toast.error('Fehler: ' + err.message)
+    } finally {
+      autoSaveLock.current = false
     }
   }
 
@@ -661,6 +690,9 @@ export default function InvoiceDetailPage() {
 
   const handleStorno = async () => {
     if (!invoiceId || !cancelReason.trim()) { toast.error('Bitte Stornierungsgrund angeben'); return }
+    // Race-Schutz: pending autosave abbrechen + lock acquiren, damit
+    // der status='storniert'-Update nicht durch autosave überschrieben wird.
+    await acquireAutosaveLock()
     try {
       const year = new Date().getFullYear()
       const { data: allInvoices } = await supabase.from('rechnungen').select('rechnungsnummer').ilike('rechnungsnummer', `RE-${year}%`)
@@ -713,6 +745,8 @@ export default function InvoiceDetailPage() {
       router.push(`/rechnungen/${stornoData.id}`)
     } catch (err: any) {
       toast.error('Fehler: ' + err.message)
+    } finally {
+      autoSaveLock.current = false
     }
   }
 
@@ -720,6 +754,7 @@ export default function InvoiceDetailPage() {
     if (!invoiceId || !newTeilzahlung.betrag) { toast.error('Betrag eingeben'); return }
     const betrag = parseFloat(newTeilzahlung.betrag)
     if (isNaN(betrag) || betrag <= 0) { toast.error('Ungültiger Betrag'); return }
+    await acquireAutosaveLock()
     try {
       await supabase.from('teilzahlungen').insert({
         rechnung_id: invoiceId,
@@ -737,14 +772,18 @@ export default function InvoiceDetailPage() {
       setNewTeilzahlung({ betrag: '', datum: format(new Date(), 'yyyy-MM-dd'), zahlungsart: 'überweisung', notizen: '' })
       refetchTeilzahlungen()
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      queryClient.invalidateQueries({ queryKey: ['invoice', invoiceId] })
       toast.success('Zahlung erfasst')
     } catch (err: any) {
       toast.error('Fehler: ' + err.message)
+    } finally {
+      autoSaveLock.current = false
     }
   }
 
   const deleteTeilzahlung = async (tzId: string) => {
     if (!invoiceId) return
+    await acquireAutosaveLock()
     try {
       await supabase.from('teilzahlungen').delete().eq('id', tzId)
       const remaining = (teilzahlungen as any[]).filter((t: any) => t.id !== tzId)
@@ -754,9 +793,12 @@ export default function InvoiceDetailPage() {
       setInvoice(p => ({ ...p, status: newStatus, bezahltBetrag: bezahltGesamt }))
       refetchTeilzahlungen()
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      queryClient.invalidateQueries({ queryKey: ['invoice', invoiceId] })
       toast.success('Zahlung gelöscht')
     } catch (err: any) {
       toast.error('Fehler: ' + err.message)
+    } finally {
+      autoSaveLock.current = false
     }
   }
 

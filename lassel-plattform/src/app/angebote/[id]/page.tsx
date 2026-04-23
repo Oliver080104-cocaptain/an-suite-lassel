@@ -356,9 +356,16 @@ export default function OfferDetailPage() {
     pendingChangesDuringSave.current = false
     setSaveStatus('saving')
     try {
+      const saveData = buildOfferData({ ...offer, ...totals })
+      console.log('[DEBUG autosave] sending to DB:', {
+        kunde_strasse: saveData.kunde_strasse,
+        kunde_plz: saveData.kunde_plz,
+        kunde_ort: saveData.kunde_ort,
+        kunde_uid: saveData.kunde_uid,
+      })
       const { error: offerErr } = await supabase
         .from('angebote')
-        .update(buildOfferData({ ...offer, ...totals }))
+        .update(saveData)
         .eq('id', offerId)
       if (offerErr) throw offerErr
       const posToSave = positions.filter((p: any) => p.produktName?.trim() || p.beschreibung?.trim())
@@ -886,6 +893,12 @@ export default function OfferDetailPage() {
               <p className="text-sm text-slate-600 mt-1">
                 {isNew ? 'Angebot erstellen' : (createdAt ? `Erstellt am ${format(new Date(createdAt), 'dd.MM.yyyy')}` : '')}
               </p>
+              {/* TEMP DEBUG BANNER — zeigt live den state für adress-felder.
+                  Wenn dieser banner "leer" zeigt nachdem du getippt hast,
+                  wissen wir dass state weg ist (nicht nur die DB).  */}
+              <div className="text-[10px] font-mono text-slate-400 mt-1 bg-yellow-50 border border-yellow-200 rounded px-2 py-0.5 inline-block">
+                state: strasse=[{offer.kunde_strasse || '∅'}] plz=[{offer.kunde_plz || '∅'}] ort=[{offer.kunde_ort || '∅'}] uid=[{offer.kunde_uid || '∅'}]
+              </div>
             </div>
           </div>
           <div className="ml-auto">
