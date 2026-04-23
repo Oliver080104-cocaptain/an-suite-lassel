@@ -1547,6 +1547,40 @@ export default function InvoiceDetailPage() {
           bruttoGesamt={totals.summeBrutto}
           erstelltVon={invoice.erstelltDurch || ''}
           emailAn={(invoice as any).emailRechnung || (invoice as any).kunde_email || ''}
+          extraPayload={{
+            // Zoho- + Ticket-Referenzen die der n8n-Flow zum Ticket-Update braucht
+            ticketId: invoice.ticketId || null,
+            ticketNumber: invoice.ticketNumber || null,
+            rechnungstyp: invoice.rechnungstyp || 'normal',
+            datum: invoice.datum,
+            faelligAm: invoice.faelligAm,
+            geschaeftsfallnummer: invoice.geschaeftsfallnummer || null,
+            referenzAngebotId: invoice.referenzAngebotId || null,
+            referenzAngebotNummer: invoice.referenzAngebotNummer || null,
+            stornoVonRechnung: invoice.stornoVonRechnung || null,
+            kunde: {
+              name: invoice.kundeName,
+              strasse: invoice.kundeStrasse,
+              plz: invoice.kundePlz,
+              ort: invoice.kundeOrt,
+              uid: invoice.uidnummer,
+              ansprechpartner: invoice.ansprechpartner,
+            },
+            objekt: {
+              bezeichnung: invoice.objektBezeichnung,
+              strasse: invoice.objektStrasse,
+              plz: invoice.objektPlz,
+              ort: invoice.objektOrt,
+              ansprechpartner: invoice.objektAnsprechpartner,
+            },
+            bemerkung: invoice.bemerkung,
+            positionen: positions,
+            summen: {
+              netto: totals.summeNetto,
+              ust: totals.summeUst,
+              brutto: totals.summeBrutto,
+            },
+          }}
           onSent={() => {
             setInvoice(prev => ({ ...prev, status: 'offen' }))
             queryClient.invalidateQueries({ queryKey: ['invoices'] })

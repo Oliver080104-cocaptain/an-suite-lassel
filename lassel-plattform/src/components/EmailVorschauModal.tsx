@@ -29,6 +29,11 @@ interface Props {
   erstelltVon?: string
   emailAn?: string
   onSent?: () => void
+  /** Optionale Extra-Felder die ins Webhook-Payload gemerged werden
+   *  (ticketId, ticketNumber, referenzAngebotNummer, positionen, etc.).
+   *  Werden flach auf Top-Level des Payloads gelegt — user-gesetzte
+   *  Felder wie `status` oder `pdfUrl` werden NICHT überschrieben. */
+  extraPayload?: Record<string, unknown>
 }
 
 const DOC_CONFIG = {
@@ -69,7 +74,8 @@ const BUILTIN_SIGNATUREN = Object.entries(SIGNATUREN).map(([name, text]) => ({
 
 export default function EmailVorschauModal({
   open, onClose, docId, docNummer, docType = 'angebot', kundeName,
-  objektAdresse, bruttoGesamt, erstelltVon, emailAn: emailAnProp, onSent
+  objektAdresse, bruttoGesamt, erstelltVon, emailAn: emailAnProp, onSent,
+  extraPayload,
 }: Props) {
   const cfg = DOC_CONFIG[docType]
   const queryClient = useQueryClient()
@@ -236,27 +242,42 @@ export default function EmailVorschauModal({
       const pdfUrl = `${window.location.origin}/api/pdf/${cfg.pdfPath}/${docId}`
       const pdfFileName = `${cfg.pdfFilePrefix}_${docNummer}.pdf`
 
-      // Payload leicht unterschiedlich je nach Doc-Type: für angebote nutzen
-      // wir offerId/angebotNummer/rechnungsempfaenger (historisch gewachsen);
-      // für rechnungen entsprechend rechnungsId/rechnungsNummer/kunde.
-      const payload = docType === 'rechnung'
+      // Payload-Aufbau in drei Schichten:
+      // 1) coreDefault: sensible Basiswerte für kunde/objekt/erstelltDurch/summen
+      //    — werden durch extraPayload überschrieben falls Caller reicheres
+      //    Objekt liefert (z.B. kunde inkl. strasse/plz/ort).
+      // 2) extraPayload: alles was der Caller mitschickt (ticketId,
+      //    positionen, …) — merged drüber.
+      // 3) coreIdentity: id, pdfUrl, status, email, timestamp — IMMER
+      //    vom Modal verbindlich, überschreibt extras falls Konflikt.
+      const emailBlock = {
+        sendenAn: emailAn,
+        betreff,
+        nachrichtHtml: `<pre>${nachricht}</pre>`,
+        mitarbeiter: selectedMitarbeiter?.name || selectedSig?.name || '',
+        signatur: signaturText,
+      }
+      const coreDefault = docType === 'rechnung'
+        ? {
+            kunde: { name: kundeName },
+            objekt: { bezeichnung: objektAdresse },
+            erstelltDurch: erstelltVon,
+            summen: { brutto: bruttoGesamt },
+          }
+        : {
+            rechnungsempfaenger: { name: kundeName },
+            objekt: { bezeichnung: objektAdresse },
+            erstelltDurch: erstelltVon,
+            summen: { brutto: bruttoGesamt },
+          }
+      const coreIdentity = docType === 'rechnung'
         ? {
             rechnungsId: docId,
             rechnungsNummer: docNummer,
             pdfUrl,
             pdfFileName,
             status: cfg.statusUpdate,
-            kunde: { name: kundeName },
-            objekt: { bezeichnung: objektAdresse },
-            erstelltDurch: erstelltVon,
-            email: {
-              sendenAn: emailAn,
-              betreff,
-              nachrichtHtml: `<pre>${nachricht}</pre>`,
-              mitarbeiter: selectedMitarbeiter?.name || selectedSig?.name || '',
-              signatur: signaturText,
-            },
-            summen: { brutto: bruttoGesamt },
+            email: emailBlock,
             timestamp: new Date().toISOString(),
           }
         : {
@@ -265,19 +286,10 @@ export default function EmailVorschauModal({
             pdfUrl,
             pdfFileName,
             status: cfg.statusUpdate,
-            rechnungsempfaenger: { name: kundeName },
-            objekt: { bezeichnung: objektAdresse },
-            erstelltDurch: erstelltVon,
-            email: {
-              sendenAn: emailAn,
-              betreff,
-              nachrichtHtml: `<pre>${nachricht}</pre>`,
-              mitarbeiter: selectedMitarbeiter?.name || selectedSig?.name || '',
-              signatur: signaturText,
-            },
-            summen: { brutto: bruttoGesamt },
+            email: emailBlock,
             timestamp: new Date().toISOString(),
           }
+      const payload = { ...coreDefault, ...(extraPayload || {}), ...coreIdentity }
 
       await fetch(cfg.webhook, {
         method: 'POST',
