@@ -385,7 +385,7 @@ export default function DeliveryNoteDetailPage() {
       // PDF Link explizit setzen (nicht mehr automatisch beim PDF-Render)
       const pdfLink = `${window.location.origin}/api/pdf/lieferschein/${savedId}`
       await supabase.from('lieferscheine').update({ pdf_url: pdfLink }).eq('id', savedId!)
-      setDn(prev => ({ ...prev, pdf_url: pdfLink }))
+      setDn((prev: any) => ({ ...prev, pdf_url: pdfLink }))
 
       await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/b15d8baa-e8ec-4d8a-aa85-0865048b9c31', {
         method: 'POST',
@@ -541,7 +541,7 @@ export default function DeliveryNoteDetailPage() {
                   expectedPrefix="LI-"
                   placeholder="Lieferschein"
                   onSaved={(next) => {
-                    setDn(prev => ({ ...prev, lieferscheinnummer: next }))
+                    setDn((prev: any) => ({ ...prev, lieferscheinnummer: next }))
                     setPreviewVersion((v) => v + 1)
                   }}
                 />

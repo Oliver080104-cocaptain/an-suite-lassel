@@ -761,7 +761,7 @@ export default function OfferDetailPage() {
     if (!offerId) { toast.error('Angebot muss zuerst gespeichert werden'); return }
     try {
       await supabase.from('angebote').update({ status: 'versendet' }).eq('id', offerId)
-      setOffer(prev => ({ ...prev, status: 'versendet' }))
+      setOffer((prev: any) => ({ ...prev, status: 'versendet' }))
       try {
         const editUrl = `${window.location.origin}/angebote/${offerId}`
         await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/ab34322b-aed4-4a93-b232-9178bf75ecaf', {
@@ -810,7 +810,7 @@ export default function OfferDetailPage() {
                     expectedPrefix="AN-"
                     placeholder="Angebot"
                     onSaved={(next) => {
-                      setOffer(prev => ({ ...prev, angebotsnummer: next }))
+                      setOffer((prev: any) => ({ ...prev, angebotsnummer: next }))
                       setPreviewVersion((v) => v + 1)
                     }}
                   />
@@ -930,25 +930,25 @@ export default function OfferDetailPage() {
               <div className="grid grid-cols-1 gap-4">
                 <div>
                   <Label>Name (Hausverwaltung / Kunde)</Label>
-                  <Input value={offer.kunde_name || ''} onChange={(e) => setOffer(prev => ({ ...prev, kunde_name: e.target.value }))} placeholder="z.B. PAUL Vienna Office GmbH" className="mt-1" autoComplete="off" />
+                  <Input value={offer.kunde_name || ''} onChange={(e) => setOffer((prev: any) => ({ ...prev, kunde_name: e.target.value }))} placeholder="z.B. PAUL Vienna Office GmbH" className="mt-1" autoComplete="off" />
                 </div>
                 <div>
                   <Label>Straße</Label>
-                  <Input value={offer.kunde_strasse || ''} onChange={(e) => setOffer(prev => ({ ...prev, kunde_strasse: e.target.value }))} placeholder="Straße und Hausnummer" className="mt-1" autoComplete="off" />
+                  <Input value={offer.kunde_strasse || ''} onChange={(e) => setOffer((prev: any) => ({ ...prev, kunde_strasse: e.target.value }))} placeholder="Straße und Hausnummer" className="mt-1" autoComplete="off" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>PLZ</Label>
-                    <Input value={offer.kunde_plz || ''} onChange={(e) => setOffer(prev => ({ ...prev, kunde_plz: e.target.value }))} placeholder="PLZ" className="mt-1" autoComplete="off" />
+                    <Input value={offer.kunde_plz || ''} onChange={(e) => setOffer((prev: any) => ({ ...prev, kunde_plz: e.target.value }))} placeholder="PLZ" className="mt-1" autoComplete="off" />
                   </div>
                   <div>
                     <Label>Ort</Label>
-                    <Input value={offer.kunde_ort || ''} onChange={(e) => setOffer(prev => ({ ...prev, kunde_ort: e.target.value }))} placeholder="Ort" className="mt-1" autoComplete="off" />
+                    <Input value={offer.kunde_ort || ''} onChange={(e) => setOffer((prev: any) => ({ ...prev, kunde_ort: e.target.value }))} placeholder="Ort" className="mt-1" autoComplete="off" />
                   </div>
                 </div>
                 <div>
                   <Label>UID-Nummer</Label>
-                  <Input value={offer.kunde_uid || ''} onChange={(e) => setOffer(prev => ({ ...prev, kunde_uid: e.target.value }))} placeholder="z.B. ATU12345678" className="mt-1" autoComplete="off" />
+                  <Input value={offer.kunde_uid || ''} onChange={(e) => setOffer((prev: any) => ({ ...prev, kunde_uid: e.target.value }))} placeholder="z.B. ATU12345678" className="mt-1" autoComplete="off" />
                 </div>
               </div>
             </Card>
@@ -958,25 +958,25 @@ export default function OfferDetailPage() {
               <div className="grid grid-cols-1 gap-4">
                 <div>
                   <Label>Objektbezeichnung</Label>
-                  <Input value={offer.objekt_bezeichnung || ''} onChange={(e) => setOffer(prev => ({ ...prev, objekt_bezeichnung: e.target.value }))} placeholder="z.B. Hauptstraße 50, 2020 Magersdorf" className="mt-1" autoComplete="off" />
+                  <Input value={offer.objekt_bezeichnung || ''} onChange={(e) => setOffer((prev: any) => ({ ...prev, objekt_bezeichnung: e.target.value }))} placeholder="z.B. Hauptstraße 50, 2020 Magersdorf" className="mt-1" autoComplete="off" />
                 </div>
                 <div>
                   <Label>Objektadresse (Straße und Nummer)</Label>
-                  <Input value={offer.objekt_adresse || ''} onChange={(e) => setOffer(prev => ({ ...prev, objekt_adresse: e.target.value }))} placeholder="z.B. Rauscherstraße 251" className="mt-1" autoComplete="off" />
+                  <Input value={offer.objekt_adresse || ''} onChange={(e) => setOffer((prev: any) => ({ ...prev, objekt_adresse: e.target.value }))} placeholder="z.B. Rauscherstraße 251" className="mt-1" autoComplete="off" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>Objekt PLZ</Label>
-                    <Input value={offer.objekt_plz || ''} onChange={(e) => setOffer(prev => ({ ...prev, objekt_plz: e.target.value }))} placeholder="PLZ" className="mt-1" autoComplete="off" />
+                    <Input value={offer.objekt_plz || ''} onChange={(e) => setOffer((prev: any) => ({ ...prev, objekt_plz: e.target.value }))} placeholder="PLZ" className="mt-1" autoComplete="off" />
                   </div>
                   <div>
                     <Label>Objekt Ort</Label>
-                    <Input value={offer.objekt_ort || ''} onChange={(e) => setOffer(prev => ({ ...prev, objekt_ort: e.target.value }))} placeholder="Ort" className="mt-1" autoComplete="off" />
+                    <Input value={offer.objekt_ort || ''} onChange={(e) => setOffer((prev: any) => ({ ...prev, objekt_ort: e.target.value }))} placeholder="Ort" className="mt-1" autoComplete="off" />
                   </div>
                 </div>
                 <div>
                   <Label>Hausinhabung (HI)</Label>
-                  <Input value={offer.hausinhabung || ''} onChange={(e) => setOffer(prev => ({ ...prev, hausinhabung: e.target.value }))} placeholder="Name des Eigentümers (optional)" className="mt-1" autoComplete="off" />
+                  <Input value={offer.hausinhabung || ''} onChange={(e) => setOffer((prev: any) => ({ ...prev, hausinhabung: e.target.value }))} placeholder="Name des Eigentümers (optional)" className="mt-1" autoComplete="off" />
                 </div>
               </div>
             </Card>
@@ -989,15 +989,15 @@ export default function OfferDetailPage() {
               <div className="space-y-4">
                 <div>
                   <Label>Angebotsdatum</Label>
-                  <Input type="date" value={offer.angebotsdatum || ''} onChange={(e) => setOffer(prev => ({ ...prev, angebotsdatum: e.target.value }))} className="mt-1" />
+                  <Input type="date" value={offer.angebotsdatum || ''} onChange={(e) => setOffer((prev: any) => ({ ...prev, angebotsdatum: e.target.value }))} className="mt-1" />
                 </div>
                 <div>
                   <Label>Gültig bis</Label>
-                  <Input type="date" value={offer.gueltig_bis || ''} onChange={(e) => setOffer(prev => ({ ...prev, gueltig_bis: e.target.value }))} className="mt-1" />
+                  <Input type="date" value={offer.gueltig_bis || ''} onChange={(e) => setOffer((prev: any) => ({ ...prev, gueltig_bis: e.target.value }))} className="mt-1" />
                 </div>
                 <div>
                   <Label>Angebot erstellt von</Label>
-                  <Input value={offer.erstellt_von || ''} onChange={(e) => setOffer(prev => ({ ...prev, erstellt_von: e.target.value }))} placeholder="z.B. Reinhard Lassel" className="mt-1" />
+                  <Input value={offer.erstellt_von || ''} onChange={(e) => setOffer((prev: any) => ({ ...prev, erstellt_von: e.target.value }))} placeholder="z.B. Reinhard Lassel" className="mt-1" />
                 </div>
                 {(() => {
                   const selectedVermittler = (vermittlerList as any[]).find((v: any) => v.id === offer.vermittler_id)
@@ -1008,7 +1008,7 @@ export default function OfferDetailPage() {
                       <Select
                         key={`vermittler-select-${(vermittlerList as any[]).length}`}
                         value={offer.vermittler_id || 'none'}
-                        onValueChange={(value) => setOffer(prev => ({ ...prev, vermittler_id: value === 'none' ? null : value }))}
+                        onValueChange={(value) => setOffer((prev: any) => ({ ...prev, vermittler_id: value === 'none' ? null : value }))}
                       >
                         <SelectTrigger className={offer.vermittler_id ? 'mt-1 border-orange-300 bg-white' : 'mt-1'}>
                           <SelectValue placeholder="Vermittler auswählen (optional)...">
@@ -1041,7 +1041,7 @@ export default function OfferDetailPage() {
                     <Select
                       value={offer.status || 'entwurf'}
                       onValueChange={async (v) => {
-                        setOffer(prev => ({ ...prev, status: v }))
+                        setOffer((prev: any) => ({ ...prev, status: v }))
                         if (v === 'angenommen' && offerId) {
                           try {
                             await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/2c51d71e-b55d-493d-aafb-1443d1d100cc', {
@@ -1088,19 +1088,19 @@ export default function OfferDetailPage() {
               <div className="space-y-4">
                 <div>
                   <Label>Ticket-Nr.</Label>
-                  <Input value={offer.ticket_nummer || ''} onChange={(e) => setOffer(prev => ({ ...prev, ticket_nummer: e.target.value }))} placeholder="Ticket-Nummer" className="mt-1" />
+                  <Input value={offer.ticket_nummer || ''} onChange={(e) => setOffer((prev: any) => ({ ...prev, ticket_nummer: e.target.value }))} placeholder="Ticket-Nummer" className="mt-1" />
                 </div>
                 <div>
                   <Label>Geschäftsfallnummer</Label>
-                  <Input value={offer.geschaeftsfallNummer || ''} onChange={(e) => setOffer(prev => ({ ...prev, geschaeftsfallNummer: e.target.value }))} placeholder="Geschäftsfallnummer (optional)" className="mt-1" />
+                  <Input value={offer.geschaeftsfallNummer || ''} onChange={(e) => setOffer((prev: any) => ({ ...prev, geschaeftsfallNummer: e.target.value }))} placeholder="Geschäftsfallnummer (optional)" className="mt-1" />
                 </div>
                 <div>
                   <Label>Ansprechpartner</Label>
-                  <Input value={offer.ansprechpartner || ''} onChange={(e) => setOffer(prev => ({ ...prev, ansprechpartner: e.target.value }))} placeholder="z.B. Max Mustermann" className="mt-1" />
+                  <Input value={offer.ansprechpartner || ''} onChange={(e) => setOffer((prev: any) => ({ ...prev, ansprechpartner: e.target.value }))} placeholder="z.B. Max Mustermann" className="mt-1" />
                 </div>
                 <div>
                   <Label>Skizzen Link</Label>
-                  <Input value={offer.skizzen_link || ''} onChange={(e) => setOffer(prev => ({ ...prev, skizzen_link: e.target.value }))} placeholder="Zoho Workdrive Link" className="mt-1" />
+                  <Input value={offer.skizzen_link || ''} onChange={(e) => setOffer((prev: any) => ({ ...prev, skizzen_link: e.target.value }))} placeholder="Zoho Workdrive Link" className="mt-1" />
                   {offer.skizzen_link && (
                     <a href={offer.skizzen_link} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:text-blue-700 underline mt-1 block">Link öffnen</a>
                   )}
@@ -1212,7 +1212,7 @@ export default function OfferDetailPage() {
             <h2 className="text-lg font-semibold text-slate-900 mb-4">Anmerkungen zum Angebot</h2>
             <Textarea
               value={offer.notizen || ''}
-              onChange={(e) => setOffer(prev => ({ ...prev, notizen: e.target.value }))}
+              onChange={(e) => setOffer((prev: any) => ({ ...prev, notizen: e.target.value }))}
               placeholder="Optionale Anmerkungen, die im Angebot angezeigt werden..."
               rows={4}
             />
@@ -1225,7 +1225,7 @@ export default function OfferDetailPage() {
               <Checkbox
                 id="reverseCharge"
                 checked={offer.reverse_charge || false}
-                onCheckedChange={(checked) => setOffer(prev => ({ ...prev, reverse_charge: checked }))}
+                onCheckedChange={(checked) => setOffer((prev: any) => ({ ...prev, reverse_charge: checked }))}
               />
               <label htmlFor="reverseCharge" className="text-sm font-medium leading-none cursor-pointer">
                 Ohne 20% UST (Reverse Charge / Ausnahme)
@@ -1261,7 +1261,7 @@ export default function OfferDetailPage() {
                       >
                         <button
                           type="button"
-                          onClick={() => { setOffer(prev => ({ ...prev, fusszeile: v.inhalt || v.text || '' })); setVorlagenOpen(false) }}
+                          onClick={() => { setOffer((prev: any) => ({ ...prev, fusszeile: v.inhalt || v.text || '' })); setVorlagenOpen(false) }}
                           className="flex-1 min-w-0 text-left px-4 py-3"
                         >
                           <div className="font-medium text-sm truncate">{v.name || v.titel}</div>
@@ -1291,7 +1291,7 @@ export default function OfferDetailPage() {
           </div>
           <Textarea
             value={offer.fusszeile || ''}
-            onChange={(e) => setOffer(prev => ({ ...prev, fusszeile: e.target.value }))}
+            onChange={(e) => setOffer((prev: any) => ({ ...prev, fusszeile: e.target.value }))}
             placeholder="Leer lassen für Standard-Fußtext aus Einstellungen..."
             rows={4}
           />
@@ -1347,7 +1347,7 @@ export default function OfferDetailPage() {
             erstelltVon={offer.erstellt_von || ''}
             emailAn={offer.emailAngebot || offer.kunde_email || ''}
             onSent={() => {
-              setOffer(prev => ({ ...prev, status: 'versendet' }))
+              setOffer((prev: any) => ({ ...prev, status: 'versendet' }))
               queryClient.invalidateQueries({ queryKey: ['offers'] })
             }}
           />
