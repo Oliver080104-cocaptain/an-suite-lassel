@@ -125,10 +125,11 @@ export default function PapierkorbPage() {
     onError: () => toast.error('Fehler beim Leeren des Papierkorbs'),
   })
 
+  const RETENTION_DAYS = 30
   const getDaysRemaining = (geloeschtAm: string | null) => {
-    if (!geloeschtAm) return 10
+    if (!geloeschtAm) return RETENTION_DAYS
     const daysPassed = differenceInDays(new Date(), new Date(geloeschtAm))
-    return Math.max(0, 10 - daysPassed)
+    return Math.max(0, RETENTION_DAYS - daysPassed)
   }
 
   const toggleSelection = (id: string, type: DocType) => {
@@ -216,7 +217,7 @@ export default function PapierkorbPage() {
         {/* Header */}
         <div className="mb-6 sm:mb-8">
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Papierkorb</h1>
-          <p className="text-slate-500 mt-1">Gelöschte Dokumente werden nach 10 Tagen endgültig archiviert</p>
+          <p className="text-slate-500 mt-1">Gelöschte Dokumente werden nach {RETENTION_DAYS} Tagen endgültig archiviert</p>
           {totalDeleted > 0 && (
             <div className="flex flex-wrap gap-3 mt-4">
               <Button variant="destructive" onClick={() => setDeleteAllDialog(true)} disabled={deleteAllMutation.isPending}>
@@ -247,7 +248,7 @@ export default function PapierkorbPage() {
               <div className="flex items-start gap-3">
                 <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
                 <p className="text-sm text-blue-900">
-                  <strong>Automatische Archivierung:</strong> Dokumente im Papierkorb werden nach 10 Tagen automatisch endgültig gelöscht.
+                  <strong>Automatische Archivierung:</strong> Dokumente im Papierkorb werden nach {RETENTION_DAYS} Tagen automatisch endgültig gelöscht.
                   Dokumente mit weniger als 3 Tagen verbleibender Zeit werden rot markiert.
                 </p>
               </div>

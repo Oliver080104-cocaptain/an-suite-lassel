@@ -65,7 +65,7 @@ export default function LieferscheinePage() {
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       // Soft-Delete (konsistent zu Angebote + Rechnungen). Wandert in den
-      // Papierkorb, nach 10 Tagen endgültige Löschung durch Job.
+      // Papierkorb, nach 30 Tagen endgültige Löschung durch Cron-Job.
       const { error } = await supabase
         .from('lieferscheine')
         .update({ geloescht_am: new Date().toISOString() })

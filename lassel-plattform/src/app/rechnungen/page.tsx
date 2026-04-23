@@ -87,8 +87,8 @@ export default function RechnungenPage() {
   const deleteInvoiceMutation = useMutation({
     mutationFn: async (invoiceId: string) => {
       // Soft-Delete (konsistent zu Angebote). Dokument landet im Papierkorb,
-      // geloescht_am-Timestamp wird gesetzt. Nach 10 Tagen räumt ein Job
-      // den Papierkorb.
+      // geloescht_am-Timestamp wird gesetzt. Nach 30 Tagen räumt der Cron
+      // (src/app/api/cron/cleanup-papierkorb) den Papierkorb endgültig.
       const { error } = await supabase
         .from('rechnungen')
         .update({ geloescht_am: new Date().toISOString() })

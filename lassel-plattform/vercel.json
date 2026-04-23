@@ -15,6 +15,13 @@
     "src/app/api/webhooks/invoice/route.ts": { "maxDuration": 30 },
     "src/app/api/webhooks/sammelrechnung/route.ts": { "maxDuration": 30 },
     "src/app/api/pdf/**": { "maxDuration": 60 },
-    "src/app/api/ki-angebot/route.ts": { "maxDuration": 60 }
-  }
+    "src/app/api/ki-angebot/route.ts": { "maxDuration": 60 },
+    "src/app/api/cron/cleanup-papierkorb/route.ts": { "maxDuration": 60 }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/cleanup-papierkorb",
+      "schedule": "0 3 * * *"
+    }
+  ]
 }
