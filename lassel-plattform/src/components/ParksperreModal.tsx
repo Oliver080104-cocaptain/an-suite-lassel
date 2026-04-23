@@ -9,8 +9,9 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { supabase } from '@/lib/supabase'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Sparkles, Loader2, Send, Car, Paperclip, X, Plus } from 'lucide-react'
+import { Sparkles, Loader2, Send, Car, Paperclip, X, Plus, Settings } from 'lucide-react'
 import { toast } from 'sonner'
+import SignaturenVerwaltenDialog from '@/components/SignaturenVerwaltenDialog'
 
 interface Props {
   open: boolean
@@ -46,6 +47,7 @@ export default function ParksperreModal({ open, onClose, angebotsnummer, objektA
   const [sending, setSending] = useState(false)
   const [dateien, setDateien] = useState<File[]>([])
   const [newSigOpen, setNewSigOpen] = useState(false)
+  const [verwaltenOpen, setVerwaltenOpen] = useState(false)
   const [newSigName, setNewSigName] = useState('')
   const [newSigText, setNewSigText] = useState('')
   const [savingSig, setSavingSig] = useState(false)
@@ -226,6 +228,7 @@ export default function ParksperreModal({ open, onClose, angebotsnummer, objektA
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="h-[92vh] max-h-[92vh] p-0 overflow-hidden flex flex-col">
         <DialogHeader className="px-8 pt-6 pb-4 flex-shrink-0">
@@ -325,15 +328,16 @@ export default function ParksperreModal({ open, onClose, angebotsnummer, objektA
           <div>
             <div className="flex items-center justify-between mb-2">
               <Label className="font-semibold">Signatur auswählen: <span className="text-red-500">*</span></Label>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setNewSigOpen(v => !v)}
-                className="gap-1"
-              >
-                <Plus className="w-4 h-4" />
-                Neue Signatur
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setVerwaltenOpen(true)} className="gap-1">
+                  <Settings className="w-4 h-4" />
+                  Verwalten
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setNewSigOpen(v => !v)} className="gap-1">
+                  <Plus className="w-4 h-4" />
+                  Neue Signatur
+                </Button>
+              </div>
             </div>
             <Select
               key={`signatur-select-${allSignaturen.length}`}
@@ -434,5 +438,7 @@ export default function ParksperreModal({ open, onClose, angebotsnummer, objektA
         </div>
       </DialogContent>
     </Dialog>
+    <SignaturenVerwaltenDialog open={verwaltenOpen} onClose={() => setVerwaltenOpen(false)} />
+    </>
   )
 }

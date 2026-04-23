@@ -68,7 +68,7 @@ export default function AnalyticsPage() {
     enabled: isAuthenticated,
   })
 
-  const { data: mitarbeiterList = [] } = useQuery({
+  const { data: mitarbeiterListRaw = [] } = useQuery({
     queryKey: ['mitarbeiter'],
     queryFn: async () => {
       const { data } = await supabase.from('mitarbeiter').select('*').order('name')
@@ -76,6 +76,15 @@ export default function AnalyticsPage() {
     },
     enabled: isAuthenticated,
   })
+  // Namen-losen Schrott (historische Daten, abgebrochene Inserts) rausfiltern
+  // für die Anzeige. Die leeren Einträge können über "Leere Einträge löschen"
+  // in einem Rutsch entfernt werden.
+  const mitarbeiterList = (mitarbeiterListRaw as any[]).filter(
+    (m: any) => typeof m?.name === 'string' && m.name.trim().length > 0
+  )
+  const emptyMitarbeiterIds = (mitarbeiterListRaw as any[])
+    .filter((m: any) => !m?.name || (typeof m.name === 'string' && m.name.trim().length === 0))
+    .map((m: any) => m.id as string)
 
   const addMitarbeiterMutation = useMutation({
     mutationFn: async (name: string) => {
@@ -98,6 +107,20 @@ export default function AnalyticsPage() {
       queryClient.invalidateQueries({ queryKey: ['mitarbeiter'] })
       toast.success('Mitarbeiter entfernt')
     },
+  })
+
+  const cleanupEmptyMitarbeiterMutation = useMutation({
+    mutationFn: async (ids: string[]) => {
+      if (ids.length === 0) return
+      const { error } = await supabase.from('mitarbeiter').delete().in('id', ids)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mitarbeiter'] })
+      queryClient.invalidateQueries({ queryKey: ['mitarbeiter-aktiv'] })
+      toast.success('Leere Mitarbeiter-Einträge gelöscht')
+    },
+    onError: (err: any) => toast.error('Fehler beim Aufräumen: ' + (err?.message || 'unbekannt')),
   })
 
   const year = parseInt(selectedYear)
@@ -501,6 +524,26 @@ export default function AnalyticsPage() {
               Hinzufügen
             </Button>
           </div>
+          {emptyMitarbeiterIds.length > 0 && (
+            <div className="flex items-center justify-between gap-3 mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <span className="text-sm text-amber-800">
+                {emptyMitarbeiterIds.length} leere Einträge in der Mitarbeiter-Tabelle gefunden (ohne Namen).
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => cleanupEmptyMitarbeiterMutation.mutate(emptyMitarbeiterIds)}
+                disabled={cleanupEmptyMitarbeiterMutation.isPending}
+                className="border-amber-300 text-amber-800 hover:bg-amber-100"
+              >
+                {cleanupEmptyMitarbeiterMutation.isPending
+                  ? <Loader2 className="w-4 h-4 animate-spin mr-1" />
+                  : <Trash2 className="w-4 h-4 mr-1" />
+                }
+                Leere Einträge löschen
+              </Button>
+            </div>
+          )}
           <div className="space-y-2">
             {mitarbeiterList.map((m: Record<string, unknown>) => (
               <div key={m.id as string} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
