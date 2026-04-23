@@ -18,7 +18,10 @@ import { createClient } from '@supabase/supabase-js'
  *     Access-Control-Allow-Origin-Header).
  */
 
-const PARKSPERRE_WEBHOOK = 'https://n8n.srv1367876.hstgr.cloud/webhook/parkraumsperre%20beantragen'
+// n8n akzeptiert zwei URL-Varianten: den custom-path (mit space!) oder die
+// intern generierte UUID aus dem Webhook-Node. UUID ist zuverlässiger weil
+// der Path-mit-Leerzeichen bei fetch/URL-Encoding gern mal 404 gibt.
+const PARKSPERRE_WEBHOOK = 'https://n8n.srv1367876.hstgr.cloud/webhook/7836c00e-ddef-4c0a-90b9-be803b9dc3a9'
 const BUCKET = 'parksperre-anhaenge'
 
 export const runtime = 'nodejs'
@@ -111,8 +114,20 @@ export async function POST(req: NextRequest) {
 
     const n8nText = await n8nResp.text().catch(() => '')
     if (!n8nResp.ok) {
+      console.error('[parksperre-senden] n8n failed', {
+        status: n8nResp.status,
+        statusText: n8nResp.statusText,
+        body: n8nText.slice(0, 1000),
+        url: PARKSPERRE_WEBHOOK,
+      })
       return NextResponse.json(
-        { error: 'n8n-webhook-failed', status: n8nResp.status, response: n8nText.slice(0, 500) },
+        {
+          error: 'n8n-webhook-failed',
+          n8nStatus: n8nResp.status,
+          n8nStatusText: n8nResp.statusText,
+          n8nResponse: n8nText.slice(0, 500),
+          webhookUrl: PARKSPERRE_WEBHOOK,
+        },
         { status: 502 }
       )
     }
