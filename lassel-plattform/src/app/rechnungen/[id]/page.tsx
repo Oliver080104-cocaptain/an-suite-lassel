@@ -1200,11 +1200,32 @@ export default function InvoiceDetailPage() {
                                 Alle löschen
                               </button>
                             </div>
-                            <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                            <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
                               {[...selectedDates].sort((a, b) => a.getTime() - b.getTime()).map((date, idx) => (
-                                <span key={idx} className="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded">
-                                  {format(date, 'dd.MM.')}
-                                </span>
+                                <button
+                                  key={idx}
+                                  type="button"
+                                  onClick={() => {
+                                    const newDates = selectedDates.filter(d => d.getTime() !== date.getTime())
+                                    setSelectedDates(newDates)
+                                    if (newDates.length > 0) {
+                                      const sorted = [...newDates].sort((a, b) => a.getTime() - b.getTime())
+                                      setInvoice(prev => ({
+                                        ...prev,
+                                        arbeitstage: sorted.map(d => format(d, 'yyyy-MM-dd')),
+                                        leistungszeitraumVon: format(sorted[0], 'yyyy-MM-dd'),
+                                        leistungszeitraumBis: format(sorted[sorted.length - 1], 'yyyy-MM-dd'),
+                                      }))
+                                    } else {
+                                      setInvoice(prev => ({ ...prev, arbeitstage: [], leistungszeitraumVon: '', leistungszeitraumBis: '' }))
+                                    }
+                                  }}
+                                  className="group inline-flex items-center gap-1 text-xs pl-2 pr-1 py-1 bg-blue-100 text-blue-800 rounded hover:bg-red-100 hover:text-red-800 transition-colors"
+                                  title={`${format(date, 'dd.MM.yyyy')} entfernen`}
+                                >
+                                  <span>{format(date, 'dd.MM.')}</span>
+                                  <X className="h-3 w-3 opacity-60 group-hover:opacity-100" />
+                                </button>
                               ))}
                             </div>
                           </div>
