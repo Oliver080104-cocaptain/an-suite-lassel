@@ -76,14 +76,23 @@ export default function AnalyticsPage() {
     },
     enabled: isAuthenticated,
   })
-  // Namen-losen Schrott (historische Daten, abgebrochene Inserts) rausfiltern
-  // für die Anzeige. Die leeren Einträge können über "Leere Einträge löschen"
-  // in einem Rutsch entfernt werden.
+  // Filter:
+  // - Anzeige: Mitarbeiter mit IRGENDEINEM Namensfeld (name | vorname | nachname)
+  //   und aktiv != false. Vorher wurde nur `name` geprüft → MA aus dem
+  //   Tourenplaner-Sync (der vorname/nachname befüllt aber nicht `name`)
+  //   wurden fälschlich als „leer" eingestuft und am 23.04.2026 versehentlich
+  //   per „Leere Einträge löschen" hart gelöscht.
+  // - „Leer": ALLE drei Felder leer. Danach gibt es realistisch keine leeren
+  //   Einträge mehr in Prod, aber der Code bleibt defensiv.
+  const hasAnyName = (m: any) =>
+    (typeof m?.name === 'string' && m.name.trim().length > 0) ||
+    (typeof m?.vorname === 'string' && m.vorname.trim().length > 0) ||
+    (typeof m?.nachname === 'string' && m.nachname.trim().length > 0)
   const mitarbeiterList = (mitarbeiterListRaw as any[]).filter(
-    (m: any) => typeof m?.name === 'string' && m.name.trim().length > 0
+    (m: any) => hasAnyName(m) && m?.aktiv !== false
   )
   const emptyMitarbeiterIds = (mitarbeiterListRaw as any[])
-    .filter((m: any) => !m?.name || (typeof m.name === 'string' && m.name.trim().length === 0))
+    .filter((m: any) => !hasAnyName(m))
     .map((m: any) => m.id as string)
 
   const addMitarbeiterMutation = useMutation({
@@ -131,7 +140,7 @@ export default function AnalyticsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mitarbeiter'] })
-      queryClient.invalidateQueries({ queryKey: ['mitarbeiter-aktiv'] })
+      queryClient.invalidateQueries({ queryKey: ['mitarbeiter-signatur-innendienst'] })
       toast.success('Mitarbeiter hinzugefügt')
       setNewMitarbeiterName('')
     },
@@ -140,27 +149,31 @@ export default function AnalyticsPage() {
     },
   })
 
+  // Soft-Delete (aktiv=false) statt Hard-Delete. Die mitarbeiter-Tabelle wird
+  // von einer anderen Software (Tourenplaner) mitgenutzt — Hard-Delete bricht
+  // dort UUID-Referenzen (touren.mitarbeiter_liste, fahrzeug_zuweisungen,
+  // Profilbilder im Storage). Vorfall 23.04.2026 bestätigt das.
   const deleteMitarbeiterMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from('mitarbeiter').delete().eq('id', id)
+      const { error } = await supabase.from('mitarbeiter').update({ aktiv: false }).eq('id', id)
       if (error) throw error
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mitarbeiter'] })
-      toast.success('Mitarbeiter entfernt')
+      toast.success('Mitarbeiter deaktiviert')
     },
   })
 
   const cleanupEmptyMitarbeiterMutation = useMutation({
     mutationFn: async (ids: string[]) => {
       if (ids.length === 0) return
-      const { error } = await supabase.from('mitarbeiter').delete().in('id', ids)
+      const { error } = await supabase.from('mitarbeiter').update({ aktiv: false }).in('id', ids)
       if (error) throw error
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mitarbeiter'] })
-      queryClient.invalidateQueries({ queryKey: ['mitarbeiter-aktiv'] })
-      toast.success('Leere Mitarbeiter-Einträge gelöscht')
+      queryClient.invalidateQueries({ queryKey: ['mitarbeiter-signatur-innendienst'] })
+      toast.success('Leere Mitarbeiter-Einträge deaktiviert')
     },
     onError: (err: any) => toast.error('Fehler beim Aufräumen: ' + (err?.message || 'unbekannt')),
   })
@@ -589,7 +602,11 @@ export default function AnalyticsPage() {
           <div className="space-y-2">
             {mitarbeiterList.map((m: Record<string, unknown>) => (
               <div key={m.id as string} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                <span className="font-medium text-slate-700">{m.name as string}</span>
+                <span className="font-medium text-slate-700">
+                  {(m.name as string) ||
+                    `${(m.vorname as string) || ''} ${(m.nachname as string) || ''}`.trim() ||
+                    '(unbenannt)'}
+                </span>
                 <Button
                   variant="ghost"
                   size="icon"

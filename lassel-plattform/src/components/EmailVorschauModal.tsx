@@ -94,17 +94,26 @@ export default function EmailVorschauModal({
   const [newSigText, setNewSigText] = useState('')
   const [savingSig, setSavingSig] = useState(false)
 
+  // Signatur-Dropdown zeigt NUR Innendienst-Mitarbeiter (department='ID').
+  // Außendienst (AD) wird gezielt ausgeblendet — Techniker haben keine Mail-
+  // Signatur-Funktion. Fallback auf ungefilterte Liste falls die Spalte
+  // department in der Prod-DB fehlt (Schema-Drift), damit das Dropdown nie
+  // komplett leer ist. WICHTIG: nur SELECT, keine Writes/Deletes — die
+  // mitarbeiter-Tabelle ist shared mit dem Tourenplaner.
   const { data: mitarbeiterList = [] } = useQuery({
-    queryKey: ['mitarbeiter-aktiv'],
+    queryKey: ['mitarbeiter-signatur-innendienst'],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const filtered = await supabase
         .from('mitarbeiter')
         .select('*')
         .eq('aktiv', true)
+        .eq('department', 'ID')
         .order('name')
-      if (!error && data && data.length > 0) return data
-      const fb = await supabase.from('mitarbeiter').select('*').order('name')
-      return fb.data || []
+      if (!filtered.error) return filtered.data || []
+      // Schema-Drift-Fallback: department-Spalte existiert nicht → zeige alle aktiven
+      console.warn('[mitarbeiter] department-Filter fehlgeschlagen, Fallback auf aktiv:', filtered.error.message)
+      const all = await supabase.from('mitarbeiter').select('*').eq('aktiv', true).order('name')
+      return all.data || []
     },
     staleTime: 60 * 1000,
   })

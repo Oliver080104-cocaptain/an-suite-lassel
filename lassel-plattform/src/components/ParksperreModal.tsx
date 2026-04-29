@@ -55,14 +55,22 @@ export default function ParksperreModal({ open, onClose, angebotsnummer, objektA
   const [newSigText, setNewSigText] = useState('')
   const [savingSig, setSavingSig] = useState(false)
 
+  // Signatur-Dropdown zeigt NUR Innendienst-Mitarbeiter (department='ID').
+  // Siehe EmailVorschauModal — gleiches Pattern, gleicher queryKey damit
+  // beide Modals den gleichen Cache nutzen.
   const { data: mitarbeiterList = [] } = useQuery({
-    queryKey: ['mitarbeiter-aktiv'],
+    queryKey: ['mitarbeiter-signatur-innendienst'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('mitarbeiter').select('*').eq('aktiv', true).order('name')
-      if (!error && data && data.length > 0) return data
-      const fb = await supabase.from('mitarbeiter').select('*').order('name')
-      return fb.data || []
+      const filtered = await supabase
+        .from('mitarbeiter')
+        .select('*')
+        .eq('aktiv', true)
+        .eq('department', 'ID')
+        .order('name')
+      if (!filtered.error) return filtered.data || []
+      console.warn('[mitarbeiter] department-Filter fehlgeschlagen, Fallback auf aktiv:', filtered.error.message)
+      const all = await supabase.from('mitarbeiter').select('*').eq('aktiv', true).order('name')
+      return all.data || []
     },
     staleTime: 60 * 1000,
   })
