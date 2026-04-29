@@ -324,6 +324,16 @@ export default function OfferDetailPage() {
       brutto_gesamt: offerState.brutto_gesamt || 0,
       geschaeftsfallnummer: offerState.geschaeftsfallNummer || null,
       ansprechpartner: offerState.ansprechpartner || null,
+      // HI-Block (neu ab 2026-04-23) — User kann das direkt im Angebot
+      // steuern und die Werte werden beim handleCreateInvoice an die
+      // neue Rechnung vererbt. Email + HV-Name werden beim autosave
+      // mitgeführt damit sie nicht vom spread überschrieben werden.
+      rechnung_an_hi: !!offerState.rechnung_an_hi,
+      uid_von_hi: offerState.uid_von_hi || null,
+      hausverwaltung_name: offerState.hausverwaltung_name || null,
+      kunde_email: offerState.kunde_email || null,
+      email_angebot: offerState.email_angebot || null,
+      email_rechnung: offerState.email_rechnung || null,
     }
     // vermittler_id nur senden wenn gesetzt — vermeidet PGRST204 wenn Spalte im
     // Schema-Cache fehlt und User keinen Vermittler ausgewählt hat.
@@ -348,10 +358,23 @@ export default function OfferDetailPage() {
     setSaveStatus('saving')
     try {
       const saveData = buildOfferData({ ...offer, ...totals })
-      const { error: offerErr } = await supabase
-        .from('angebote')
-        .update(saveData)
-        .eq('id', offerId)
+      // Schema-Drift-Retry: wenn eine Spalte in der Prod-DB fehlt
+      // (z.B. Migration 020 noch nicht ausgeführt, rechnung_an_hi/
+      // uid_von_hi/hausverwaltung_name fehlen), strippen wir sie aus
+      // dem payload und retryen. Max 6 Versuche.
+      let payload = { ...saveData }
+      let offerErr: any = null
+      for (let i = 0; i < 6; i++) {
+        const resp = await supabase.from('angebote').update(payload).eq('id', offerId)
+        if (!resp.error) { offerErr = null; break }
+        const missing = /Could not find the '([^']+)' column/i.exec(resp.error.message || '')?.[1]
+        if (!missing || !(missing in payload)) { offerErr = resp.error; break }
+        console.warn(`[angebote.update] schema-drift: '${missing}' fehlt, retry ohne.`)
+        delete payload[missing]
+        offerErr = resp.error
+        if (i === 5) break
+      }
+      if (offerErr && !Object.keys(payload).length) throw offerErr
       if (offerErr) throw offerErr
       const posToSave = positions.filter((p: any) => p.produktName?.trim() || p.beschreibung?.trim())
       await savePositions(offerId, posToSave)
@@ -675,7 +698,7 @@ export default function OfferDetailPage() {
         ? (teilBrutto ?? 0)
         : (opts.rechnungstyp === 'gutschrift' ? 0 : selectedBrutto)
 
-      const { data: invoice, error } = await supabase.from('rechnungen').insert({
+      const insertData: Record<string, any> = {
         rechnungsnummer,
         rechnungstyp: opts.rechnungstyp,
         ist_schlussrechnung: opts.istSchlussrechnung,
@@ -720,8 +743,26 @@ export default function OfferDetailPage() {
         netto_gesamt: insertNetto,
         mwst_gesamt: insertMwst,
         brutto_gesamt: insertBrutto,
-      }).select().single()
-      if (error) throw error
+      }
+
+      // Schema-Drift-Retry: wenn eine Spalte in der Prod-DB fehlt
+      // (z.B. Migration 021 noch nicht ausgeführt → kunde_email/
+      // email_rechnung fehlen), strippen wir sie aus dem Payload und
+      // retryen. Sonst scheitert das gesamte "Rechnung erzeugen" mit
+      // 400 und der User landet in einem leeren Modal-Zustand.
+      let payload = { ...insertData }
+      let invoice: any = null
+      let lastErr: any = null
+      for (let i = 0; i < 8; i++) {
+        const resp = await supabase.from('rechnungen').insert(payload).select().single()
+        if (!resp.error) { invoice = resp.data; lastErr = null; break }
+        const missing = /Could not find the '([^']+)' column/i.exec(resp.error.message || '')?.[1]
+        if (!missing || !(missing in payload)) { lastErr = resp.error; break }
+        console.warn(`[rechnungen.insert] schema-drift: '${missing}' fehlt, retry ohne.`)
+        delete payload[missing]
+        lastErr = resp.error
+      }
+      if (lastErr || !invoice) throw lastErr ?? new Error('Rechnung-Insert fehlgeschlagen')
 
       // Positionen-Erzeugung: gefilterte Originale aus dem Angebot übernehmen.
       // Bei Anzahlung/Teilrechnung wird zusätzlich eine Abschlags-Zeile vorgelagert.
@@ -1024,6 +1065,37 @@ export default function OfferDetailPage() {
                   <Label>UID-Nummer</Label>
                   <Input value={offer.kunde_uid || ''} onChange={(e) => setOffer((prev: any) => ({ ...prev, kunde_uid: e.target.value }))} placeholder="z.B. ATU12345678" className="mt-1" autoComplete="off" />
                 </div>
+
+                {/* HI-Toggle: wird aus Zoho vorbefüllt (kunde.rechnungAnHI,
+                    kunde.uidVonHI). Die Rechnung die aus diesem Angebot
+                    erzeugt wird erbt die Werte via handleCreateInvoice. */}
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    type="checkbox"
+                    id="angebotRechnungAnHI"
+                    checked={!!offer.rechnung_an_hi}
+                    onChange={(e) => setOffer((prev: any) => ({ ...prev, rechnung_an_hi: e.target.checked }))}
+                    className="w-4 h-4 rounded"
+                  />
+                  <label htmlFor="angebotRechnungAnHI" className="text-sm font-medium text-slate-700 cursor-pointer">
+                    Rechnung an Hausinhabung (HI)
+                  </label>
+                </div>
+                {offer.rechnung_an_hi && (
+                  <div className="space-y-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                    <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Hausinhabung</p>
+                    <div>
+                      <Label>UID der Hausinhabung</Label>
+                      <Input
+                        value={offer.uid_von_hi || ''}
+                        onChange={(e) => setOffer((prev: any) => ({ ...prev, uid_von_hi: e.target.value }))}
+                        placeholder="z.B. ATU12345678 (oder 'Nicht vorhanden')"
+                        className="mt-1"
+                        autoComplete="off"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </Card>
 
