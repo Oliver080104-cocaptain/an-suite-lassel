@@ -36,7 +36,10 @@ async function generateAngebotsnummer(): Promise<string> {
  * stimmt aber NIE mit unserer Supabase-UUID überein. Daher: Name-Match in
  * unserer vermittler-Tabelle (case-insensitive). Nichts gefunden → null.
  */
-async function resolveVermittlerId(vermittlerName: string | null | undefined): Promise<string | null> {
+async function resolveVermittlerId(
+  vermittlerName: string | null | undefined,
+  ctx?: { ticketId?: string | null }
+): Promise<string | null> {
   if (!vermittlerName?.trim()) return null
   const { data } = await supabase
     .from('vermittler')
@@ -44,7 +47,14 @@ async function resolveVermittlerId(vermittlerName: string | null | undefined): P
     .ilike('name', vermittlerName.trim())
     .limit(1)
     .maybeSingle()
-  return data?.id || null
+  if (!data?.id) {
+    logEvent('warning', 'webhook-offer-vermittler',
+      `Vermittler '${vermittlerName}' nicht in DB — Angebot ohne Vermittler-Verknüpfung`,
+      { vermittlerName, ticketId: ctx?.ticketId ?? null }
+    ).catch(() => {})
+    return null
+  }
+  return data.id
 }
 
 /**
@@ -120,7 +130,8 @@ function buildAngebotData(payload: any, opts: { includeIdentity: boolean }) {
  */
 async function upsertAngebotSafe(
   idOrNull: string | null,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
+  ctx?: { ticketId?: string | null; angebotsnummer?: string | null }
 ): Promise<{ data: any; error: any }> {
   let payload = { ...data }
   for (let i = 0; i < 6; i++) {
@@ -131,9 +142,13 @@ async function upsertAngebotSafe(
     const missing = /Could not find the '([^']+)' column/i.exec(resp.error.message || '')?.[1]
     if (!missing || !(missing in payload)) return resp
     console.warn(`[webhooks/offer] schema-drift: '${missing}' fehlt, retry ohne.`)
-    logEvent('warning', 'webhook-offer',
-      `Schema-Drift: Spalte fehlt in 'angebote' — Migration nicht angewandt?`,
-      { missingColumn: missing }
+    logEvent('warning', 'webhook-offer-schema-drift',
+      `Schema-Drift: Spalte '${missing}' fehlt in angebote — Daten werden gestripped`,
+      {
+        missingColumn: missing,
+        ticketId: ctx?.ticketId ?? null,
+        angebotsnummer: ctx?.angebotsnummer ?? null,
+      }
     ).catch(() => {})
     delete payload[missing]
   }
@@ -148,7 +163,14 @@ export async function POST(req: NextRequest) {
   try {
     const raw = await req.text()
     body = JSON.parse(raw)
-    if (typeof body === 'string') body = JSON.parse(body)
+    if (typeof body === 'string') {
+      const innerLen = body.length
+      body = JSON.parse(body)
+      logEvent('warning', 'webhook-double-encoded',
+        `Webhook offer doppelt-encoded JSON empfangen — n8n Flow prüfen`,
+        { type: 'offer', bodyLength: innerLen }
+      ).catch(() => {})
+    }
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
@@ -163,7 +185,7 @@ export async function POST(req: NextRequest) {
 
   try {
     // Vermittler-ID via Name-Match auflösen (falls vorhanden)
-    const vermittlerId = await resolveVermittlerId(body.meta?.zoho?.vermittler?.name)
+    const vermittlerId = await resolveVermittlerId(body.meta?.zoho?.vermittler?.name, { ticketId })
 
     // Prüfen ob Angebot bereits existiert
     const { data: existing } = await supabase
@@ -188,7 +210,7 @@ export async function POST(req: NextRequest) {
       const updateData = buildAngebotData(body, { includeIdentity: false })
       if (vermittlerId) updateData.vermittler_id = vermittlerId
 
-      const { error } = await upsertAngebotSafe(angebotId, updateData)
+      const { error } = await upsertAngebotSafe(angebotId, updateData, { ticketId, angebotsnummer })
       if (error) {
         console.error('[webhooks/offer] update error:', error)
         return NextResponse.json({ error: error.message }, { status: 500 })
@@ -202,7 +224,7 @@ export async function POST(req: NextRequest) {
       insertData.angebotsnummer = angebotsnummer
       if (vermittlerId) insertData.vermittler_id = vermittlerId
 
-      const { data: newAngebot, error } = await upsertAngebotSafe(null, insertData)
+      const { data: newAngebot, error } = await upsertAngebotSafe(null, insertData, { ticketId, angebotsnummer })
       if (error || !newAngebot) {
         console.error('[webhooks/offer] insert error:', error)
         return NextResponse.json({ error: error?.message || 'Insert fehlgeschlagen' }, { status: 500 })
@@ -216,6 +238,12 @@ export async function POST(req: NextRequest) {
     // Anlegen mitgeben.
     if (action === 'created') {
       const posArray = Array.isArray(body.positionen) ? body.positionen : []
+      if (posArray.length === 0) {
+        logEvent('warning', 'webhook-positionen-leer',
+          `Webhook offer ohne Positionen — Dokument mit 0 Zeilen angelegt`,
+          { type: 'offer', docNummer: angebotsnummer, ticketId }
+        ).catch(() => {})
+      }
       if (posArray.length > 0) {
         const posData = posArray.map((p: any, i: number) => ({
           angebot_id: angebotId,

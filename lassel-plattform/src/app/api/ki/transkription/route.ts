@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { logEvent } from '@/lib/monitoring'
 
 export async function POST(req: NextRequest) {
   try {
@@ -8,6 +9,10 @@ export async function POST(req: NextRequest) {
 
     const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey || apiKey.includes('HIER') || apiKey.length < 20) {
+      logEvent('warning', 'ki-kein-api-key',
+        `OPENAI_API_KEY nicht konfiguriert — KI-Fallback aktiv`,
+        { route: 'transkription' }
+      ).catch(() => {})
       return NextResponse.json({ text: 'OpenAI API-Key nicht konfiguriert' })
     }
 

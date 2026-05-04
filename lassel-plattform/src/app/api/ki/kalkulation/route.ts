@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { logEvent } from '@/lib/monitoring'
 
 const PREISLOGIK = `Du bist ein Kalkulationsassistent für Lassel GmbH Höhenarbeiten Wien.
 Berechne NUR auf Basis dieser exakten Preislogik:
@@ -57,6 +58,10 @@ export async function POST(req: NextRequest) {
 
     const apiKey = process.env.OPENAI_API_KEY
     if (!apiKey || apiKey.includes('HIER') || apiKey.length < 20) {
+      logEvent('warning', 'ki-kein-api-key',
+        `OPENAI_API_KEY nicht konfiguriert — KI-Fallback aktiv`,
+        { route: 'kalkulation' }
+      ).catch(() => {})
       return NextResponse.json(FALLBACK_KALKULATION)
     }
 

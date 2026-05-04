@@ -696,6 +696,13 @@ export default function OfferDetailPage() {
           filteredDbPositions = matched
         } else {
           console.warn('[createInvoice] selectedPositionIds stale — übernehme ALLE Positionen als Fallback')
+          logEvent('warning', 'position-ids-mismatch',
+            `Position-ID-Mismatch bei Rechnung — Fallback auf alle DB-Positionen`,
+            {
+              angebotsnummer: offer.angebotsnummer,
+              selectedCount: opts.selectedPositionIds.length,
+            }
+          ).catch(() => {})
         }
       }
 

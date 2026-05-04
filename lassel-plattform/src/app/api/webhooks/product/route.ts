@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { validateWebhookSecret, unauthorizedResponse } from '@/lib/webhook-auth'
+import { logEvent } from '@/lib/monitoring'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,7 +16,14 @@ export async function POST(req: NextRequest) {
     const raw = await req.text()
     try {
       body = JSON.parse(raw)
-      if (typeof body === 'string') body = JSON.parse(body)
+      if (typeof body === 'string') {
+        const innerLen = body.length
+        body = JSON.parse(body)
+        logEvent('warning', 'webhook-double-encoded',
+          `Webhook product doppelt-encoded JSON empfangen — n8n Flow prüfen`,
+          { type: 'product', bodyLength: innerLen }
+        ).catch(() => {})
+      }
     } catch { body = JSON.parse(raw) }
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })

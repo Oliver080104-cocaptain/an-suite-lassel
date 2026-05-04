@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { validateWebhookSecret, unauthorizedResponse } from '@/lib/webhook-auth'
+import { logEvent } from '@/lib/monitoring'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,8 +16,14 @@ async function generateLieferscheinnummer(): Promise<string> {
     .from('lieferscheine')
     .select('lieferscheinnummer')
     .like('lieferscheinnummer', `LI-${year}-%`)
-  const nextNumber = (data?.length || 0) + 1
-  return `LI-${year}-${String(nextNumber).padStart(5, '0')}`
+  const existingCount = data?.length || 0
+  const nextNumber = existingCount + 1
+  const nummer = `LI-${year}-${String(nextNumber).padStart(5, '0')}`
+  logEvent('warning', 'lieferscheinnummer-race',
+    `Lieferscheinnummer via Frontend-Count vergeben — Race möglich`,
+    { nummer, year, existingCount }
+  ).catch(() => {})
+  return nummer
 }
 
 // Payload: { ticketId, ticketNumber, kunde, angebot, positionen, meta }
@@ -32,6 +39,12 @@ export async function POST(req: NextRequest) {
 
     const lieferscheinnummer = await generateLieferscheinnummer()
     const posArray = Array.isArray(positionen) ? positionen : []
+    if (posArray.length === 0) {
+      logEvent('warning', 'webhook-positionen-leer',
+        `Webhook delivery-note ohne Positionen — Dokument mit 0 Zeilen angelegt`,
+        { type: 'delivery-note', docNummer: lieferscheinnummer, ticketId }
+      ).catch(() => {})
+    }
 
     const { data: newLS, error } = await supabase
       .from('lieferscheine')

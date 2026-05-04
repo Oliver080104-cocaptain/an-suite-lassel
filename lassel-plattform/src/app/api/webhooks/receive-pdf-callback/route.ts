@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { validateWebhookSecret, unauthorizedResponse } from '@/lib/webhook-auth'
+import { logEvent } from '@/lib/monitoring'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -19,25 +20,42 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'pdfUrl ist erforderlich' }, { status: 400 })
     }
 
+    const noMatchWarn = () => {
+      logEvent('warning', 'pdf-callback-no-match',
+        `PDF-Callback für unbekanntes Dokument — kein Update`,
+        {
+          angebotId: angebotId || null,
+          rechnungId: rechnungId || null,
+          lieferscheinId: lieferscheinId || null,
+        }
+      ).catch(() => {})
+    }
+
     if (angebotId) {
-      await supabase.from('angebote').update({
-        pdf_url: pdfUrl,
-        ...(status ? { status } : {}),
-      }).eq('id', angebotId)
+      const { data: updateResult } = await supabase
+        .from('angebote')
+        .update({ pdf_url: pdfUrl, ...(status ? { status } : {}) })
+        .eq('id', angebotId)
+        .select()
+      if (!updateResult || updateResult.length === 0) noMatchWarn()
     }
 
     if (rechnungId) {
-      await supabase.from('rechnungen').update({
-        pdf_url: pdfUrl,
-        ...(status ? { status } : {}),
-      }).eq('id', rechnungId)
+      const { data: updateResult } = await supabase
+        .from('rechnungen')
+        .update({ pdf_url: pdfUrl, ...(status ? { status } : {}) })
+        .eq('id', rechnungId)
+        .select()
+      if (!updateResult || updateResult.length === 0) noMatchWarn()
     }
 
     if (lieferscheinId) {
-      await supabase.from('lieferscheine').update({
-        pdf_url: pdfUrl,
-        ...(status ? { status } : {}),
-      }).eq('id', lieferscheinId)
+      const { data: updateResult } = await supabase
+        .from('lieferscheine')
+        .update({ pdf_url: pdfUrl, ...(status ? { status } : {}) })
+        .eq('id', lieferscheinId)
+        .select()
+      if (!updateResult || updateResult.length === 0) noMatchWarn()
     }
 
     return NextResponse.json({ success: true })
