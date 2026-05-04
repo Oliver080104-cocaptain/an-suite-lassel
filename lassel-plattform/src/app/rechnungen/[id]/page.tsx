@@ -22,6 +22,7 @@ import EditableDocNumber from '@/components/shared/EditableDocNumber'
 import OfferSummary from '@/components/offers/OfferSummary'
 import EmailVorschauModal from '@/components/EmailVorschauModal'
 import { getTypInfo } from '@/lib/rechnung-typ'
+import { logEvent } from '@/lib/monitoring'
 
 interface InvoicePosition {
   id?: string
@@ -669,6 +670,8 @@ export default function InvoiceDetailPage() {
       setInvoice(prev => ({ ...prev, pdfUrl: pdfLink }))
 
       // Trigger Zoho webhook
+      const webhookName_rechnungZoho = 'rechnung-zoho-ablage'
+      const docNummer_rechnungZoho = invCopy.rechnungsNummer
       await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/48a021d8-c88d-4663-80f6-dc09a70d598b', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -690,7 +693,13 @@ export default function InvoiceDetailPage() {
           summen: { netto: totals.summeNetto, ust: totals.summeUst, brutto: totals.summeBrutto },
           timestamp: new Date().toISOString()
         })
-      }).catch(err => console.error('Zoho webhook failed:', err))
+      }).catch(async (err: Error) => {
+        console.error('Zoho webhook failed:', err)
+        await logEvent('error', 'webhook-outgoing',
+          `Zoho-Webhook fehlgeschlagen — ${webhookName_rechnungZoho} für ${docNummer_rechnungZoho}`,
+          { webhookName: webhookName_rechnungZoho, docNummer: docNummer_rechnungZoho, error: err.message }
+        )
+      })
 
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
       toast.success('Gespeichert & in Zoho abgelegt')
@@ -845,6 +854,8 @@ export default function InvoiceDetailPage() {
   const handleStatusChange = async (v: string) => {
     setInvoice(prev => ({ ...prev, status: v }))
     if (v === 'bezahlt' && invoiceId) {
+      const webhookName_bezahlt = 'rechnung-bezahlt'
+      const docNummer_bezahlt = invoice.rechnungsNummer
       try {
         await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/fd01a47a-4d74-4763-b551-e5c3a29155da', {
           method: 'POST',
@@ -863,8 +874,13 @@ export default function InvoiceDetailPage() {
           })
         })
         toast.success('Status auf Bezahlt gesetzt')
-      } catch (err) {
+      } catch (e) {
+        const err = e as Error
         console.error('Bezahlt webhook failed:', err)
+        await logEvent('error', 'webhook-outgoing',
+          `Zoho-Webhook fehlgeschlagen — ${webhookName_bezahlt} für ${docNummer_bezahlt}`,
+          { webhookName: webhookName_bezahlt, docNummer: docNummer_bezahlt, error: err.message }
+        )
       }
     }
   }

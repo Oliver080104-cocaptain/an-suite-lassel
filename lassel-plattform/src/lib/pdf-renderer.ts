@@ -9,6 +9,7 @@
  */
 
 import { NextResponse } from 'next/server'
+import { logEvent } from '@/lib/monitoring'
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const Api2Pdf = require('api2pdf')
 
@@ -34,8 +35,17 @@ export async function renderHtmlToPdfResponse(
   fileName: string,
   disposition: 'attachment' | 'inline' = 'inline'
 ): Promise<NextResponse> {
+  // fileName-Pattern: "Angebot_AN-2026-00058.pdf" → docType, docNummer ableiten.
+  const fileNameMatch = /^([^_]+)_(.+)\.pdf$/.exec(fileName)
+  const docType = fileNameMatch?.[1] || 'unknown'
+  const docNummer = fileNameMatch?.[2] || fileName
+
   const apiKey = process.env.API2PDF_KEY
   if (!apiKey) {
+    await logEvent('critical', 'pdf-renderer',
+      'CRITICAL: API2PDF_KEY fehlt — keine PDFs generierbar',
+      { key_defined: !!process.env.API2PDF_KEY }
+    )
     return new NextResponse('PDF-Service nicht konfiguriert (API2PDF_KEY fehlt)', { status: 500 })
   }
 
@@ -63,6 +73,10 @@ export async function renderHtmlToPdfResponse(
 
     if (!success || !fileUrl) {
       console.error('api2pdf failed:', result)
+      await logEvent('error', 'pdf-renderer',
+        `PDF-Erzeugung fehlgeschlagen für ${docType} ${docNummer}`,
+        { docType, docNummer, apiError: result?.Error || result?.error }
+      )
       return new NextResponse(
         `PDF-Erzeugung fehlgeschlagen: ${result?.Error || result?.error || 'Unbekannter Fehler'}`,
         { status: 502 }
@@ -72,6 +86,10 @@ export async function renderHtmlToPdfResponse(
     // PDF von api2pdf-CDN holen und als Binary durchreichen
     const pdfRes = await fetch(fileUrl)
     if (!pdfRes.ok) {
+      await logEvent('error', 'pdf-renderer',
+        `PDF-Erzeugung fehlgeschlagen für ${docType} ${docNummer}`,
+        { docType, docNummer, status: pdfRes.status }
+      )
       return new NextResponse(`PDF-Download fehlgeschlagen: ${pdfRes.status}`, { status: 502 })
     }
     const pdfBuffer = await pdfRes.arrayBuffer()
@@ -86,6 +104,10 @@ export async function renderHtmlToPdfResponse(
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('renderHtmlToPdfResponse error:', err)
+    await logEvent('error', 'pdf-renderer',
+      `PDF-Erzeugung fehlgeschlagen für ${docType} ${docNummer}`,
+      { docType, docNummer, apiError: message }
+    )
     return new NextResponse(`PDF-Erzeugung fehlgeschlagen: ${message}`, { status: 500 })
   }
 }

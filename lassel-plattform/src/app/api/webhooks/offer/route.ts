@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { validateWebhookSecret, unauthorizedResponse } from '@/lib/webhook-auth'
+import { logEvent } from '@/lib/monitoring'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -130,6 +131,10 @@ async function upsertAngebotSafe(
     const missing = /Could not find the '([^']+)' column/i.exec(resp.error.message || '')?.[1]
     if (!missing || !(missing in payload)) return resp
     console.warn(`[webhooks/offer] schema-drift: '${missing}' fehlt, retry ohne.`)
+    logEvent('warning', 'webhook-offer',
+      `Schema-Drift: Spalte fehlt in 'angebote' — Migration nicht angewandt?`,
+      { missingColumn: missing }
+    ).catch(() => {})
     delete payload[missing]
   }
   return { data: null, error: { message: 'zu viele Schema-Drift-Retries' } }
@@ -271,6 +276,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, angebotId, angebotNummer: angebotsnummer, editUrl, action })
   } catch (error) {
     console.error('[webhooks/offer] fatal:', error)
-    return NextResponse.json({ error: (error as Error).message }, { status: 500 })
+    const err = error as Error
+    await logEvent('critical', 'webhook-offer',
+      `CRITICAL: Webhook /offer fatal — Zoho kann keine Angebote anlegen. Error: ${err.message}`,
+      { ticketId, error: err.message, stack: err.stack?.substring(0, 500) }
+    )
+    return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }

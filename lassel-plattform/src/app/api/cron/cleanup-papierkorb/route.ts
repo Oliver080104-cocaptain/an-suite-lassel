@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { logEvent } from '@/lib/monitoring'
 
 /**
  * Vercel Cron Job — läuft täglich um 03:00 UTC (siehe vercel.json).
@@ -23,6 +24,12 @@ export async function GET(req: NextRequest) {
   const auth = req.headers.get('authorization')
   const expected = `Bearer ${process.env.CRON_SECRET}`
   if (!process.env.CRON_SECRET || auth !== expected) {
+    if (!process.env.CRON_SECRET) {
+      await logEvent('critical', 'cron-cleanup',
+        'CRITICAL: Cron Cleanup fehlgeschlagen — CRON_SECRET fehlt',
+        {}
+      )
+    }
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
@@ -124,6 +131,18 @@ export async function GET(req: NextRequest) {
     }
   } catch (e: any) {
     result.errors.push(`lieferscheine-cleanup: ${e.message}`)
+  }
+
+  if (result.errors.length > 0) {
+    await logEvent('error', 'cron-cleanup',
+      `Cron Cleanup mit Fehlern: ${result.errors.join(', ')}`,
+      { errors: result.errors }
+    )
+  } else {
+    await logEvent('info', 'cron-cleanup',
+      `Cron Cleanup OK — ${result.angebote?.deleted} Angebote, ${result.rechnungen?.deleted} Rechnungen gelöscht`,
+      { result }
+    )
   }
 
   return NextResponse.json(result)

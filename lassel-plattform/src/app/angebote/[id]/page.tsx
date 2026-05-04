@@ -24,6 +24,7 @@ import ParksperreModal from '@/components/ParksperreModal'
 import CreateInvoiceDialog, { type CreateInvoiceOptions } from '@/components/CreateInvoiceDialog'
 import EditableDocNumber from '@/components/shared/EditableDocNumber'
 import { generateRechnungsNummer, getTypInfo, type Rechnungstyp } from '@/lib/rechnung-typ'
+import { logEvent } from '@/lib/monitoring'
 
 export default function OfferDetailPage() {
   const params = useParams()
@@ -500,6 +501,8 @@ export default function OfferDetailPage() {
       setOffer((prev: any) => ({ ...prev, pdf_url: pdfLink }))
 
       const editUrl = `${window.location.origin}/angebote/${savedOffer.id}`
+      const webhookName_zohoAblage = 'angebot-zoho-ablage'
+      const docNummer_zohoAblage = savedOffer.angebotsnummer
       await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/fccf5130-51b2-4e66-8aa2-84d29da4862a', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -522,7 +525,13 @@ export default function OfferDetailPage() {
           skizzenLink: offer.skizzen_link,
           timestamp: new Date().toISOString()
         })
-      }).catch(console.error)
+      }).catch(async (err: Error) => {
+        console.error(err)
+        await logEvent('error', 'webhook-outgoing',
+          `Zoho-Webhook fehlgeschlagen — ${webhookName_zohoAblage} für ${docNummer_zohoAblage}`,
+          { webhookName: webhookName_zohoAblage, docNummer: docNummer_zohoAblage, error: err.message }
+        )
+      })
 
       queryClient.invalidateQueries({ queryKey: ['offers'] })
       toast.success('PDF erfolgreich in Zoho abgespeichert')
@@ -586,6 +595,8 @@ export default function OfferDetailPage() {
         if (insErr) { console.error('Lieferschein-Positionen Insert:', insErr); throw insErr }
       }
 
+      const webhookName_lieferschein = 'lieferschein-erstellt'
+      const docNummer_lieferschein = lieferscheinnummer
       try {
         const editUrl = `${window.location.origin}/lieferscheine/${deliveryNote.id}`
         await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/5e4e9681-a79e-42be-a1d0-309bfdc36909', {
@@ -617,7 +628,14 @@ export default function OfferDetailPage() {
             timestamp: new Date().toISOString()
           })
         })
-      } catch (e) { console.error('Webhook fehlgeschlagen:', e) }
+      } catch (e) {
+        const err = e as Error
+        console.error('Webhook fehlgeschlagen:', err)
+        await logEvent('error', 'webhook-outgoing',
+          `Zoho-Webhook fehlgeschlagen — ${webhookName_lieferschein} für ${docNummer_lieferschein}`,
+          { webhookName: webhookName_lieferschein, docNummer: docNummer_lieferschein, error: err.message }
+        )
+      }
 
       toast.dismiss()
       toast.success('Lieferschein erstellt - Weiterleitung...')
@@ -807,6 +825,8 @@ export default function OfferDetailPage() {
         if (posInsErr) { console.error('Rechnung-Positionen Insert:', posInsErr); throw posInsErr }
       }
 
+      const webhookName_rechnungErstellt = 'rechnung-erstellt'
+      const docNummer_rechnungErstellt = invoice.rechnungsnummer
       try {
         const editUrl = `${window.location.origin}/rechnungen/${invoice.id}`
         await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/47c3bc5b-17e6-4c07-bd72-71a546d023d5', {
@@ -846,7 +866,14 @@ export default function OfferDetailPage() {
             timestamp: new Date().toISOString()
           })
         })
-      } catch (e) { console.error('Webhook fehlgeschlagen:', e) }
+      } catch (e) {
+        const err = e as Error
+        console.error('Webhook fehlgeschlagen:', err)
+        await logEvent('error', 'webhook-outgoing',
+          `Zoho-Webhook fehlgeschlagen — ${webhookName_rechnungErstellt} für ${docNummer_rechnungErstellt}`,
+          { webhookName: webhookName_rechnungErstellt, docNummer: docNummer_rechnungErstellt, error: err.message }
+        )
+      }
 
       toast.dismiss()
       toast.success('Rechnung erstellt - Weiterleitung...')
@@ -864,6 +891,8 @@ export default function OfferDetailPage() {
     try {
       await supabase.from('angebote').update({ status: 'versendet' }).eq('id', offerId)
       setOffer((prev: any) => ({ ...prev, status: 'versendet' }))
+      const webhookName_angebotVersendet = 'angebot-versendet'
+      const docNummer_angebotVersendet = offer.angebotsnummer
       try {
         const editUrl = `${window.location.origin}/angebote/${offerId}`
         await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/ab34322b-aed4-4a93-b232-9178bf75ecaf', {
@@ -871,7 +900,14 @@ export default function OfferDetailPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ offerId, angebotNummer: offer.angebotsnummer, editUrl, status: 'versendet', timestamp: new Date().toISOString() })
         })
-      } catch (e) { console.error('Webhook fehlgeschlagen:', e) }
+      } catch (e) {
+        const err = e as Error
+        console.error('Webhook fehlgeschlagen:', err)
+        await logEvent('error', 'webhook-outgoing',
+          `Zoho-Webhook fehlgeschlagen — ${webhookName_angebotVersendet} für ${docNummer_angebotVersendet}`,
+          { webhookName: webhookName_angebotVersendet, docNummer: docNummer_angebotVersendet, error: err.message }
+        )
+      }
       queryClient.invalidateQueries({ queryKey: ['offers'] })
       toast.success('Angebot versendet')
     } catch (error: any) {
@@ -1189,6 +1225,8 @@ export default function OfferDetailPage() {
                       onValueChange={async (v) => {
                         setOffer((prev: any) => ({ ...prev, status: v }))
                         if (v === 'angenommen' && offerId) {
+                          const webhookName_angenommen = 'angebot-angenommen'
+                          const docNummer_angenommen = offer.angebotsnummer
                           try {
                             await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/2c51d71e-b55d-493d-aafb-1443d1d100cc', {
                               method: 'POST',
@@ -1207,7 +1245,14 @@ export default function OfferDetailPage() {
                   timestamp: new Date().toISOString()
                 })
                             })
-                          } catch (e) { console.error('Webhook Fehler:', e) }
+                          } catch (e) {
+                            const err = e as Error
+                            console.error('Webhook Fehler:', err)
+                            await logEvent('error', 'webhook-outgoing',
+                              `Zoho-Webhook fehlgeschlagen — ${webhookName_angenommen} für ${docNummer_angenommen}`,
+                              { webhookName: webhookName_angenommen, docNummer: docNummer_angenommen, error: err.message }
+                            )
+                          }
                         }
                       }}
                     >

@@ -12,6 +12,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Send, Paperclip, Sparkles, Loader2, Plus, Settings } from 'lucide-react'
 import { toast } from 'sonner'
 import SignaturenVerwaltenDialog from '@/components/SignaturenVerwaltenDialog'
+import { logEvent } from '@/lib/monitoring'
 
 interface Props {
   open: boolean
@@ -300,11 +301,18 @@ export default function EmailVorschauModal({
           }
       const payload = { ...coreDefault, ...(extraPayload || {}), ...coreIdentity }
 
+      const webhookName_emailVersand = `email-versand-${docType || 'angebot'}`
       await fetch(cfg.webhook, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-      }).catch(console.error)
+      }).catch(async (err: Error) => {
+        console.error(err)
+        await logEvent('error', 'webhook-outgoing',
+          `Zoho-Webhook fehlgeschlagen — ${webhookName_emailVersand} für ${docNummer}`,
+          { webhookName: webhookName_emailVersand, docNummer, error: err.message }
+        )
+      })
       toast.success('E-Mail versendet')
       onSent?.()
       onClose()

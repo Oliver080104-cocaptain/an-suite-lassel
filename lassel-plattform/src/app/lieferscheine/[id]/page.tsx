@@ -16,6 +16,7 @@ import { format } from 'date-fns'
 import Link from 'next/link'
 import DeliveryNotePositionsTable from '@/components/deliveryNotes/DeliveryNotePositionsTable'
 import EditableDocNumber from '@/components/shared/EditableDocNumber'
+import { logEvent } from '@/lib/monitoring'
 
 interface DNPosition {
   id?: string
@@ -416,6 +417,8 @@ export default function DeliveryNoteDetailPage() {
       await supabase.from('lieferscheine').update({ pdf_url: pdfLink }).eq('id', savedId!)
       setDn((prev: any) => ({ ...prev, pdf_url: pdfLink }))
 
+      const webhookName_lsZoho = 'lieferschein-zoho-ablage'
+      const docNummer_lsZoho = dnCopy.lieferscheinnummer
       await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/b15d8baa-e8ec-4d8a-aa85-0865048b9c31', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -433,7 +436,13 @@ export default function DeliveryNoteDetailPage() {
           referenzAngebotNummer: dnCopy.referenz_angebot_nummer,
           timestamp: new Date().toISOString()
         })
-      }).catch(e => console.error('Zoho webhook failed:', e))
+      }).catch(async (err: Error) => {
+        console.error('Zoho webhook failed:', err)
+        await logEvent('error', 'webhook-outgoing',
+          `Zoho-Webhook fehlgeschlagen — ${webhookName_lsZoho} für ${docNummer_lsZoho}`,
+          { webhookName: webhookName_lsZoho, docNummer: docNummer_lsZoho, error: err.message }
+        )
+      })
 
       queryClient.invalidateQueries({ queryKey: ['deliveryNotes'] })
       queryClient.invalidateQueries({ queryKey: ['deliveryNote', savedId] })
@@ -479,7 +488,8 @@ export default function DeliveryNoteDetailPage() {
       // Beide n8n-Flows parallel anstoßen:
       // 1) b15d8baa — Workdrive-Ablage + generic Lieferschein-Event
       // 2) 5e4e9681 — Zoho CRM Ticket updaten (Lieferschein_Formular Subform + Projektstatus)
-      await Promise.allSettled([
+      const docNummer_push = dn.lieferscheinnummer
+      const settledResults = await Promise.allSettled([
         fetch('https://n8n.srv1367876.hstgr.cloud/webhook/b15d8baa-e8ec-4d8a-aa85-0865048b9c31', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -518,6 +528,24 @@ export default function DeliveryNoteDetailPage() {
           }),
         }),
       ])
+      // Beide Settled-Ergebnisse prüfen — bei Reject ODER non-2xx loggen
+      const webhookLabels = ['lieferschein-push-workdrive', 'lieferschein-push-zoho-crm']
+      for (let i = 0; i < settledResults.length; i++) {
+        const r = settledResults[i]
+        const wh = webhookLabels[i]
+        if (r.status === 'rejected') {
+          const errMsg = r.reason instanceof Error ? r.reason.message : String(r.reason)
+          await logEvent('error', 'webhook-outgoing',
+            `Zoho-Webhook fehlgeschlagen — ${wh} für ${docNummer_push}`,
+            { webhookName: wh, docNummer: docNummer_push, error: errMsg }
+          )
+        } else if (!r.value.ok) {
+          await logEvent('error', 'webhook-outgoing',
+            `Zoho-Webhook fehlgeschlagen — ${wh} für ${docNummer_push}`,
+            { webhookName: wh, docNummer: docNummer_push, error: `HTTP ${r.value.status}` }
+          )
+        }
+      }
       toast.success('In Zoho & Tourenplaner übertragen')
     } catch (err: any) {
       console.error('Push to Zoho error:', err)
