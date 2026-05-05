@@ -26,6 +26,14 @@ import EditableDocNumber from '@/components/shared/EditableDocNumber'
 import { generateRechnungsNummer, getTypInfo, type Rechnungstyp } from '@/lib/rechnung-typ'
 import { logEvent } from '@/lib/monitoring'
 
+const MITARBEITER_LISTE = [
+  'Nikolas Schmadlak',
+  'Sabine Rauscher',
+  'Christoph Kribala',
+  'Reinhard Lassel',
+  'Ines Peschek',
+] as const
+
 export default function OfferDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -1186,7 +1194,18 @@ export default function OfferDetailPage() {
                 </div>
                 <div>
                   <Label>Angebot erstellt von</Label>
-                  <Input value={offer.erstellt_von || ''} onChange={(e) => setOffer((prev: any) => ({ ...prev, erstellt_von: e.target.value }))} placeholder="z.B. Reinhard Lassel" className="mt-1" />
+                  <Select
+                    value={offer.erstellt_von || 'none'}
+                    onValueChange={(v) => setOffer((prev: any) => ({ ...prev, erstellt_von: v === 'none' ? '' : v }))}
+                  >
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="Mitarbeiter auswählen..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">— nicht gesetzt —</SelectItem>
+                      {MITARBEITER_LISTE.map((m) => (
+                        <SelectItem key={m} value={m}>{m}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 {(() => {
                   const selectedVermittler = (vermittlerList as any[]).find((v: any) => v.id === offer.vermittler_id)
@@ -1294,7 +1313,18 @@ export default function OfferDetailPage() {
                 </div>
                 <div>
                   <Label>Ansprechpartner</Label>
-                  <Input value={offer.ansprechpartner || ''} onChange={(e) => setOffer((prev: any) => ({ ...prev, ansprechpartner: e.target.value }))} placeholder="z.B. Max Mustermann" className="mt-1" />
+                  <Select
+                    value={offer.ansprechpartner || 'none'}
+                    onValueChange={(v) => setOffer((prev: any) => ({ ...prev, ansprechpartner: v === 'none' ? '' : v }))}
+                  >
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="Mitarbeiter auswählen..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">— nicht gesetzt —</SelectItem>
+                      {MITARBEITER_LISTE.map((m) => (
+                        <SelectItem key={m} value={m}>{m}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <Label>Skizzen Link</Label>
