@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { renderHtmlToPdfResponse } from '@/lib/pdf-renderer'
+import { buildAdressblock } from '@/lib/adressblock'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -95,6 +96,16 @@ export async function GET(
   const erstelltVon = ls.erstellt_von || ''
   const referenzAngebotNummer = (angebotResult.data as any)?.angebotsnummer || ''
 
+  const empf = buildAdressblock({
+    hausinhabung: (ls as any).hausinhabung,
+    primaryName: ls.kunde_name,
+    hausverwaltungName: (ls as any).hausverwaltung_name || ls.kunde_name,
+    strasse: ls.kunde_strasse,
+    plz: ls.kunde_plz,
+    ort: ls.kunde_ort,
+    uid: (ls as any).kunde_uid,
+  })
+
   const posRows = positionen.map((p, i) => {
     const lines = (p.beschreibung as string || '').split('\n')
     const titel = esc(lines[0] || '')
@@ -123,10 +134,12 @@ export async function GET(
     <div class="header-left">
       <div class="sender-line">Lassel GmbH - Hetzmannsdorf 25 - 2041 Wullersdorf</div>
       <div class="customer-address">
-        <div class="customer-name">${esc(ls.kunde_name)}</div>
-        ${ls.kunde_strasse ? `<div>${esc(ls.kunde_strasse)}</div>` : ''}
-        ${(ls.kunde_plz || ls.kunde_ort) ? `<div>${esc(ls.kunde_plz || '')} ${esc(ls.kunde_ort || '')}</div>` : ''}
-        <div>Österreich</div>
+        <div class="customer-name">${esc(empf.name)}</div>
+        ${empf.zeile2 ? `<div>${esc(empf.zeile2)}</div>` : ''}
+        ${empf.strasse ? `<div>${esc(empf.strasse)}</div>` : ''}
+        ${(empf.plz || empf.ort) ? `<div>${esc(empf.plz)} ${esc(empf.ort)}</div>` : ''}
+        <div>${esc(empf.land)}</div>
+        ${empf.uid ? `<div>${esc(empf.uid)}</div>` : ''}
       </div>
     </div>
     <div class="header-right">

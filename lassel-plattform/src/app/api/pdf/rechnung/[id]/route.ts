@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { renderHtmlToPdfResponse } from '@/lib/pdf-renderer'
+import { buildAdressblock, isHausinhabungAktiv } from '@/lib/adressblock'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -190,28 +191,16 @@ export async function GET(
     rechnungFusstext: s.rechnungFusstext || '',
   }
 
-  // Empfänger Logik
-  let empfaengerName = ''
-  let empfaengerZeile2 = ''
-  let empfaengerStrasse = ''
-  let empfaengerPlz = ''
-  let empfaengerOrt = ''
-  let empfaengerUID = ''
-
-  if (rechnung.rechnung_an_hi && rechnung.hausinhabung) {
-    empfaengerName = rechnung.hausinhabung
-    empfaengerZeile2 = `p.A. ${rechnung.hausverwaltung_name || ''}`
-    empfaengerStrasse = rechnung.hausverwaltung_strasse || ''
-    empfaengerPlz = rechnung.hausverwaltung_plz || ''
-    empfaengerOrt = rechnung.hausverwaltung_ort || ''
-    empfaengerUID = rechnung.uid_von_hi || ''
-  } else {
-    empfaengerName = rechnung.kunde_name || ''
-    empfaengerStrasse = rechnung.kunde_strasse || ''
-    empfaengerPlz = rechnung.kunde_plz || ''
-    empfaengerOrt = rechnung.kunde_ort || ''
-    empfaengerUID = rechnung.kunde_uid || ''
-  }
+  const aktiv = isHausinhabungAktiv(rechnung.hausinhabung)
+  const empf = buildAdressblock({
+    hausinhabung: rechnung.hausinhabung,
+    primaryName: rechnung.kunde_name,
+    hausverwaltungName: rechnung.hausverwaltung_name || rechnung.kunde_name,
+    strasse: aktiv ? (rechnung.hausverwaltung_strasse || rechnung.kunde_strasse) : rechnung.kunde_strasse,
+    plz: aktiv ? (rechnung.hausverwaltung_plz || rechnung.kunde_plz) : rechnung.kunde_plz,
+    ort: aktiv ? (rechnung.hausverwaltung_ort || rechnung.kunde_ort) : rechnung.kunde_ort,
+    uid: rechnung.kunde_uid,
+  })
 
   const posRows = positionen.map((p, i) => {
     const lines = (p.beschreibung as string || '').split('\n')
@@ -246,12 +235,12 @@ export async function GET(
     <div class="header-left">
       <div class="sender-line">${esc(firma.firmenname)} - ${esc(firma.strasse)} - ${esc(firma.plz)} ${esc(firma.ort)}</div>
       <div class="customer-address">
-        <div class="customer-name">${esc(empfaengerName)}</div>
-        ${empfaengerZeile2 ? `<div>${esc(empfaengerZeile2)}</div>` : ''}
-        ${empfaengerStrasse ? `<div>${esc(empfaengerStrasse)}</div>` : ''}
-        ${(empfaengerPlz || empfaengerOrt) ? `<div>${esc(empfaengerPlz)} ${esc(empfaengerOrt)}</div>` : ''}
-        <div>Österreich</div>
-        ${empfaengerUID ? `<div>UID: ${esc(empfaengerUID)}</div>` : ''}
+        <div class="customer-name">${esc(empf.name)}</div>
+        ${empf.zeile2 ? `<div>${esc(empf.zeile2)}</div>` : ''}
+        ${empf.strasse ? `<div>${esc(empf.strasse)}</div>` : ''}
+        ${(empf.plz || empf.ort) ? `<div>${esc(empf.plz)} ${esc(empf.ort)}</div>` : ''}
+        <div>${esc(empf.land)}</div>
+        ${empf.uid ? `<div>UID: ${esc(empf.uid)}</div>` : ''}
       </div>
     </div>
     <div class="header-right">
