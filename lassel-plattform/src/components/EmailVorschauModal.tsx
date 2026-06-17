@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { supabase } from '@/lib/supabase'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Send, Paperclip, Sparkles, Loader2, Plus, Settings } from 'lucide-react'
+import { Send, Paperclip, Sparkles, Loader2, Plus, Settings, X } from 'lucide-react'
 import { toast } from 'sonner'
 import SignaturenVerwaltenDialog from '@/components/SignaturenVerwaltenDialog'
 import { logEvent } from '@/lib/monitoring'
@@ -89,6 +89,7 @@ export default function EmailVorschauModal({
   const [generatingStil, setGeneratingStil] = useState<string>('')
   const [stil, setStil] = useState<'formell' | 'ausfuehrlich' | 'locker'>('formell')
   const [sending, setSending] = useState(false)
+  const [dateien, setDateien] = useState<File[]>([])
   const [newSigOpen, setNewSigOpen] = useState(false)
   const [verwaltenOpen, setVerwaltenOpen] = useState(false)
   const [newSigName, setNewSigName] = useState('')
@@ -240,13 +241,61 @@ export default function EmailVorschauModal({
     if (open) {
       setEmailAn(emailAnProp || '')
       setBetreff(cfg.betreff(docNummer))
+      setDateien([])
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, docNummer, emailAnProp, docType])
 
+  const MAX_FILE_MB = 20
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    const ok: File[] = []
+    for (const f of files) {
+      if (f.size > MAX_FILE_MB * 1024 * 1024) {
+        toast.error(`"${f.name}" ist zu groß (max. ${MAX_FILE_MB} MB)`)
+        continue
+      }
+      ok.push(f)
+    }
+    if (ok.length) setDateien(prev => [...prev, ...ok])
+    e.target.value = ''
+  }
+
+  /**
+   * Lädt die ausgewählten Anhänge direkt aus dem Browser in den public
+   * Bucket `email-anhaenge` (Migration 022) und gibt [{url, fileName, mimeType}]
+   * zurück. Direkt-Upload umgeht Vercels Body-Limit; n8n holt die Dateien
+   * später per URL und hängt sie an die ausgehende E-Mail.
+   */
+  const uploadAttachmentsDirect = async (): Promise<{ url: string; fileName: string; mimeType: string }[]> => {
+    if (dateien.length === 0) return []
+    const results: { url: string; fileName: string; mimeType: string }[] = []
+    for (const f of dateien) {
+      const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      const path = `${docId}/${Date.now()}-${safeName}`
+      const { error } = await supabase.storage
+        .from('email-anhaenge')
+        .upload(path, f, { upsert: false, contentType: f.type || 'application/octet-stream' })
+      if (error) {
+        if (/bucket not found/i.test(error.message || '')) {
+          throw new Error('Storage-Bucket fehlt. Bitte Migration 022_email_anhaenge_bucket.sql in Supabase ausführen.')
+        }
+        throw new Error(`Upload fehlgeschlagen für ${f.name}: ${error.message}`)
+      }
+      const { data } = supabase.storage.from('email-anhaenge').getPublicUrl(path)
+      results.push({ url: data.publicUrl, fileName: f.name, mimeType: f.type || 'application/octet-stream' })
+    }
+    return results
+  }
+
   const handleSenden = async () => {
     setSending(true)
     try {
+      // Anhänge ZUERST hochladen — schlägt das fehl, wird der Status NICHT
+      // auf "versendet" gesetzt und der User sieht den Fehler.
+      const attachments = await uploadAttachmentsDirect()
+
       await supabase.from(cfg.tabelle).update({ status: cfg.statusUpdate }).eq('id', docId)
       // Absolute PDF-URL bauen — n8n braucht http(s)://…
       const pdfUrl = `${window.location.origin}/api/pdf/${cfg.pdfPath}/${docId}`
@@ -299,7 +348,10 @@ export default function EmailVorschauModal({
             email: emailBlock,
             timestamp: new Date().toISOString(),
           }
-      const payload = { ...coreDefault, ...(extraPayload || {}), ...coreIdentity }
+      // attachments zuletzt — modal-verbindlich, überschreibt evtl. extraPayload.
+      // Top-Level (analog zu pdfUrl/pdfFileName), damit n8n sie wie das PDF
+      // per URL abholen und an die Mail anhängen kann.
+      const payload = { ...coreDefault, ...(extraPayload || {}), ...coreIdentity, attachments }
 
       const webhookName_emailVersand = `email-versand-${docType || 'angebot'}`
       await fetch(cfg.webhook, {
@@ -493,13 +545,32 @@ export default function EmailVorschauModal({
               <Paperclip className="h-4 w-4" />
               Bilder/Anhänge hochladen:
             </Label>
-            <div className="flex items-center gap-3 mt-2">
-              <label className="cursor-pointer">
-                <span className="px-4 py-2 border rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors cursor-pointer">Dateien auswählen</span>
-                <input type="file" multiple accept="image/*,.pdf" className="hidden" />
+            <div className="mt-2 flex flex-wrap gap-2">
+              {dateien.map((f, i) => (
+                <div key={i} className="flex items-center gap-1 bg-orange-50 border border-orange-200 rounded-lg px-3 py-1.5 text-xs">
+                  <Paperclip className="w-3 h-3 text-[#E85A1B]" />
+                  <span className="text-[#c94d17] max-w-[180px] truncate" title={f.name}>{f.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => setDateien(d => d.filter((_, j) => j !== i))}
+                    className="text-orange-400 hover:text-[#E85A1B] ml-1"
+                    disabled={sending}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+              <label className={`cursor-pointer flex items-center gap-1.5 bg-slate-50 border border-dashed border-slate-300 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors ${sending ? 'opacity-50 pointer-events-none' : ''}`}>
+                <Paperclip className="w-4 h-4" />
+                Dateien auswählen
+                <input type="file" multiple accept="image/*,.pdf" className="hidden" onChange={handleFileChange} disabled={sending} />
               </label>
-              <span className="text-sm text-slate-400">Keine ausgewählt</span>
             </div>
+            <p className="text-xs text-slate-400 mt-1">
+              {dateien.length > 0
+                ? `${dateien.length} Datei(en) ausgewählt — werden beim Versenden hochgeladen und an die E-Mail angehängt.`
+                : `Keine ausgewählt (max. ${MAX_FILE_MB} MB pro Datei)`}
+            </p>
           </div>
 
           {/* KI-Assistent */}
