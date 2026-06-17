@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { validateWebhookSecret, unauthorizedResponse } from '@/lib/webhook-auth'
+import { resolveKundeName, isKundeNameFallback } from '@/lib/webhook-kunde'
 import { logEvent } from '@/lib/monitoring'
 
 const supabase = createClient(
@@ -73,7 +74,8 @@ function buildAngebotData(payload: any, opts: { includeIdentity: boolean }) {
 
   const data: Record<string, unknown> = {
     // Rechnungsempfänger (= Hausverwaltung falls rechnungAnHI, sonst Direktkunde)
-    kunde_name: kunde.name || null,
+    // Fallback-Kette wenn kunde.name leer (HV-Objekte ohne Namen) — siehe resolveKundeName.
+    kunde_name: resolveKundeName(payload),
     kunde_strasse: kunde.strasse || null,
     kunde_plz: kunde.plz || null,
     kunde_ort: kunde.ort || null,
@@ -179,8 +181,18 @@ export async function POST(req: NextRequest) {
   if (!ticketId) {
     return NextResponse.json({ error: 'ticketId missing', bodyKeys: Object.keys(body || {}) }, { status: 400 })
   }
-  if (!body.kunde?.name) {
-    return NextResponse.json({ error: 'kunde.name ist erforderlich' }, { status: 400 })
+  const kundeName = resolveKundeName(body)
+  if (!kundeName) {
+    return NextResponse.json(
+      { error: 'kunde.name fehlt und kein Fallback (Hausverwaltung/Account/Gasse) verfügbar' },
+      { status: 400 }
+    )
+  }
+  if (isKundeNameFallback(body)) {
+    logEvent('warning', 'webhook-kunde-name-fallback',
+      `kunde.name leer — Fallback '${kundeName}' verwendet (Zoho-Datenqualität prüfen)`,
+      { type: 'offer', ticketId, fallbackName: kundeName }
+    ).catch(() => {})
   }
 
   try {

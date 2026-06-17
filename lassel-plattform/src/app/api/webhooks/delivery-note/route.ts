@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { validateWebhookSecret, unauthorizedResponse } from '@/lib/webhook-auth'
+import { resolveKundeName, isKundeNameFallback } from '@/lib/webhook-kunde'
 import { logEvent } from '@/lib/monitoring'
 
 const supabase = createClient(
@@ -33,8 +34,18 @@ export async function POST(req: NextRequest) {
     const payload = await req.json()
     const { ticketId, ticketNumber, kunde, angebot, positionen, meta } = payload
 
-    if (!kunde?.name) {
-      return NextResponse.json({ error: 'kunde.name ist erforderlich' }, { status: 400 })
+    const kundeName = resolveKundeName(payload)
+    if (!kundeName) {
+      return NextResponse.json(
+        { error: 'kunde.name fehlt und kein Fallback (Hausverwaltung/Account/Gasse) verfügbar' },
+        { status: 400 }
+      )
+    }
+    if (isKundeNameFallback(payload)) {
+      logEvent('warning', 'webhook-kunde-name-fallback',
+        `kunde.name leer — Fallback '${kundeName}' verwendet (Zoho-Datenqualität prüfen)`,
+        { type: 'delivery-note', ticketId, fallbackName: kundeName }
+      ).catch(() => {})
     }
 
     const lieferscheinnummer = await generateLieferscheinnummer()
@@ -51,7 +62,7 @@ export async function POST(req: NextRequest) {
       .insert({
         lieferscheinnummer,
         status: 'entwurf',
-        kunde_name: kunde.name,
+        kunde_name: kundeName,
         kunde_strasse: kunde.strasse || null,
         kunde_plz: kunde.plz || null,
         kunde_ort: kunde.ort || null,
