@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useMemo } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -9,8 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
-  TrendingUp, Euro, FileText, Receipt, Users, Lock, BarChart3,
-  Table as TableIcon, Trash2, Plus, Loader2
+  TrendingUp, Euro, FileText, Receipt, Lock, BarChart3,
+  Table as TableIcon
 } from 'lucide-react'
 import CurrencyDisplay from '@/components/shared/CurrencyDisplay'
 import { toast } from 'sonner'
@@ -31,15 +31,12 @@ function fmt(n: number) {
 }
 
 export default function AnalyticsPage() {
-  const queryClient = useQueryClient()
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [pin, setPin] = useState('')
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString())
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth())
   const [performanceView, setPerformanceView] = useState<'table'|'chart'>('table')
   const [revenueChartType, setRevenueChartType] = useState<'bar'|'line'>('bar')
-  const [newMitarbeiterName, setNewMitarbeiterName] = useState('')
-  const [addingMitarbeiter, setAddingMitarbeiter] = useState(false)
 
   const { data: offers = [] } = useQuery({
     queryKey: ['offers'],
@@ -76,14 +73,11 @@ export default function AnalyticsPage() {
     },
     enabled: isAuthenticated,
   })
-  // Filter:
-  // - Anzeige: Mitarbeiter mit IRGENDEINEM Namensfeld (name | vorname | nachname)
-  //   und aktiv != false. Vorher wurde nur `name` geprüft → MA aus dem
-  //   Tourenplaner-Sync (der vorname/nachname befüllt aber nicht `name`)
-  //   wurden fälschlich als „leer" eingestuft und am 23.04.2026 versehentlich
-  //   per „Leere Einträge löschen" hart gelöscht.
-  // - „Leer": ALLE drei Felder leer. Danach gibt es realistisch keine leeren
-  //   Einträge mehr in Prod, aber der Code bleibt defensiv.
+  // Anzeige-Filter: Mitarbeiter mit IRGENDEINEM Namensfeld (name | vorname |
+  // nachname) und aktiv != false. WICHTIG: Diese Seite LIEST die mitarbeiter-
+  // Tabelle nur — kein Anlegen/Deaktivieren/Löschen. Die Verwaltung wurde
+  // bewusst entfernt, weil die Tabelle (inkl. Spalte `aktiv`) mit dem
+  // Tourenplaner geteilt wird und Änderungen dort sofort durchschlagen.
   const hasAnyName = (m: any) =>
     (typeof m?.name === 'string' && m.name.trim().length > 0) ||
     (typeof m?.vorname === 'string' && m.vorname.trim().length > 0) ||
@@ -91,92 +85,6 @@ export default function AnalyticsPage() {
   const mitarbeiterList = (mitarbeiterListRaw as any[]).filter(
     (m: any) => hasAnyName(m) && m?.aktiv !== false
   )
-  const emptyMitarbeiterIds = (mitarbeiterListRaw as any[])
-    .filter((m: any) => !hasAnyName(m))
-    .map((m: any) => m.id as string)
-
-  const addMitarbeiterMutation = useMutation({
-    mutationFn: async (fullName: string) => {
-      // Die Prod-DB wird von einer anderen Software mitgenutzt, die
-      // vorname (NOT NULL) + nachname-Spalten auf mitarbeiter angelegt
-      // hat. Wir splitten den eingegebenen Namen an der ersten Lücke:
-      // alles vor dem Leerzeichen = vorname, der Rest = nachname.
-      // Wenn kein Leerzeichen vorhanden: alles = vorname, nachname = ''.
-      const trimmed = fullName.trim()
-      const firstSpace = trimmed.indexOf(' ')
-      const vorname = firstSpace === -1 ? trimmed : trimmed.slice(0, firstSpace)
-      // Fallback '-' falls der User nur einen Namen eingibt — falls die andere
-      // Software nachname ebenfalls NOT NULL hat, satisfied das die Constraint.
-      // User kann den Nachnamen später in der anderen Software anpassen.
-      const nachname = firstSpace === -1 ? '-' : (trimmed.slice(firstSpace + 1).trim() || '-')
-
-      // Payload mit allen potentiell relevanten Spalten — wir wissen nicht
-      // welche die andere Software NOT-NULL-required hat. Liste wird bei
-      // Schema-Drift-Errors automatisch gekürzt (siehe Retry-Loop unten).
-      const basePayload: Record<string, unknown> = {
-        name: trimmed,        // unser app-eigenes Feld
-        vorname,              // von der anderen software, NOT NULL
-        nachname,             // von der anderen software, ggf. auch NOT NULL
-        aktiv: true,          // von unserem schema, default true
-      }
-
-      // Retry-Loop: bis zu 5x versuchen. Bei "Could not find the 'X' column"-
-      // Fehlern wird die fehlende Spalte aus dem payload gestrippt und neu
-      // versucht. Andere Fehler (z.B. NOT-NULL-Violation) werden sofort
-      // durchgereicht.
-      let payload = { ...basePayload }
-      for (let i = 0; i < 5; i++) {
-        const { error } = await supabase.from('mitarbeiter').insert(payload)
-        if (!error) return
-        const missingCol = /Could not find the '(\w+)' column/i.exec(error.message || '')?.[1]
-        if (missingCol && missingCol in payload) {
-          console.warn(`[mitarbeiter.insert] Spalte '${missingCol}' fehlt im Schema — retry ohne.`)
-          delete payload[missingCol]
-          continue
-        }
-        throw error
-      }
-      throw new Error('[mitarbeiter.insert] zu viele Schema-Drift-Retries')
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['mitarbeiter'] })
-      queryClient.invalidateQueries({ queryKey: ['mitarbeiter-signatur-innendienst'] })
-      toast.success('Mitarbeiter hinzugefügt')
-      setNewMitarbeiterName('')
-    },
-    onError: (err: any) => {
-      toast.error('Fehler: ' + (err?.message || 'Mitarbeiter konnte nicht angelegt werden'))
-    },
-  })
-
-  // Soft-Delete (aktiv=false) statt Hard-Delete. Die mitarbeiter-Tabelle wird
-  // von einer anderen Software (Tourenplaner) mitgenutzt — Hard-Delete bricht
-  // dort UUID-Referenzen (touren.mitarbeiter_liste, fahrzeug_zuweisungen,
-  // Profilbilder im Storage). Vorfall 23.04.2026 bestätigt das.
-  const deleteMitarbeiterMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from('mitarbeiter').update({ aktiv: false }).eq('id', id)
-      if (error) throw error
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['mitarbeiter'] })
-      toast.success('Mitarbeiter deaktiviert')
-    },
-  })
-
-  const cleanupEmptyMitarbeiterMutation = useMutation({
-    mutationFn: async (ids: string[]) => {
-      if (ids.length === 0) return
-      const { error } = await supabase.from('mitarbeiter').update({ aktiv: false }).in('id', ids)
-      if (error) throw error
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['mitarbeiter'] })
-      queryClient.invalidateQueries({ queryKey: ['mitarbeiter-signatur-innendienst'] })
-      toast.success('Leere Mitarbeiter-Einträge deaktiviert')
-    },
-    onError: (err: any) => toast.error('Fehler beim Aufräumen: ' + (err?.message || 'unbekannt')),
-  })
 
   const year = parseInt(selectedYear)
 
@@ -550,77 +458,6 @@ export default function AnalyticsPage() {
               </BarChart>
             </ResponsiveContainer>
           )}
-        </Card>
-
-        {/* Row 6: Mitarbeiter Verwaltung */}
-        <Card className="p-6">
-          <h2 className="text-base font-semibold text-slate-900 mb-4 flex items-center gap-2">
-            <Users className="w-5 h-5 text-slate-500" />
-            Mitarbeiter Verwaltung
-          </h2>
-          <div className="flex gap-3 mb-4">
-            <Input
-              placeholder="Vorname Nachname — z.B. Max Mustermann"
-              value={newMitarbeiterName}
-              onChange={(e) => setNewMitarbeiterName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && newMitarbeiterName.trim()) {
-                  addMitarbeiterMutation.mutate(newMitarbeiterName.trim())
-                }
-              }}
-              className="flex-1"
-            />
-            <Button
-              onClick={() => { if (newMitarbeiterName.trim()) addMitarbeiterMutation.mutate(newMitarbeiterName.trim()) }}
-              disabled={!newMitarbeiterName.trim() || addMitarbeiterMutation.isPending}
-              className="bg-orange-600 hover:bg-orange-700"
-            >
-              {addMitarbeiterMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              Hinzufügen
-            </Button>
-          </div>
-          {emptyMitarbeiterIds.length > 0 && (
-            <div className="flex items-center justify-between gap-3 mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-              <span className="text-sm text-amber-800">
-                {emptyMitarbeiterIds.length} leere Einträge in der Mitarbeiter-Tabelle gefunden (ohne Namen).
-              </span>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => cleanupEmptyMitarbeiterMutation.mutate(emptyMitarbeiterIds)}
-                disabled={cleanupEmptyMitarbeiterMutation.isPending}
-                className="border-amber-300 text-amber-800 hover:bg-amber-100"
-              >
-                {cleanupEmptyMitarbeiterMutation.isPending
-                  ? <Loader2 className="w-4 h-4 animate-spin mr-1" />
-                  : <Trash2 className="w-4 h-4 mr-1" />
-                }
-                Leere Einträge löschen
-              </Button>
-            </div>
-          )}
-          <div className="space-y-2">
-            {mitarbeiterList.map((m: Record<string, unknown>) => (
-              <div key={m.id as string} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
-                <span className="font-medium text-slate-700">
-                  {(m.name as string) ||
-                    `${(m.vorname as string) || ''} ${(m.nachname as string) || ''}`.trim() ||
-                    '(unbenannt)'}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => deleteMitarbeiterMutation.mutate(m.id as string)}
-                  className="text-slate-400 hover:text-red-600 hover:bg-red-50 h-8 w-8"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              </div>
-            ))}
-            {mitarbeiterList.length === 0 && (
-              <p className="text-sm text-slate-500 text-center py-4">Noch keine Mitarbeiter angelegt</p>
-            )}
-          </div>
         </Card>
       </div>
     </div>
