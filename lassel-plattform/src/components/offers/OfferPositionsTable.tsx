@@ -41,6 +41,7 @@ interface Props {
 export default function OfferPositionsTable({ positions, onChange, readOnly = false, objektAdresse }: Props) {
   const [openIndex, setOpenIndex] = useState<number | null>(null)
   const [editingDescription, setEditingDescription] = useState<number | null>(null)
+  const [searchValue, setSearchValue] = useState('')
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -93,6 +94,21 @@ export default function OfferPositionsTable({ positions, onChange, readOnly = fa
     })
     onChange(updated)
     setOpenIndex(null)
+  }
+
+  // Frei eingetippten Produktnamen als Position übernehmen (kein Eintrag in produkte-Tabelle)
+  const handleProductFreeText = (index: number, name: string) => {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    const updated = [...positions]
+    updated[index] = recalc({
+      ...updated[index],
+      produktId: undefined,
+      produktName: trimmed,
+    })
+    onChange(updated)
+    setOpenIndex(null)
+    setSearchValue('')
   }
 
   const handleChange = (index: number, field: keyof Position, value: any) => {
@@ -168,7 +184,7 @@ export default function OfferPositionsTable({ positions, onChange, readOnly = fa
                   ) : (
                     <div className="flex flex-col gap-1 w-full">
                       <div className="flex items-center gap-1 sm:gap-2">
-                        <Popover open={openIndex === index} onOpenChange={(open) => setOpenIndex(open ? index : null)}>
+                        <Popover open={openIndex === index} onOpenChange={(open) => { setOpenIndex(open ? index : null); setSearchValue('') }}>
                           <PopoverTrigger asChild>
                             <Button
                               variant="outline"
@@ -184,7 +200,11 @@ export default function OfferPositionsTable({ positions, onChange, readOnly = fa
                           </PopoverTrigger>
                           <PopoverContent className="w-[300px] sm:w-[400px] p-0" align="start">
                             <Command>
-                              <CommandInput placeholder="Produkt suchen..." />
+                              <CommandInput
+                                placeholder="Produkt suchen oder neu eingeben..."
+                                value={searchValue}
+                                onValueChange={setSearchValue}
+                              />
                               <CommandEmpty>Kein Produkt gefunden.</CommandEmpty>
                               <CommandGroup className="max-h-64 overflow-auto">
                                 {(products as any[]).map((product: any) => (
@@ -205,6 +225,23 @@ export default function OfferPositionsTable({ positions, onChange, readOnly = fa
                                   </CommandItem>
                                 ))}
                               </CommandGroup>
+                              {searchValue.trim() &&
+                                !(products as any[]).some(
+                                  (p: any) => (p.name || '').trim().toLowerCase() === searchValue.trim().toLowerCase()
+                                ) && (
+                                  <CommandGroup>
+                                    <CommandItem
+                                      value={searchValue}
+                                      onSelect={() => handleProductFreeText(index, searchValue)}
+                                      className="cursor-pointer text-orange-700"
+                                    >
+                                      <Plus className="mr-2 h-4 w-4 shrink-0" />
+                                      <span className="truncate">
+                                        „{searchValue.trim()}" als neues Produkt übernehmen
+                                      </span>
+                                    </CommandItem>
+                                  </CommandGroup>
+                                )}
                             </Command>
                           </PopoverContent>
                         </Popover>
