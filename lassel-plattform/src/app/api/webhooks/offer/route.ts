@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { validateWebhookSecret, unauthorizedResponse } from '@/lib/webhook-auth'
 import { resolveKundeName, isKundeNameFallback } from '@/lib/webhook-kunde'
 import { logEvent } from '@/lib/monitoring'
+import { num, computeTotals, lineNetto, STANDARD_MWST } from '@/lib/money'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -119,6 +120,9 @@ function buildAngebotData(payload: any, opts: { includeIdentity: boolean }) {
   // wieder auf 'entwurf' zurückfallen).
   if (opts.includeIdentity) {
     data.status = 'entwurf'
+    // reverse_charge NUR beim INSERT setzen — sonst würde ein Zoho-Update den
+    // im UI manuell gesetzten Wert zurücksetzen (analog zu status).
+    data.reverse_charge = Boolean(angebot.reverseCharge ?? kunde.reverseCharge)
   }
 
   return data
@@ -263,12 +267,14 @@ export async function POST(req: NextRequest) {
           beschreibung: p.produktName
             ? (p.beschreibung ? `${p.produktName}\n${p.beschreibung}` : p.produktName)
             : (p.beschreibung || ''),
-          menge: parseFloat(p.menge) || 0,
+          menge: num(p.menge, 1),
           einheit: p.einheit || 'Stk',
-          einzelpreis: parseFloat(p.einzelpreisNetto) || 0,
-          rabatt_prozent: parseFloat(p.rabattProzent) || 0,
-          mwst_satz: parseFloat(p.ustSatz) || 20,
-          gesamtpreis: (parseFloat(p.menge) || 0) * (parseFloat(p.einzelpreisNetto) || 0),
+          einzelpreis: num(p.einzelpreisNetto, 0),
+          rabatt_prozent: num(p.rabattProzent, 0),
+          // 0%-USt bleibt 0 statt still auf 20% zu springen
+          mwst_satz: num(p.ustSatz, STANDARD_MWST),
+          // gesamtpreis MIT Rabatt (Zeilensumme == Angebots-Netto, Audit D3)
+          gesamtpreis: lineNetto({ menge: p.menge, einzelpreis: p.einzelpreisNetto, rabattProzent: p.rabattProzent }),
         }))
         const { error: posError } = await supabase.from('angebot_positionen').insert(posData)
         if (posError) console.error('[webhooks/offer] positionen insert error:', posError)
@@ -278,24 +284,20 @@ export async function POST(req: NextRequest) {
     // Totals neu berechnen und ins Angebot schreiben (damit list-views stimmen)
     if (action === 'created') {
       const posArray = Array.isArray(body.positionen) ? body.positionen : []
-      const netto_gesamt = posArray.reduce((sum: number, p: any) => {
-        const m = parseFloat(p.menge) || 0
-        const e = parseFloat(p.einzelpreisNetto) || 0
-        const r = parseFloat(p.rabattProzent) || 0
-        return sum + (m * e * (1 - r / 100))
-      }, 0)
-      const mwst_gesamt = posArray.reduce((sum: number, p: any) => {
-        const m = parseFloat(p.menge) || 0
-        const e = parseFloat(p.einzelpreisNetto) || 0
-        const r = parseFloat(p.rabattProzent) || 0
-        const n = m * e * (1 - r / 100)
-        const u = parseFloat(p.ustSatz) || 20
-        return sum + n * (u / 100)
-      }, 0)
+      const reverseCharge = Boolean(body.angebot?.reverseCharge ?? body.kunde?.reverseCharge)
+      const { netto: netto_gesamt, mwst: mwst_gesamt, brutto: brutto_gesamt } = computeTotals(
+        posArray.map((p: any) => ({
+          menge: p.menge,
+          einzelpreis: p.einzelpreisNetto,
+          rabattProzent: p.rabattProzent,
+          mwstSatz: p.ustSatz,
+        })),
+        { reverseCharge }
+      )
       await supabase.from('angebote').update({
         netto_gesamt,
         mwst_gesamt,
-        brutto_gesamt: netto_gesamt + mwst_gesamt,
+        brutto_gesamt,
       }).eq('id', angebotId)
     }
 

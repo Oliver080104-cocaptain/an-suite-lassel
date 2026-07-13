@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { validateWebhookSecret, unauthorizedResponse } from '@/lib/webhook-auth'
 import { logEvent } from '@/lib/monitoring'
+import { num } from '@/lib/money'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
       const { error } = await supabase.from('vermittler').update({
         email: body.email || null,
         telefon: body.telefon || null,
-        provisionssatz: parseFloat(body.provisionssatz) || 10,
+        provisionssatz: num(body.provisionssatz, 10),
         status: body.status || 'aktiv',
         notizen: body.notizen || null,
       }).eq('id', existing.id)

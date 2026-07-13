@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { renderHtmlToPdfResponse } from '@/lib/pdf-renderer'
 import { buildAdressblock, isHausinhabungAktiv } from '@/lib/adressblock'
+import { num, round2 } from '@/lib/money'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,6 +24,10 @@ function formatDate(d: string | null | undefined): string {
 
 function formatEuro(n: unknown): string {
   return new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR' }).format(Number(n) || 0)
+}
+
+function fmtMenge(n: unknown): string {
+  return new Intl.NumberFormat('de-AT', { minimumFractionDigits: 2, maximumFractionDigits: 3 }).format(num(n, 0))
 }
 
 /**
@@ -206,20 +211,29 @@ export async function GET(
     const lines = (p.beschreibung as string || '').split('\n')
     const titel = esc(lines[0] || '')
     const desc = lines.slice(1).join('\n').trim()
-    const gesamt = p.gesamtpreis || (p.einzelpreis * p.menge) || 0
+    // ?? statt ||: legitimer 0-Betrag (Gratis-/Info-Position) bleibt 0 statt
+    // still durch Einzelpreis×Menge ersetzt zu werden.
+    const gesamt = p.gesamtpreis != null ? num(p.gesamtpreis, 0) : round2(num(p.einzelpreis, 0) * num(p.menge, 0))
     return `
     <div class="position-item">
       <div class="pos-col-desc">
         <div class="pos-title">${i + 1}. ${titel}</div>
         ${desc ? `<div class="pos-desc">${esc(desc)}</div>` : ''}
       </div>
-      <div class="pos-col-menge">${p.menge} ${esc(p.einheit || 'Stk')}</div>
+      <div class="pos-col-menge">${fmtMenge(p.menge)} ${esc(p.einheit || 'Stk')}</div>
       <div class="pos-col-preis">${formatEuro(p.einzelpreis || 0)}</div>
       <div class="pos-col-gesamt">${formatEuro(gesamt)}</div>
     </div>`
   }).join('')
 
   const fusstext = rechnung.fusszeile || firma.rechnungFusstext
+
+  // Reverse-Charge-bewusste Beträge: bei RC gilt immer USt=0 / Brutto=Netto,
+  // auch wenn evtl. fehlerhaft gespeicherte Alt-Beträge etwas anderes sagen.
+  const reverseCharge = Boolean(rechnung.reverse_charge)
+  const nettoGesamt = num(rechnung.netto_gesamt, 0)
+  const mwstGesamt = reverseCharge ? 0 : num(rechnung.mwst_gesamt, 0)
+  const bruttoGesamt = reverseCharge ? nettoGesamt : num(rechnung.brutto_gesamt, 0)
 
   const html = `<!DOCTYPE html>
 <html lang="de">
@@ -282,14 +296,14 @@ export async function GET(
   <div class="totals">
     <div class="total-row main">
       <span>Gesamtbetrag netto</span>
-      <span>${formatEuro(rechnung.netto_gesamt || 0)}</span>
+      <span>${formatEuro(nettoGesamt)}</span>
     </div>
-    ${rechnung.reverse_charge ? `
+    ${reverseCharge ? `
     <div class="total-row"><span>USt. (Reverse Charge)</span><span>0,00 €</span></div>` : `
-    <div class="total-row"><span>zzgl. Umsatzsteuer 20%</span><span>${formatEuro(rechnung.mwst_gesamt || 0)}</span></div>`}
+    <div class="total-row"><span>zzgl. Umsatzsteuer 20%</span><span>${formatEuro(mwstGesamt)}</span></div>`}
     <div class="total-row final">
       <span>Gesamtbetrag brutto</span>
-      <span>${formatEuro(rechnung.brutto_gesamt || 0)}</span>
+      <span>${formatEuro(bruttoGesamt)}</span>
     </div>
   </div>
 

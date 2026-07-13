@@ -3,6 +3,7 @@
 import React from 'react'
 import { Card } from '@/components/ui/card'
 import CurrencyDisplay from '@/components/shared/CurrencyDisplay'
+import { num, STANDARD_MWST } from '@/lib/money'
 
 interface Position {
   menge: number | string
@@ -35,7 +36,9 @@ export default function OfferSummary({ positions, reverseCharge = false }: Props
 
   const ustGruppen: Record<number, { satz: number; betrag: number }> = {}
   positions.forEach(p => {
-    const ustSatz = reverseCharge ? 0 : (parseFloat(p.ustSatz as string) || 19)
+    // 0%-USt bleibt 0 statt still auf den Regelsatz zu springen; einheitlicher
+    // Default STANDARD_MWST (20%) statt bisher divergierender 19%.
+    const ustSatz = reverseCharge ? 0 : num(p.ustSatz, STANDARD_MWST)
     const gesamtNetto = parseFloat(p.gesamtNetto as string) || 0
     const ustBetrag = gesamtNetto * (ustSatz / 100)
     if (!ustGruppen[ustSatz]) ustGruppen[ustSatz] = { satz: ustSatz, betrag: 0 }
@@ -65,12 +68,19 @@ export default function OfferSummary({ positions, reverseCharge = false }: Props
           <CurrencyDisplay value={nettoNachRabatt} />
         </div>
 
-        {Object.values(ustGruppen).map(gruppe => (
-          <div key={gruppe.satz} className="flex justify-between text-slate-600">
-            <span>+ {gruppe.satz}% USt</span>
-            <CurrencyDisplay value={gruppe.betrag} />
+        {reverseCharge ? (
+          <div className="flex justify-between text-slate-600">
+            <span>USt (Reverse Charge — Steuerschuld beim Empfänger)</span>
+            <CurrencyDisplay value={0} />
           </div>
-        ))}
+        ) : (
+          Object.values(ustGruppen).map(gruppe => (
+            <div key={gruppe.satz} className="flex justify-between text-slate-600">
+              <span>+ {gruppe.satz}% USt</span>
+              <CurrencyDisplay value={gruppe.betrag} />
+            </div>
+          ))
+        )}
 
         <div className="flex justify-between text-lg sm:text-xl font-bold text-slate-900 border-t-2 border-slate-300 pt-2 sm:pt-3">
           <span>Gesamtbetrag Brutto</span>

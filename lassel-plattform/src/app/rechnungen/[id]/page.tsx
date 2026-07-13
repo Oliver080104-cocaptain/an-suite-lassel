@@ -23,6 +23,7 @@ import OfferSummary from '@/components/offers/OfferSummary'
 import EmailVorschauModal from '@/components/EmailVorschauModal'
 import { getTypInfo } from '@/lib/rechnung-typ'
 import { logEvent } from '@/lib/monitoring'
+import { num, STANDARD_MWST } from '@/lib/money'
 
 interface InvoicePosition {
   id?: string
@@ -47,6 +48,7 @@ const defaultInvoice = {
   datum: format(new Date(), 'yyyy-MM-dd'),
   zahlungszielTage: 30,
   faelligAm: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
+  reverseCharge: false,
   skontoAktiv: false,
   skontoProzent: 3,
   skontoTage: 14,
@@ -261,6 +263,7 @@ export default function InvoiceDetailPage() {
         skontoProzent: existingInvoice.skonto_prozent ?? defaultInvoice.skontoProzent,
         skontoTage: existingInvoice.skonto_tage ?? defaultInvoice.skontoTage,
         stornoVonRechnung: existingInvoice.storno_von || '',
+        reverseCharge: existingInvoice.reverse_charge || false,
       })
       // Arbeitstage → selectedDates (UTC-safe parsing auf Mittag, damit lokale TZ nicht rückwärts kippt)
       const at = Array.isArray(existingInvoice.arbeitstage) ? existingInvoice.arbeitstage : []
@@ -291,11 +294,11 @@ export default function InvoiceDetailPage() {
         pos: i + 1,
         produktName: lines[0] || '',
         beschreibung: lines.slice(1).join('\n').trim(),
-        menge: p.menge || 1,
+        menge: p.menge ?? 1,
         einheit: p.einheit || 'Stk',
-        einzelpreisNetto: p.einzelpreis || 0,
-        rabattProzent: p.rabatt_prozent || 0,
-        ustSatz: p.mwst_satz || 20,
+        einzelpreisNetto: p.einzelpreis ?? 0,
+        rabattProzent: p.rabatt_prozent ?? 0,
+        ustSatz: p.mwst_satz ?? STANDARD_MWST,
         teilfakturaProzent: 100,
         bereitsFakturiert: 0,
         gesamtNetto: p.gesamtpreis || 0,
@@ -410,21 +413,22 @@ export default function InvoiceDetailPage() {
   }, [invoice, positions])
 
   const totals = useMemo(() => {
-    const summeNetto = positions.reduce((sum, p) => sum + (parseFloat(p.gesamtNetto as string) || 0), 0)
+    const reverseCharge = Boolean(invoice.reverseCharge)
     const summeRabatt = positions.reduce((sum, p) => {
-      const menge = parseFloat(p.menge as string) || 0
-      const einzelpreis = parseFloat(p.einzelpreisNetto as string) || 0
-      const rabatt = parseFloat(p.rabattProzent as string) || 0
+      const menge = num(p.menge, 0)
+      const einzelpreis = num(p.einzelpreisNetto, 0)
+      const rabatt = num(p.rabattProzent, 0)
       return sum + (menge * einzelpreis * (rabatt / 100))
     }, 0)
-    const summeUst = positions.reduce((sum, p) => {
-      const gesamtNetto = parseFloat(p.gesamtNetto as string) || 0
-      const ustSatz = parseFloat(p.ustSatz as string) || 20
-      return sum + (gesamtNetto * (ustSatz / 100))
+    // gesamtNetto pro Position wird bereits in InvoicePositionsTable berechnet;
+    // USt Reverse-Charge-bewusst (0 bei RC) und 0%-Sätze bleiben 0 (kein still-20%).
+    const summeNetto = positions.reduce((sum, p) => sum + num(p.gesamtNetto, 0), 0)
+    const summeUst = reverseCharge ? 0 : positions.reduce((sum, p) => {
+      return sum + num(p.gesamtNetto, 0) * (num(p.ustSatz, STANDARD_MWST) / 100)
     }, 0)
     const summeBrutto = summeNetto + summeUst
     return { summeNetto, summeRabatt, summeUst, summeBrutto }
-  }, [positions])
+  }, [positions, invoice.reverseCharge])
 
   const generateInvoiceNumber = async () => {
     const year = new Date().getFullYear()
@@ -439,10 +443,11 @@ export default function InvoiceDetailPage() {
     beschreibung: p.produktName || p.beschreibung || '-',
     menge: parseFloat(p.menge as string) || 1,
     einheit: p.einheit,
-    einzelpreis: parseFloat(p.einzelpreisNetto as string) || 0,
-    rabatt_prozent: parseFloat(p.rabattProzent as string) || 0,
-    mwst_satz: parseFloat(p.ustSatz as string) || 20,
-    gesamtpreis: parseFloat(p.gesamtNetto as string) || 0,
+    einzelpreis: num(p.einzelpreisNetto, 0),
+    rabatt_prozent: num(p.rabattProzent, 0),
+    // 0%-USt bleibt 0 statt still auf den Regelsatz zu springen
+    mwst_satz: num(p.ustSatz, STANDARD_MWST),
+    gesamtpreis: num(p.gesamtNetto, 0),
   })
 
   const savePositions = async (targetId: string, currentPositions: InvoicePosition[], existingPosData: any[]) => {
@@ -552,7 +557,9 @@ export default function InvoiceDetailPage() {
     rechnungsdatum: inv.datum,
     faellig_bis: inv.faelligAm || null,
     zahlungskondition: inv.zahlungskondition || '30 Tage netto',
-    zahlungsziel_tage: inv.zahlungszielTage || 30,
+    // 0 Tage ("sofort fällig") bleibt 0 statt still auf 30 zu springen
+    zahlungsziel_tage: num(inv.zahlungszielTage, 30),
+    reverse_charge: inv.reverseCharge || false,
     leistungszeitraum_von: inv.leistungszeitraumVon || null,
     leistungszeitraum_bis: inv.leistungszeitraumBis || null,
     arbeitstage: Array.isArray(inv.arbeitstage) ? inv.arbeitstage : [],
@@ -754,14 +761,15 @@ export default function InvoiceDetailPage() {
         menge: -Math.abs(parseFloat(pos.menge as string) || 0),
         einheit: pos.einheit,
         einzelpreis: Math.abs(parseFloat(pos.einzelpreisNetto as string) || 0),
-        rabatt_prozent: parseFloat(pos.rabattProzent as string) || 0,
-        mwst_satz: parseFloat(pos.ustSatz as string) || 20,
-        gesamtpreis: -Math.abs(parseFloat(pos.gesamtNetto as string) || 0),
+        rabatt_prozent: num(pos.rabattProzent, 0),
+        mwst_satz: num(pos.ustSatz, STANDARD_MWST),
+        gesamtpreis: -Math.abs(num(pos.gesamtNetto, 0)),
       }))
 
       const stornoDbData = {
         rechnungsnummer: stornoNummer,
         rechnungstyp: 'storno',
+        reverse_charge: invoice.reverseCharge || false,
         status: 'entwurf',
         storno_von_rechnung_id: invoiceId,
         storno_grund: cancelReason,
@@ -1560,7 +1568,7 @@ export default function InvoiceDetailPage() {
               className="resize-none"
             />
           </Card>
-          <OfferSummary positions={positions} />
+          <OfferSummary positions={positions} reverseCharge={invoice.reverseCharge} />
         </div>
 
         {/* Fußzeile – volle Breite */}

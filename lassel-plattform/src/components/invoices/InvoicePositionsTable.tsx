@@ -14,6 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from '@/components/ui/command'
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
+import { num, round2, STANDARD_MWST } from '@/lib/money'
 import BeschreibungsModal from '@/components/BeschreibungsModal'
 
 interface Position {
@@ -71,11 +72,13 @@ export default function InvoicePositionsTable({ positions, onChange, readOnly = 
   })
 
   const recalc = (pos: Position): Position => {
-    const menge = parseFloat(pos.menge as string) || 0
-    const einzelpreis = parseFloat(pos.einzelpreisNetto as string) || 0
-    const rabatt = parseFloat(pos.rabattProzent as string) || 0
-    const ust = parseFloat(pos.ustSatz as string) || 20
-    const teilfaktura = parseFloat(pos.teilfakturaProzent as string) || 100
+    const menge = num(pos.menge, 0)
+    const einzelpreis = num(pos.einzelpreisNetto, 0)
+    const rabatt = num(pos.rabattProzent, 0)
+    // 0%-USt bleibt 0 statt still auf den Regelsatz zu springen
+    const ust = num(pos.ustSatz, STANDARD_MWST)
+    // 0%-Teilfaktura (nichts fakturieren) bleibt 0 statt still auf 100% zu springen
+    const teilfaktura = num(pos.teilfakturaProzent, 100)
 
     const nettoVorRabatt = menge * einzelpreis
     const rabattBetrag = nettoVorRabatt * (rabatt / 100)
@@ -84,9 +87,10 @@ export default function InvoicePositionsTable({ positions, onChange, readOnly = 
     if (showTeilfaktura && teilfaktura < 100) {
       gesamtNetto = gesamtNetto * (teilfaktura / 100)
     }
+    gesamtNetto = round2(gesamtNetto)
 
     const ustBetrag = gesamtNetto * (ust / 100)
-    return { ...pos, gesamtNetto, gesamtBrutto: gesamtNetto + ustBetrag }
+    return { ...pos, gesamtNetto, gesamtBrutto: round2(gesamtNetto + ustBetrag) }
   }
 
   const handleProductSelect = (index: number, product: any) => {
@@ -97,8 +101,8 @@ export default function InvoicePositionsTable({ positions, onChange, readOnly = 
       produktName: product.name,
       beschreibung: product.beschreibung || '',
       einheit: product.einheit || 'Stk',
-      einzelpreisNetto: product.einzelpreis || 0,
-      ustSatz: product.mwst_satz || 20,
+      einzelpreisNetto: num(product.einzelpreis, 0),
+      ustSatz: num(product.mwst_satz, STANDARD_MWST),
     })
     onChange(updated)
     setOpenIndex(null)
@@ -116,7 +120,7 @@ export default function InvoicePositionsTable({ positions, onChange, readOnly = 
     onChange([...positions, {
       pos: positions.length + 1,
       produktName: '', beschreibung: '', menge: 1, einheit: 'Stk',
-      einzelpreisNetto: 0, rabattProzent: 0, ustSatz: 20,
+      einzelpreisNetto: 0, rabattProzent: 0, ustSatz: STANDARD_MWST,
       teilfakturaProzent: 100, bereitsFakturiert: 0,
       gesamtNetto: 0, gesamtBrutto: 0
     }])
@@ -294,7 +298,7 @@ export default function InvoicePositionsTable({ positions, onChange, readOnly = 
                   ) : (
                     <Input
                       type="number"
-                      value={pos.ustSatz || 20}
+                      value={pos.ustSatz ?? ''}
                       onChange={(e) => handleChange(index, 'ustSatz', e.target.value)}
                       className="text-right border-slate-200 h-8 sm:h-9 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
@@ -304,11 +308,11 @@ export default function InvoicePositionsTable({ positions, onChange, readOnly = 
                   <>
                     <TableCell className="hidden sm:table-cell">
                       {readOnly ? (
-                        <span className="text-right block">{pos.teilfakturaProzent || 100}%</span>
+                        <span className="text-right block">{num(pos.teilfakturaProzent, 100)}%</span>
                       ) : (
                         <Input
                           type="number"
-                          value={pos.teilfakturaProzent || 100}
+                          value={pos.teilfakturaProzent ?? ''}
                           onChange={(e) => handleChange(index, 'teilfakturaProzent', e.target.value)}
                           className="text-right border-slate-200 h-8 sm:h-9 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { validateWebhookSecret, unauthorizedResponse } from '@/lib/webhook-auth'
 import { logEvent } from '@/lib/monitoring'
+import { num, STANDARD_MWST } from '@/lib/money'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -46,11 +47,12 @@ export async function POST(req: NextRequest) {
 
     if (existing) {
       const { error } = await supabase.from('produkte').update({
-        einzelpreis: parseFloat(d.standardpreisNetto) || 0,
-        mwst_satz: parseFloat(d.steuersatz) || 20,
+        einzelpreis: num(d.standardpreisNetto, 0),
+        // 0%-Steuersatz (steuerfrei) bleibt 0 statt still auf 20% zu springen
+        mwst_satz: num(d.steuersatz, STANDARD_MWST),
         einheit: d.einheit || 'Stk',
         kategorie: d.produktKategorie || null,
-        aktiv: d.aktiv !== false,
+        aktiv: d.aktiv !== false && d.aktiv !== 'false',
         beschreibung: d.beschreibung || null,
       }).eq('id', existing.id)
       if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -59,11 +61,12 @@ export async function POST(req: NextRequest) {
 
     const { data, error } = await supabase.from('produkte').insert({
       name,
-      einzelpreis: parseFloat(d.standardpreisNetto) || 0,
-      mwst_satz: parseFloat(d.steuersatz) || 20,
+      einzelpreis: num(d.standardpreisNetto, 0),
+      // 0%-Steuersatz (steuerfrei) bleibt 0 statt still auf 20% zu springen
+      mwst_satz: num(d.steuersatz, STANDARD_MWST),
       einheit: d.einheit || 'Stk',
       kategorie: d.produktKategorie || null,
-      aktiv: d.aktiv !== false,
+      aktiv: d.aktiv !== false && d.aktiv !== 'false',
       beschreibung: d.beschreibung || null,
     }).select().single()
 

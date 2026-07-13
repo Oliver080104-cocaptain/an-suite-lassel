@@ -25,6 +25,7 @@ import CreateInvoiceDialog, { type CreateInvoiceOptions } from '@/components/Cre
 import EditableDocNumber from '@/components/shared/EditableDocNumber'
 import { generateRechnungsNummer, getTypInfo, type Rechnungstyp } from '@/lib/rechnung-typ'
 import { logEvent } from '@/lib/monitoring'
+import { num, round2, computeTotals, STANDARD_MWST } from '@/lib/money'
 
 const MITARBEITER_LISTE = [
   'Nikolas Schmadlak',
@@ -287,22 +288,20 @@ export default function OfferDetailPage() {
   }, [])
 
   const totals = useMemo(() => {
-    const netto_gesamt = positions.reduce((sum: number, p: any) => {
-      const menge = parseFloat(p.menge) || 0
-      const einzelpreis = parseFloat(p.einzelpreisNetto) || 0
-      const rabatt = parseFloat(p.rabattProzent) || 0
-      return sum + (menge * einzelpreis * (1 - rabatt / 100))
-    }, 0)
-    const mwst_gesamt = positions.reduce((sum: number, p: any) => {
-      const menge = parseFloat(p.menge) || 0
-      const einzelpreis = parseFloat(p.einzelpreisNetto) || 0
-      const rabatt = parseFloat(p.rabattProzent) || 0
-      const nettoPos = menge * einzelpreis * (1 - rabatt / 100)
-      const mwst_satz = parseFloat(p.ustSatz) || 20
-      return sum + (nettoPos * (mwst_satz / 100))
-    }, 0)
-    return { netto_gesamt, mwst_gesamt, brutto_gesamt: netto_gesamt + mwst_gesamt }
-  }, [positions])
+    // Zentrale, Reverse-Charge-bewusste Summenbildung (0%-USt bleibt 0, bei RC
+    // ist MwSt=0 und Brutto=Netto — vorher ignorierte dieses Memo reverse_charge
+    // und coercte 0% still auf 20%).
+    const t = computeTotals(
+      positions.map((p: any) => ({
+        menge: p.menge,
+        einzelpreis: p.einzelpreisNetto,
+        rabattProzent: p.rabattProzent,
+        mwstSatz: p.ustSatz,
+      })),
+      { reverseCharge: Boolean(offer.reverse_charge) }
+    )
+    return { netto_gesamt: t.netto, mwst_gesamt: t.mwst, brutto_gesamt: t.brutto }
+  }, [positions, offer.reverse_charge])
 
   const buildOfferData = (offerState: any) => {
     const data: Record<string, unknown> = {
@@ -425,7 +424,7 @@ export default function OfferDetailPage() {
       einheit: pos.einheit || 'Stk',
       einzelpreis: parseFloat(pos.einzelpreisNetto ?? pos.einzelpreis) || 0,
       rabatt_prozent: parseFloat(pos.rabattProzent ?? pos.rabatt_prozent) || 0,
-      mwst_satz: parseFloat(pos.ustSatz ?? pos.mwst_satz) || 20,
+      mwst_satz: num(pos.ustSatz ?? pos.mwst_satz, STANDARD_MWST),
       gesamtpreis: parseFloat(pos.gesamtNetto ?? pos.gesamtpreis) || 0,
     })
 
@@ -677,9 +676,10 @@ export default function OfferDetailPage() {
       const rechnungsnummer = await generateRechnungsNummer(opts.rechnungstyp as Rechnungstyp)
 
       // Beträge je nach Typ
+      const reverseCharge = Boolean(offer.reverse_charge)
       const isTeilOrAnz = opts.rechnungstyp === 'anzahlung' || opts.rechnungstyp === 'teilrechnung'
       const teilNetto = isTeilOrAnz ? (opts.teilbetragNetto ?? 0) : null
-      const teilBrutto = teilNetto !== null ? teilNetto * 1.2 : null
+      // teilBrutto wird unten aus dem effektiven USt-Satz berechnet (RC-fähig, kein hartes 20%)
 
       // Positionen vorab laden — wegen optionaler Auswahl im Dialog,
       // damit die Rechnungs-Summen zur tatsächlichen Position-Auswahl passen.
@@ -715,17 +715,31 @@ export default function OfferDetailPage() {
       }
 
       const selectedNetto = filteredDbPositions.reduce(
-        (s: number, p: any) => s + (Number(p.gesamtpreis) || 0),
+        (s: number, p: any) => s + num(p.gesamtpreis, 0),
         0
       )
-      const selectedMwst = selectedNetto * 0.2
-      const selectedBrutto = selectedNetto + selectedMwst
+      // MwSt aus den tatsächlichen Positions-Sätzen statt pauschal 20 %; bei
+      // Reverse-Charge 0. So werden 0%-/steuerfreie/gemischte Sätze korrekt.
+      const selectedMwst = reverseCharge
+        ? 0
+        : round2(filteredDbPositions.reduce(
+            (s: number, p: any) => s + num(p.gesamtpreis, 0) * (num(p.mwst_satz, STANDARD_MWST) / 100),
+            0
+          ))
+      const selectedBrutto = round2(selectedNetto + selectedMwst)
+
+      // Effektiver USt-Satz des Angebots für Teil-/Anzahlungsbeträge (RC → 0)
+      const effRate = selectedNetto > 0
+        ? selectedMwst / selectedNetto
+        : (reverseCharge ? 0 : STANDARD_MWST / 100)
+      const teilMwst = teilNetto !== null ? round2(teilNetto * effRate) : null
+      const teilBrutto = teilNetto !== null ? round2(teilNetto + (teilMwst ?? 0)) : null
 
       const insertNetto = isTeilOrAnz
         ? (teilNetto ?? 0)
         : (opts.rechnungstyp === 'gutschrift' ? 0 : selectedNetto)
       const insertMwst = isTeilOrAnz
-        ? ((teilNetto ?? 0) * 0.2)
+        ? (teilMwst ?? 0)
         : (opts.rechnungstyp === 'gutschrift' ? 0 : selectedMwst)
       const insertBrutto = isTeilOrAnz
         ? (teilBrutto ?? 0)
@@ -734,6 +748,7 @@ export default function OfferDetailPage() {
       const insertData: Record<string, any> = {
         rechnungsnummer,
         rechnungstyp: opts.rechnungstyp,
+        reverse_charge: reverseCharge,
         ist_schlussrechnung: opts.istSchlussrechnung,
         bereits_fakturiert_netto: opts.istSchlussrechnung ? bereitsNetto : 0,
         teilbetrag_netto: teilNetto,
@@ -804,12 +819,13 @@ export default function OfferDetailPage() {
         position: p.position ?? i + 1,
         produkt_id: p.produkt_id || null,
         beschreibung: (p.beschreibung && String(p.beschreibung).trim()) || '(ohne Bezeichnung)',
-        menge: parseFloat(p.menge) || 0,
+        menge: num(p.menge, 0),
         einheit: p.einheit || 'Stk',
-        einzelpreis: parseFloat(p.einzelpreis) || 0,
-        rabatt_prozent: parseFloat(p.rabatt_prozent) || 0,
-        mwst_satz: parseFloat(p.mwst_satz) || 20,
-        gesamtpreis: parseFloat(p.gesamtpreis) || 0,
+        einzelpreis: num(p.einzelpreis, 0),
+        rabatt_prozent: num(p.rabatt_prozent, 0),
+        // 0%-USt bleibt 0 statt still auf den Regelsatz zu springen
+        mwst_satz: num(p.mwst_satz, STANDARD_MWST),
+        gesamtpreis: num(p.gesamtpreis, 0),
       }))
 
       let posToInsert: any[] = []

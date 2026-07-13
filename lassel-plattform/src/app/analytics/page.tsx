@@ -88,41 +88,56 @@ export default function AnalyticsPage() {
 
   const year = parseInt(selectedYear)
 
+  // Belege haben UNTERSCHIEDLICHE Datums-/Betrags-Spalten in der DB. Vorher las
+  // die Seite durchgängig nicht existierende camelCase-Felder (datum/summeBrutto/
+  // faelligAm/vermittlerId/erstelltDurch) → alle Filter leer, alle Summen 0.
+  // Korrekt: Rechnung `rechnungsdatum`, Angebot `angebotsdatum` (Fallback created_at),
+  // Betrag `brutto_gesamt`, Fälligkeit `faellig_bis`, FK `vermittler_id`,
+  // Ersteller-Name im Text-Feld `erstellt_von` (vom Webhook aus Zoho befüllt).
+  const getDatum = (item: Record<string, unknown>) =>
+    (item.rechnungsdatum || item.angebotsdatum || item.created_at) as string | undefined
+  const getBrutto = (item: Record<string, unknown>) => Number(item.brutto_gesamt) || 0
+
   // Filter helpers
-  const inYear = (item: Record<string, unknown>) =>
-    item.datum && new Date(item.datum as string).getFullYear() === year
-  const inMonth = (item: Record<string, unknown>) =>
-    item.datum &&
-    new Date(item.datum as string).getFullYear() === year &&
-    new Date(item.datum as string).getMonth() === selectedMonth
+  const inYear = (item: Record<string, unknown>) => {
+    const d = getDatum(item)
+    return !!d && new Date(d).getFullYear() === year
+  }
+  const inMonth = (item: Record<string, unknown>) => {
+    const d = getDatum(item)
+    return !!d && new Date(d).getFullYear() === year && new Date(d).getMonth() === selectedMonth
+  }
 
   const thisYearOffers = useMemo(() => offers.filter(inYear), [offers, year])
   const thisYearInvoices = useMemo(() => invoices.filter(inYear), [invoices, year])
 
   // KPIs
   const jahresumsatz = useMemo(
-    () => thisYearInvoices.reduce((s: number, i: Record<string, unknown>) => s + (Number(i.summeBrutto) || 0), 0),
+    () => thisYearInvoices.reduce((s: number, i: Record<string, unknown>) => s + getBrutto(i), 0),
     [thisYearInvoices]
   )
   const prevYearInvoices = useMemo(
-    () => invoices.filter((i: Record<string, unknown>) => i.datum && new Date(i.datum as string).getFullYear() === year - 1),
+    () => invoices.filter((i: Record<string, unknown>) => {
+      const d = getDatum(i)
+      return !!d && new Date(d).getFullYear() === year - 1
+    }),
     [invoices, year]
   )
   const prevJahresumsatz = useMemo(
-    () => prevYearInvoices.reduce((s: number, i: Record<string, unknown>) => s + (Number(i.summeBrutto) || 0), 0),
+    () => prevYearInvoices.reduce((s: number, i: Record<string, unknown>) => s + getBrutto(i), 0),
     [prevYearInvoices]
   )
   const yoyChange = prevJahresumsatz > 0 ? ((jahresumsatz - prevJahresumsatz) / prevJahresumsatz) * 100 : null
 
   const monatsumsatz = useMemo(
-    () => invoices.filter(inMonth).reduce((s: number, i: Record<string, unknown>) => s + (Number(i.summeBrutto) || 0), 0),
+    () => invoices.filter(inMonth).reduce((s: number, i: Record<string, unknown>) => s + getBrutto(i), 0),
     [invoices, year, selectedMonth]
   )
 
   const offeneForderungen = useMemo(
     () => thisYearInvoices
       .filter((i: Record<string, unknown>) => i.status === 'offen' || i.status === 'teilweise_bezahlt')
-      .reduce((s: number, i: Record<string, unknown>) => s + (Number(i.summeBrutto) || 0), 0),
+      .reduce((s: number, i: Record<string, unknown>) => s + getBrutto(i), 0),
     [thisYearInvoices]
   )
 
@@ -130,36 +145,35 @@ export default function AnalyticsPage() {
   const mahnungen = useMemo(
     () => thisYearInvoices.filter((i: Record<string, unknown>) => {
       if (i.status !== 'offen' && i.status !== 'mahnung') return false
-      if (!i.faelligAm) return false
-      return new Date(i.faelligAm as string) < today
+      if (!i.faellig_bis) return false
+      return new Date(i.faellig_bis as string) < today
     }),
     [thisYearInvoices]
   )
-  const mahnungenBetrag = mahnungen.reduce((s: number, i: Record<string, unknown>) => s + (Number(i.summeBrutto) || 0), 0)
+  const mahnungenBetrag = mahnungen.reduce((s: number, i: Record<string, unknown>) => s + getBrutto(i), 0)
 
   const faelligBald = useMemo(
     () => thisYearInvoices.filter((i: Record<string, unknown>) => {
       if (i.status !== 'offen') return false
-      if (!i.faelligAm) return false
-      const fällig = new Date(i.faelligAm as string)
+      if (!i.faellig_bis) return false
+      const fällig = new Date(i.faellig_bis as string)
       const inDays = (fällig.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
       return inDays >= 0 && inDays <= 14
     }),
     [thisYearInvoices]
   )
-  const faelligBaldBetrag = faelligBald.reduce((s: number, i: Record<string, unknown>) => s + (Number(i.summeBrutto) || 0), 0)
+  const faelligBaldBetrag = faelligBald.reduce((s: number, i: Record<string, unknown>) => s + getBrutto(i), 0)
 
   const nichtFaelligBetrag = offeneForderungen - mahnungenBetrag - faelligBaldBetrag
 
   // Umsatz per month chart data
   const chartData = useMemo(() => {
     return MONTHS.map((month, idx) => {
-      const monthInvoices = invoices.filter((i: Record<string, unknown>) =>
-        i.datum &&
-        new Date(i.datum as string).getFullYear() === year &&
-        new Date(i.datum as string).getMonth() === idx
-      )
-      const umsatz = monthInvoices.reduce((s: number, i: Record<string, unknown>) => s + (Number(i.summeBrutto) || 0), 0)
+      const monthInvoices = invoices.filter((i: Record<string, unknown>) => {
+        const d = getDatum(i)
+        return !!d && new Date(d).getFullYear() === year && new Date(d).getMonth() === idx
+      })
+      const umsatz = monthInvoices.reduce((s: number, i: Record<string, unknown>) => s + getBrutto(i), 0)
       return { monat: month.substring(0, 3), umsatz }
     })
   }, [invoices, year])
@@ -167,18 +181,19 @@ export default function AnalyticsPage() {
   // Vermittler stats
   const vermittlerStats = useMemo(() => {
     return vermittler.map((v: Record<string, unknown>) => {
-      const vOffers = thisYearOffers.filter((o: Record<string, unknown>) => o.vermittlerId === v.id)
-      const umsatz = vOffers.reduce((s: number, o: Record<string, unknown>) => s + (Number(o.summeBrutto) || 0), 0)
+      const vOffers = thisYearOffers.filter((o: Record<string, unknown>) => o.vermittler_id === v.id)
+      const umsatz = vOffers.reduce((s: number, o: Record<string, unknown>) => s + getBrutto(o), 0)
       return { ...v, anzahlAngebote: vOffers.length, umsatz }
     }).sort((a: Record<string, unknown>, b: Record<string, unknown>) => (Number(b.umsatz) || 0) - (Number(a.umsatz) || 0))
   }, [vermittler, thisYearOffers])
 
-  // Mitarbeiter performance
+  // Mitarbeiter performance — Attribution über das Text-Feld `erstellt_von`
+  // (vom Webhook aus dem Zoho-Namen befüllt), abgeglichen mit mitarbeiter.name.
   const mitarbeiterStats = useMemo(() => {
     return mitarbeiterList.map((m: Record<string, unknown>) => {
-      const mOffers = thisYearOffers.filter((o: Record<string, unknown>) => o.erstelltDurch === m.name)
-      const mInvoices = thisYearInvoices.filter((i: Record<string, unknown>) => i.erstelltDurch === m.name)
-      const umsatz = mInvoices.reduce((s: number, i: Record<string, unknown>) => s + (Number(i.summeBrutto) || 0), 0)
+      const mOffers = thisYearOffers.filter((o: Record<string, unknown>) => o.erstellt_von === m.name)
+      const mInvoices = thisYearInvoices.filter((i: Record<string, unknown>) => i.erstellt_von === m.name)
+      const umsatz = mInvoices.reduce((s: number, i: Record<string, unknown>) => s + getBrutto(i), 0)
       return { ...m, anzahlAngebote: mOffers.length, anzahlRechnungen: mInvoices.length, umsatz }
     }).sort((a: Record<string, unknown>, b: Record<string, unknown>) => (Number(b.umsatz) || 0) - (Number(a.umsatz) || 0))
   }, [mitarbeiterList, thisYearOffers, thisYearInvoices])
@@ -225,8 +240,8 @@ export default function AnalyticsPage() {
 
   const availableYears = Array.from(
     new Set([
-      ...invoices.map((i: Record<string, unknown>) => i.datum ? new Date(i.datum as string).getFullYear() : null),
-      ...offers.map((o: Record<string, unknown>) => o.datum ? new Date(o.datum as string).getFullYear() : null),
+      ...invoices.map((i: Record<string, unknown>) => { const d = getDatum(i); return d ? new Date(d).getFullYear() : null }),
+      ...offers.map((o: Record<string, unknown>) => { const d = getDatum(o); return d ? new Date(d).getFullYear() : null }),
     ].filter(Boolean) as number[])
   ).sort((a, b) => b - a)
   if (!availableYears.includes(year)) availableYears.unshift(year)

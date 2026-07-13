@@ -290,13 +290,18 @@ export default function EmailVorschauModal({
   }
 
   const handleSenden = async () => {
+    // Empfänger ist Pflicht — sonst würde die Mail an niemanden gehen und der
+    // Status trotzdem auf "versendet" springen.
+    if (!emailAn || !emailAn.trim()) {
+      toast.error('Bitte eine Empfänger-E-Mail-Adresse angeben')
+      return
+    }
     setSending(true)
     try {
       // Anhänge ZUERST hochladen — schlägt das fehl, wird der Status NICHT
       // auf "versendet" gesetzt und der User sieht den Fehler.
       const attachments = await uploadAttachmentsDirect()
 
-      await supabase.from(cfg.tabelle).update({ status: cfg.statusUpdate }).eq('id', docId)
       // Absolute PDF-URL bauen — n8n braucht http(s)://…
       const pdfUrl = `${window.location.origin}/api/pdf/${cfg.pdfPath}/${docId}`
       const pdfFileName = `${cfg.pdfFilePrefix}_${docNummer}.pdf`
@@ -354,17 +359,41 @@ export default function EmailVorschauModal({
       const payload = { ...coreDefault, ...(extraPayload || {}), ...coreIdentity, attachments }
 
       const webhookName_emailVersand = `email-versand-${docType || 'angebot'}`
-      await fetch(cfg.webhook, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      }).catch(async (err: Error) => {
-        console.error(err)
+      // Webhook feuern und das ERGEBNIS prüfen — kein blindes success mehr.
+      // Ein 4xx/5xx von n8n rejectet fetch NICHT, daher explizit res.ok prüfen.
+      let res: Response
+      try {
+        res = await fetch(cfg.webhook, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+      } catch (err) {
         await logEvent('error', 'webhook-outgoing',
-          `Zoho-Webhook fehlgeschlagen — ${webhookName_emailVersand} für ${docNummer}`,
-          { webhookName: webhookName_emailVersand, docNummer, error: err.message }
+          `Zoho-Webhook nicht erreichbar — ${webhookName_emailVersand} für ${docNummer}`,
+          { webhookName: webhookName_emailVersand, docNummer, error: (err as Error).message }
         )
-      })
+        throw new Error('E-Mail-Dienst nicht erreichbar. Bitte erneut versuchen.')
+      }
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '')
+        await logEvent('error', 'webhook-outgoing',
+          `Zoho-Webhook fehlgeschlagen (HTTP ${res.status}) — ${webhookName_emailVersand} für ${docNummer}`,
+          { webhookName: webhookName_emailVersand, docNummer, status: res.status, detail: detail.slice(0, 300) }
+        )
+        throw new Error(`E-Mail-Versand fehlgeschlagen (HTTP ${res.status}). Status wurde nicht geändert.`)
+      }
+
+      // Status ERST nach bestätigtem Versand setzen (nicht vorher).
+      const { error: statusErr } = await supabase
+        .from(cfg.tabelle).update({ status: cfg.statusUpdate }).eq('id', docId)
+      if (statusErr) {
+        await logEvent('warning', 'status-update-nach-versand',
+          `E-Mail versendet, aber Status-Update fehlgeschlagen für ${docNummer}`,
+          { docNummer, error: statusErr.message }
+        ).catch(() => {})
+      }
+
       toast.success('E-Mail versendet')
       onSent?.()
       onClose()

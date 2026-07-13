@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { renderHtmlToPdfResponse } from '@/lib/pdf-renderer'
 import { buildAdressblock } from '@/lib/adressblock'
+import { num, round2, STANDARD_MWST } from '@/lib/money'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -139,9 +140,19 @@ export async function GET(
     </div>`
   }).join('')
 
-  const nettoGesamt = positionen.reduce((s, p) => s + (Number(p.gesamtpreis) || 0), 0)
-  const mwstGesamt = angebot.mwst_gesamt || (nettoGesamt * 0.2)
-  const bruttoGesamt = angebot.brutto_gesamt || (nettoGesamt + mwstGesamt)
+  // Reverse-Charge-bewusst und mit ?? statt || — ein legitimer 0-Wert (RC / 0% USt)
+  // darf NICHT still durch netto*20% ersetzt werden. Defensiv auch gegen evtl.
+  // fehlerhaft gespeicherte Alt-Beträge: bei RC gilt immer mwst=0 / brutto=netto.
+  const reverseCharge = Boolean(angebot.reverse_charge)
+  const nettoGesamt = angebot.netto_gesamt != null
+    ? num(angebot.netto_gesamt, 0)
+    : positionen.reduce((s, p) => s + num(p.gesamtpreis, 0), 0)
+  const mwstGesamt = reverseCharge
+    ? 0
+    : (angebot.mwst_gesamt != null ? num(angebot.mwst_gesamt, 0) : round2(nettoGesamt * STANDARD_MWST / 100))
+  const bruttoGesamt = reverseCharge
+    ? nettoGesamt
+    : (angebot.brutto_gesamt != null ? num(angebot.brutto_gesamt, 0) : round2(nettoGesamt + mwstGesamt))
 
   const html = `<!DOCTYPE html>
 <html lang="de">
@@ -197,7 +208,7 @@ export async function GET(
   <div class="totals">
     <div class="total-row main">
       <span>Gesamtbetrag netto</span>
-      <span>${formatEuro(angebot.netto_gesamt ?? nettoGesamt)}</span>
+      <span>${formatEuro(nettoGesamt)}</span>
     </div>
     ${angebot.reverse_charge
       ? '<div class="total-row"><span>zzgl. Umsatzsteuer (Reverse Charge)</span><span>0,00 €</span></div>'

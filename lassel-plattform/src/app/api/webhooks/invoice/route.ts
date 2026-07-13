@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { validateWebhookSecret, unauthorizedResponse } from '@/lib/webhook-auth'
 import { resolveKundeName, isKundeNameFallback } from '@/lib/webhook-kunde'
 import { logEvent } from '@/lib/monitoring'
+import { num, computeTotals, lineNetto, STANDARD_MWST } from '@/lib/money'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -71,11 +72,21 @@ export async function POST(req: NextRequest) {
       ).catch(() => {})
     }
 
-    // Skip if already exists for this ticket
-    const { data: existing } = await supabase
+    // Dedup NUR innerhalb desselben Rechnungstyps — sonst würde eine normale
+    // Rechnung eine bereits existierende Sammelrechnung desselben Tickets
+    // überschreiben (Audit F1). Legacy-Zeilen ohne rechnungstyp gelten als 'normal'.
+    const incomingTyp = body.rechnungstyp || 'normal'
+    let existingQuery = supabase
       .from('rechnungen')
       .select('id, rechnungsnummer')
       .eq('zoho_ticket_id', ticketId)
+    existingQuery = incomingTyp === 'normal'
+      ? existingQuery.or('rechnungstyp.eq.normal,rechnungstyp.is.null')
+      : existingQuery.eq('rechnungstyp', incomingTyp)
+    // limit(1) verhindert, dass maybeSingle() bei bereits vorhandenen Duplikaten wirft
+    const { data: existing } = await existingQuery
+      .order('created_at', { ascending: false })
+      .limit(1)
       .maybeSingle()
 
     const posArray = Array.isArray(positionen) ? positionen : []
@@ -85,27 +96,27 @@ export async function POST(req: NextRequest) {
         { type: 'invoice', docNummer: existing?.rechnungsnummer ?? null, ticketId }
       ).catch(() => {})
     }
-    const netto_gesamt = posArray.reduce((sum: number, p: any) => {
-      const menge = parseFloat(p.menge) || 0
-      const einzelpreis = parseFloat(p.einzelpreisNetto) || 0
-      const rabatt = parseFloat(p.rabattProzent) || 0
-      return sum + (menge * einzelpreis * (1 - rabatt / 100))
-    }, 0)
-    const mwst_gesamt = posArray.reduce((sum: number, p: any) => {
-      const menge = parseFloat(p.menge) || 0
-      const einzelpreis = parseFloat(p.einzelpreisNetto) || 0
-      const rabatt = parseFloat(p.rabattProzent) || 0
-      const netto = menge * einzelpreis * (1 - rabatt / 100)
-      return sum + (netto * ((parseFloat(p.ustSatz) || 20) / 100))
-    }, 0)
+    // Reverse-Charge: falls Zoho den Flag mitschickt, wird MwSt=0 / Brutto=Netto
+    // gerechnet; fehlt der Flag, verhält es sich exakt wie bisher (kein RC).
+    const reverseCharge =
+      body.reverseCharge === true || rechnung?.reverseCharge === true || kunde?.reverseCharge === true
+    const totalLines = posArray.map((p: any) => ({
+      menge: p.menge,
+      einzelpreis: p.einzelpreisNetto,
+      rabattProzent: p.rabattProzent,
+      mwstSatz: p.ustSatz,
+    }))
+    const { netto: netto_gesamt, mwst: mwst_gesamt, brutto: brutto_gesamt } =
+      computeTotals(totalLines, { reverseCharge })
 
     const buildData = (rechnungsnummer?: string) => ({
       ...(rechnungsnummer ? { rechnungsnummer } : {}),
-      rechnungstyp: body.rechnungstyp || 'normal',
+      rechnungstyp: incomingTyp,
+      reverse_charge: reverseCharge,
       kunde_name: kundeName,
-      kunde_strasse: kunde.strasse || null,
-      kunde_plz: kunde.plz || null,
-      kunde_ort: kunde.ort || null,
+      kunde_strasse: kunde?.strasse || null,
+      kunde_plz: kunde?.plz || null,
+      kunde_ort: kunde?.ort || null,
       objekt_adresse: rechnung?.objektBeschreibung || null,
       objekt_bezeichnung: rechnung?.objektBeschreibung || null,
       objekt_plz: kunde?.objektAdresse?.plz || null,
@@ -126,12 +137,13 @@ export async function POST(req: NextRequest) {
       leistungszeitraum_von: rechnung?.leistungszeitraumVon || null,
       leistungszeitraum_bis: rechnung?.leistungszeitraumBis || null,
       zahlungskondition: rechnung?.zahlungskondition || '30 Tage netto',
-      zahlungsziel_tage: parseInt(rechnung?.zahlungszielTage) || 30,
+      // 0 Tage ("sofort fällig") bleibt 0 statt still auf 30 zu springen
+      zahlungsziel_tage: num(rechnung?.zahlungszielTage, 30),
       referenz_angebot_nummer: body.referenzAngebotNummer || null,
       geschaeftsfallnummer: body.geschaeftsfallnummer || null,
       rechnungsdatum: rechnung?.datum || new Date().toISOString().split('T')[0],
-      faellig_bis: rechnung?.zahlungszielTage
-        ? new Date(Date.now() + (parseInt(rechnung.zahlungszielTage) || 30) * 86400000).toISOString().split('T')[0]
+      faellig_bis: rechnung?.zahlungszielTage != null && rechnung?.zahlungszielTage !== ''
+        ? new Date(Date.now() + num(rechnung.zahlungszielTage, 30) * 86400000).toISOString().split('T')[0]
         : null,
       fotos_link: rechnung?.fotosLink || null,
       fotodoku_link: rechnung?.fotodokuOrdnerlink || null,
@@ -139,7 +151,7 @@ export async function POST(req: NextRequest) {
       callback_url: meta?.callbackUrl || null,
       netto_gesamt,
       mwst_gesamt,
-      brutto_gesamt: netto_gesamt + mwst_gesamt,
+      brutto_gesamt,
     })
 
     const buildPositionen = (rechnungId: string) => posArray.map((p: any, i: number) => ({
@@ -148,12 +160,14 @@ export async function POST(req: NextRequest) {
       beschreibung: p.produktName
         ? (p.beschreibung ? `${p.produktName}\n${p.beschreibung}` : p.produktName)
         : (p.beschreibung || ''),
-      menge: parseFloat(p.menge) || 1,
+      menge: num(p.menge, 1),
       einheit: p.einheit || 'Stk',
-      einzelpreis: parseFloat(p.einzelpreisNetto) || 0,
-      rabatt_prozent: parseFloat(p.rabattProzent) || 0,
-      mwst_satz: parseFloat(p.ustSatz) || 20,
-      gesamtpreis: (parseFloat(p.menge) || 1) * (parseFloat(p.einzelpreisNetto) || 0),
+      einzelpreis: num(p.einzelpreisNetto, 0),
+      rabatt_prozent: num(p.rabattProzent, 0),
+      // 0%-USt (steuerbefreit/Reverse-Charge) bleibt 0 statt still auf 20% zu springen
+      mwst_satz: num(p.ustSatz, STANDARD_MWST),
+      // gesamtpreis MIT Rabatt, damit Summe der Zeilen == Beleg-Netto (Audit D3)
+      gesamtpreis: lineNetto({ menge: p.menge, einzelpreis: p.einzelpreisNetto, rabattProzent: p.rabattProzent }),
     }))
 
     let rechnungId: string

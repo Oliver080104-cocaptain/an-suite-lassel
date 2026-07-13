@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 import { Plus, Pencil, Trash2, Search } from 'lucide-react'
+import { num, STANDARD_MWST } from '@/lib/money'
 
 const defaultForm = {
   name: '',
@@ -99,8 +100,9 @@ export default function ProdukteListePage() {
     e.preventDefault()
     const payload = {
       ...formData,
-      einzelpreis: parseFloat(String(formData.einzelpreis)) || 0,
-      mwst_satz: parseFloat(String(formData.mwst_satz)) || 20,
+      einzelpreis: num(formData.einzelpreis, 0),
+      // 0%-Steuersatz (steuerfrei) bleibt 0 statt still auf 20% zu springen
+      mwst_satz: num(formData.mwst_satz, STANDARD_MWST),
     }
     if (editingProduct) {
       updateMutation.mutate({ id: editingProduct.id, data: payload })

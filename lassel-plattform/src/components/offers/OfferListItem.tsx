@@ -30,6 +30,7 @@ import { format } from 'date-fns'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
+import { num, STANDARD_MWST } from '@/lib/money'
 
 interface MatchField {
   field: string
@@ -111,6 +112,7 @@ export default function OfferListItem({ offer, onDelete, searchTerm = '' }: Prop
         kunde_strasse: offer.kunde_strasse || '',
         kunde_plz: offer.kunde_plz || '',
         kunde_ort: offer.kunde_ort || '',
+        reverse_charge: offer.reverse_charge || false,
         angebot_id: offer.id as string,
       }
 
@@ -127,12 +129,13 @@ export default function OfferListItem({ offer, onDelete, searchTerm = '' }: Prop
           position: pos.position,
           produkt_id: pos.produkt_id,
           beschreibung: pos.beschreibung || '',
-          menge: pos.menge || 1,
+          menge: num(pos.menge, 1),
           einheit: pos.einheit || 'Stk',
-          einzelpreis: pos.einzelpreis || 0,
-          rabatt_prozent: pos.rabatt_prozent || 0,
-          mwst_satz: pos.mwst_satz || 20,
-          gesamtpreis: pos.gesamtpreis || 0,
+          einzelpreis: num(pos.einzelpreis, 0),
+          rabatt_prozent: num(pos.rabatt_prozent, 0),
+          // 0%-USt bleibt 0 statt still auf den Regelsatz zu springen
+          mwst_satz: num(pos.mwst_satz, STANDARD_MWST),
+          gesamtpreis: num(pos.gesamtpreis, 0),
         })
       }
 
