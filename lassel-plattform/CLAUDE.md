@@ -154,9 +154,25 @@ liegen, weil die Tabelle dort nicht vorkommt.
 die Detailseite (deren Öffnen startet den Autosave-Zyklus), kein `pdf_url`, kein
 Status außer `entwurf`.
 
-**Nötig zum Aktivieren:** Migrationen 023 + 024 ausführen,
-`SUPABASE_SERVICE_ROLE_KEY` und `API_TOKEN_WRITE` setzen. Ohne das antworten die
-Endpunkte mit einer Meldung, die genau das sagt.
+**Fachliche Festlegung (2026-07-22):** Ein Rechnungs-**Entwurf** zählt NICHT als
+fakturiert. Die Regel steht jetzt an einer Stelle (`fakturierteRechnungen` in
+`angebote/[id]`) statt wie vorher dreifach dupliziert: Stornos, stornierte
+Rechnungen und Entwürfe sind ausgeschlossen. Vorher setzte ein Entwurf das
+Angebot sofort auf „vollständig fakturiert" und kürzte über
+`bereits_fakturiert_netto` dauerhaft eine spätere Schlussrechnung — bei einem
+verworfenen Entwurf wurde damit zu wenig fakturiert.
+
+**Nötig zum Aktivieren:** `SUPABASE_SERVICE_ROLE_KEY` und `API_TOKEN_WRITE`
+setzen. Migrationen 023 + 024 sind seit 2026-07-22 eingespielt und verifiziert
+(Zähler standen exakt auf AN 109 / RE 60 / LI 58, also den höchsten vergebenen
+Nummern).
+
+**Gegen die Produktivdatenbank durchgespielt:** Entwurf anlegen (Summen 810 /
+162 / 972 korrekt), Anzeige über UI-Route und MCP-Tool, Verwerfen, und beide
+Konfliktfälle (zweites Verwerfen sowie Übernehmen eines entschiedenen Entwurfs)
+liefern 409 statt eines stillen Erfolgs. Testdatensatz wieder entfernt.
+**Noch nicht durchgespielt: die Übernahme selbst** — sie legt ein echtes Angebot
+mit Nummer an; dieser Schritt gehört einem Menschen im UI.
 
 Verifiziert: 17 Validierungs- und Rechenfälle (Rabatt, Reverse Charge, gemischte
 Sätze, untergeschobene Felder), 8 Routenprüfungen gegen den Dev-Server

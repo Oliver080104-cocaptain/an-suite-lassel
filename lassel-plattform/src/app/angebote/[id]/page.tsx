@@ -145,6 +145,28 @@ export default function OfferDetailPage() {
     enabled: !!offerId
   })
 
+  /**
+   * Rechnungen, die tatsächlich als fakturiert gelten.
+   *
+   * Ausgeschlossen sind Stornos, stornierte Rechnungen — und ENTWÜRFE.
+   * Ein Entwurf ist noch nicht beim Kunden; er darf das Angebot weder auf
+   * "vollständig fakturiert" setzen noch über bereits_fakturiert_netto den
+   * Betrag einer späteren Schlussrechnung kürzen. Vorher zählte er mit, was
+   * bei einem verworfenen Entwurf dauerhaft zu wenig fakturiert hätte.
+   *
+   * Bewusst an EINER Stelle definiert: die Regel wurde vorher an drei Stellen
+   * dupliziert und wäre beim nächsten Eingriff auseinandergelaufen.
+   */
+  const fakturierteRechnungen = useMemo(
+    () => (linkedInvoices as any[]).filter(
+      (inv: any) =>
+        inv.rechnungstyp !== 'storno' &&
+        inv.status !== 'storniert' &&
+        inv.status !== 'entwurf'
+    ),
+    [linkedInvoices]
+  )
+
   const { data: linkedDeliveryNotes = [] } = useQuery({
     queryKey: ['linkedDeliveryNotes', offerId],
     queryFn: async () => {
@@ -669,10 +691,7 @@ export default function OfferDetailPage() {
     toast.loading('Rechnung wird erstellt...')
     try {
       // Bereits fakturiert (netto) — für Schlussrechnung relevant
-      const activeInvoices = (linkedInvoices as any[]).filter(
-        (inv: any) => inv.rechnungstyp !== 'storno' && inv.status !== 'storniert'
-      )
-      const bereitsNetto = activeInvoices.reduce(
+      const bereitsNetto = fakturierteRechnungen.reduce(
         (s: number, inv: any) => s + (Number(inv.netto_gesamt) || 0),
         0
       )
@@ -1352,8 +1371,7 @@ export default function OfferDetailPage() {
 
         {/* Verknüpfte Dokumente – volle Breite */}
         {!isNew && ((linkedInvoices as any[]).length > 0 || (linkedDeliveryNotes as any[]).length > 0) && (() => {
-          const activeInvoices = (linkedInvoices as any[]).filter(inv => inv.rechnungstyp !== 'storno' && inv.status !== 'storniert')
-          const bereitsFakturiert = activeInvoices.reduce((sum: number, inv: any) => sum + (Number(inv.brutto_gesamt) || 0), 0)
+          const bereitsFakturiert = fakturierteRechnungen.reduce((sum: number, inv: any) => sum + (Number(inv.brutto_gesamt) || 0), 0)
           const angebotsbrutto = offer.brutto_gesamt || 0
           const offenerBetrag = angebotsbrutto - bereitsFakturiert
           return (
@@ -1587,14 +1605,11 @@ export default function OfferDetailPage() {
             objektAdresse={offer.objekt_adresse || offer.objekt_bezeichnung || ''}
           />
           {(() => {
-            const activeInvoices = (linkedInvoices as any[]).filter(
-              (inv: any) => inv.rechnungstyp !== 'storno' && inv.status !== 'storniert'
-            )
-            const fakturiertBrutto = activeInvoices.reduce(
+            const fakturiertBrutto = fakturierteRechnungen.reduce(
               (s: number, inv: any) => s + (Number(inv.brutto_gesamt) || 0),
               0
             )
-            const fakturiertNetto = activeInvoices.reduce(
+            const fakturiertNetto = fakturierteRechnungen.reduce(
               (s: number, inv: any) => s + (Number(inv.netto_gesamt) || 0),
               0
             )
