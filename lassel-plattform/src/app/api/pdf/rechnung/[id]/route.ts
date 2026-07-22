@@ -157,6 +157,11 @@ export async function GET(
   ])
 
   if (error || !rechnung) return new NextResponse('Rechnung nicht gefunden', { status: 404 })
+  // Belege im Papierkorb nicht mehr ausliefern — sonst laesst sich ein
+  // geloeschter Beleg ueber seine PDF-URL weiterhin abrufen und versenden.
+  if (rechnung.geloescht_am != null) {
+    return new NextResponse('Rechnung befindet sich im Papierkorb', { status: 410 })
+  }
 
   const positionen: any[] = positionenRaw || []
 
@@ -237,6 +242,7 @@ export async function GET(
     plz: aktiv ? (rechnung.hausverwaltung_plz || rechnung.kunde_plz) : rechnung.kunde_plz,
     ort: aktiv ? (rechnung.hausverwaltung_ort || rechnung.kunde_ort) : rechnung.kunde_ort,
     uid: rechnung.kunde_uid,
+    uidHausinhabung: rechnung.uid_von_hi,
   })
 
   /**

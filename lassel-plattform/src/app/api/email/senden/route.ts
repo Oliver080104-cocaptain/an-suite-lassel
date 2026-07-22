@@ -151,7 +151,7 @@ async function pruefeBeleg(docType: DocType, docId: string, docNummer: string): 
     const supabase = createClient(url, key, { auth: { persistSession: false } })
     const { data, error } = await supabase
       .from(cfg.tabelle)
-      .select(cfg.nummerSpalte)
+      .select(`${cfg.nummerSpalte}, geloescht_am`)
       .eq('id', docId)
       .maybeSingle()
     if (error) {
@@ -159,6 +159,10 @@ async function pruefeBeleg(docType: DocType, docId: string, docNummer: string): 
       return null
     }
     if (!data) return 'Beleg nicht gefunden'
+    // Ein Beleg im Papierkorb darf nicht mehr an den Kunden gehen.
+    if ((data as Record<string, unknown>).geloescht_am != null) {
+      return 'Dieser Beleg liegt im Papierkorb und kann nicht versendet werden.'
+    }
     const gespeichert = (data as Record<string, unknown>)[cfg.nummerSpalte]
     if (typeof gespeichert === 'string' && gespeichert && gespeichert !== docNummer) {
       return 'Belegnummer passt nicht zum Beleg'

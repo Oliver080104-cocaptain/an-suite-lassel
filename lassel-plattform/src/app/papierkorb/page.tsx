@@ -63,18 +63,45 @@ export default function PapierkorbPage() {
     onError: () => toast.error('Fehler beim Wiederherstellen'),
   })
 
+  /**
+   * Endgueltiges Loeschen eines Belegs samt Positionen.
+   *
+   * supabase-js WIRFT bei einem Fehler nicht, sondern liefert `{ error }`.
+   * Vorher wurde der Rueckgabewert bei keinem der Aufrufe ausgewertet, also
+   * lief immer `onSuccess`. Praktisch hiess das: bei einem Angebot mit
+   * Folgebelegen (rechnungen.angebot_id, referenz_angebot_id,
+   * lieferscheine.angebot_id sind Fremdschluessel) wurden die POSITIONEN hart
+   * geloescht, der Beleg selbst blieb wegen des FK stehen — und der Anwender
+   * bekam "endgueltig geloescht" zu sehen. Der Papierkorb liess sich nie
+   * leeren und fuellte sich mit Karteileichen, deren Betraege nicht mehr zu
+   * ihren Positionen passten.
+   */
+  const loescheEndgueltig = async (id: string, type: DocType) => {
+    const tabellen: Record<DocType, { positionen: string; fk: string; haupt: string; label: string }> = {
+      offer: { positionen: 'angebot_positionen', fk: 'angebot_id', haupt: 'angebote', label: 'Angebot' },
+      invoice: { positionen: 'rechnung_positionen', fk: 'rechnung_id', haupt: 'rechnungen', label: 'Rechnung' },
+      deliveryNote: { positionen: 'lieferschein_positionen', fk: 'lieferschein_id', haupt: 'lieferscheine', label: 'Lieferschein' },
+    }
+    const t = tabellen[type]
+
+    // Zuerst den Hauptdatensatz: scheitert er an einem Fremdschluessel, sind
+    // die Positionen noch da und der Beleg bleibt vollstaendig.
+    const { error: hauptError } = await supabase.from(t.haupt).delete().eq('id', id)
+    if (hauptError) {
+      throw new Error(
+        /foreign key|violates/i.test(hauptError.message)
+          ? `${t.label} kann nicht geloescht werden, weil noch Folgebelege darauf verweisen. Diese zuerst loeschen.`
+          : `${t.label} konnte nicht geloescht werden: ${hauptError.message}`
+      )
+    }
+    // Positionen erst danach — bei ON DELETE CASCADE sind sie ohnehin weg,
+    // sonst raeumt das hier auf.
+    await supabase.from(t.positionen).delete().eq(t.fk, id)
+  }
+
   const permanentDeleteMutation = useMutation({
     mutationFn: async ({ id, type }: { id: string; type: DocType }) => {
-      if (type === 'offer') {
-        await supabase.from('angebot_positionen').delete().eq('angebot_id', id)
-        await supabase.from('angebote').delete().eq('id', id)
-      } else if (type === 'invoice') {
-        await supabase.from('rechnung_positionen').delete().eq('rechnung_id', id)
-        await supabase.from('rechnungen').delete().eq('id', id)
-      } else {
-        await supabase.from('lieferschein_positionen').delete().eq('lieferschein_id', id)
-        await supabase.from('lieferscheine').delete().eq('id', id)
-      }
+      await loescheEndgueltig(id, type)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deletedOffers'] })
@@ -84,7 +111,7 @@ export default function PapierkorbPage() {
       setDeleteDialog({ open: false, item: null, type: null })
       setSelectedItems([])
     },
-    onError: () => toast.error('Fehler beim Löschen'),
+    onError: (err: Error) => toast.error(err.message || 'Fehler beim Löschen'),
   })
 
   const deleteSelectedMutation = useMutation({
@@ -101,17 +128,27 @@ export default function PapierkorbPage() {
 
   const deleteAllMutation = useMutation({
     mutationFn: async () => {
-      for (const o of deletedOffers as any[]) {
-        await supabase.from('angebot_positionen').delete().eq('angebot_id', o.id)
-        await supabase.from('angebote').delete().eq('id', o.id)
+      // Reihenfolge: erst Lieferscheine und Rechnungen, dann Angebote — sonst
+      // scheitert jedes Angebot am Fremdschluessel seiner Folgebelege.
+      // Fehler werden gesammelt statt den ganzen Lauf abzubrechen: was
+      // loeschbar ist, soll auch geloescht werden.
+      const fehler: string[] = []
+      const laeufe: [any[], DocType][] = [
+        [deletedDeliveryNotes as any[], 'deliveryNote'],
+        [deletedInvoices as any[], 'invoice'],
+        [deletedOffers as any[], 'offer'],
+      ]
+      for (const [liste, type] of laeufe) {
+        for (const eintrag of liste) {
+          try {
+            await loescheEndgueltig(eintrag.id, type)
+          } catch (err) {
+            fehler.push((err as Error).message)
+          }
+        }
       }
-      for (const i of deletedInvoices as any[]) {
-        await supabase.from('rechnung_positionen').delete().eq('rechnung_id', i.id)
-        await supabase.from('rechnungen').delete().eq('id', i.id)
-      }
-      for (const d of deletedDeliveryNotes as any[]) {
-        await supabase.from('lieferschein_positionen').delete().eq('lieferschein_id', d.id)
-        await supabase.from('lieferscheine').delete().eq('id', d.id)
+      if (fehler.length > 0) {
+        throw new Error(`${fehler.length} Dokument(e) konnten nicht geloescht werden. ${fehler[0]}`)
       }
     },
     onSuccess: () => {
@@ -122,7 +159,7 @@ export default function PapierkorbPage() {
       setDeleteAllDialog(false)
       setSelectedItems([])
     },
-    onError: () => toast.error('Fehler beim Leeren des Papierkorbs'),
+    onError: (err: Error) => toast.error(err.message || 'Fehler beim Leeren des Papierkorbs'),
   })
 
   const RETENTION_DAYS = 30

@@ -57,7 +57,7 @@ export default function AnalyticsPage() {
   })
 
   const { data: vermittler = [] } = useQuery({
-    queryKey: ['vermittler'],
+    queryKey: ['vermittler', 'aktiv'],
     queryFn: async () => {
       const { data } = await supabase.from('vermittler').select('*').eq('status', 'aktiv')
       return data || []
@@ -66,7 +66,7 @@ export default function AnalyticsPage() {
   })
 
   const { data: mitarbeiterListRaw = [] } = useQuery({
-    queryKey: ['mitarbeiter'],
+    queryKey: ['mitarbeiter', 'analytics'],
     queryFn: async () => {
       const { data } = await supabase.from('mitarbeiter').select('*').order('name')
       return data || []
@@ -134,33 +134,48 @@ export default function AnalyticsPage() {
     [invoices, year, selectedMonth]
   )
 
+  /**
+   * Offene Forderungen sind KEINE Jahresgroesse.
+   *
+   * Vorher rechneten alle drei Cashflow-Kacheln auf thisYearInvoices — genau
+   * die aeltesten und damit kritischsten Forderungen fielen dadurch heraus,
+   * und am 1. Januar verschwanden saemtliche offenen Posten des Vorjahres auf
+   * einen Schlag aus der Mahnuebersicht. Stornos und stornierte Belege bleiben
+   * ausgeschlossen.
+   */
+  const alleOffenenRechnungen = useMemo(
+    () => (invoices as Record<string, unknown>[]).filter(
+      (i) =>
+        (i.status === 'offen' || i.status === 'teilweise_bezahlt' || i.status === 'mahnung') &&
+        i.rechnungstyp !== 'storno'
+    ),
+    [invoices]
+  )
+
   const offeneForderungen = useMemo(
-    () => thisYearInvoices
-      .filter((i: Record<string, unknown>) => i.status === 'offen' || i.status === 'teilweise_bezahlt')
+    () => alleOffenenRechnungen
       .reduce((s: number, i: Record<string, unknown>) => s + getBrutto(i), 0),
-    [thisYearInvoices]
+    [alleOffenenRechnungen]
   )
 
   const today = new Date()
   const mahnungen = useMemo(
-    () => thisYearInvoices.filter((i: Record<string, unknown>) => {
-      if (i.status !== 'offen' && i.status !== 'mahnung') return false
+    () => alleOffenenRechnungen.filter((i: Record<string, unknown>) => {
       if (!i.faellig_bis) return false
       return new Date(i.faellig_bis as string) < today
     }),
-    [thisYearInvoices]
+    [alleOffenenRechnungen]
   )
   const mahnungenBetrag = mahnungen.reduce((s: number, i: Record<string, unknown>) => s + getBrutto(i), 0)
 
   const faelligBald = useMemo(
-    () => thisYearInvoices.filter((i: Record<string, unknown>) => {
-      if (i.status !== 'offen') return false
+    () => alleOffenenRechnungen.filter((i: Record<string, unknown>) => {
       if (!i.faellig_bis) return false
       const fällig = new Date(i.faellig_bis as string)
       const inDays = (fällig.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
       return inDays >= 0 && inDays <= 14
     }),
-    [thisYearInvoices]
+    [alleOffenenRechnungen]
   )
   const faelligBaldBetrag = faelligBald.reduce((s: number, i: Record<string, unknown>) => s + getBrutto(i), 0)
 

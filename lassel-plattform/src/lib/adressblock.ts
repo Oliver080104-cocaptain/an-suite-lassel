@@ -15,6 +15,8 @@ export type AdressblockInput = {
   ort?: string | null
   land?: string | null
   uid?: string | null
+  /** UID der Hausinhabung (Spalte uid_von_hi). */
+  uidHausinhabung?: string | null
 }
 
 export type Adressblock = {
@@ -42,7 +44,11 @@ export function buildAdressblock(input: AdressblockInput): Adressblock {
       plz: input.plz || '',
       ort: input.ort || '',
       land,
-      uid: '',
+      // Vorher hart '' — auf jedem Beleg mit Hausinhabung fehlte damit die
+      // UID des Empfaengers, auch bei Reverse Charge, wo sie Pflichtangabe
+      // ist. `uidHausinhabung` (Spalte uid_von_hi) hat Vorrang, sonst die
+      // UID des Rechnungsempfaengers.
+      uid: (input.uidHausinhabung || input.uid || '').trim(),
       hausinhabungAktiv: true,
     }
   }

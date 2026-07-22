@@ -53,85 +53,60 @@ export async function GET(req: NextRequest) {
     errors: [] as string[],
   }
 
-  // Angebote + zugehörige Positionen
-  try {
-    const { data: angeboteToDelete } = await supabase
-      .from('angebote')
-      .select('id')
-      .not('geloescht_am', 'is', null)
-      .lt('geloescht_am', cutoffIso)
-    const ids = (angeboteToDelete || []).map((a: any) => a.id)
-    if (ids.length > 0) {
-      const { error: posErr, count: posCount } = await supabase
-        .from('angebot_positionen')
-        .delete({ count: 'exact' })
-        .in('angebot_id', ids)
-      if (posErr) result.errors.push(`angebot_positionen: ${posErr.message}`)
-      else result.angebote.positionsDeleted = posCount || 0
-      const { error: delErr } = await supabase
-        .from('angebote')
-        .delete()
-        .in('id', ids)
-      if (delErr) result.errors.push(`angebote: ${delErr.message}`)
-      else result.angebote.deleted = ids.length
+  /**
+   * Loescht eine Belegart endgueltig.
+   *
+   * Reihenfolge und Granularitaet sind entscheidend: vorher wurden erst die
+   * Positionen der GANZEN Charge geloescht und danach die Belege als ein
+   * einziges `.in('id', ids)`-Statement. Scheiterte das an einem
+   * Fremdschluessel (rechnungen/lieferscheine verweisen auf angebote), waren
+   * die Positionen ALLER Belege der Charge weg, kein einziger Beleg geloescht,
+   * und im Papierkorb standen Karteileichen, deren Betraege nicht mehr zu
+   * ihren Positionen passten.
+   *
+   * Jetzt je Beleg: erst der Hauptdatensatz, dann seine Positionen. Ein
+   * blockierter Beleg stoppt die anderen nicht.
+   */
+  const raeumeAuf = async (
+    haupt: string,
+    positionen: string,
+    fk: string,
+    ziel: { deleted: number; positionsDeleted: number },
+    vorabRaeumen?: (id: string) => Promise<void>
+  ) => {
+    try {
+      const { data } = await supabase
+        .from(haupt)
+        .select('id')
+        .not('geloescht_am', 'is', null)
+        .lt('geloescht_am', cutoffIso)
+      for (const zeile of (data || []) as { id: string }[]) {
+        if (vorabRaeumen) await vorabRaeumen(zeile.id)
+        const { error: delErr } = await supabase.from(haupt).delete().eq('id', zeile.id)
+        if (delErr) {
+          result.errors.push(`${haupt} ${zeile.id}: ${delErr.message}`)
+          continue
+        }
+        ziel.deleted += 1
+        const { count } = await supabase
+          .from(positionen)
+          .delete({ count: 'exact' })
+          .eq(fk, zeile.id)
+        ziel.positionsDeleted += count || 0
+      }
+    } catch (e) {
+      result.errors.push(`${haupt}-cleanup: ${(e as Error).message}`)
     }
-  } catch (e: any) {
-    result.errors.push(`angebote-cleanup: ${e.message}`)
   }
 
-  // Rechnungen + zugehörige Positionen + Teilzahlungen
-  try {
-    const { data: rechnungenToDelete } = await supabase
-      .from('rechnungen')
-      .select('id')
-      .not('geloescht_am', 'is', null)
-      .lt('geloescht_am', cutoffIso)
-    const ids = (rechnungenToDelete || []).map((r: any) => r.id)
-    if (ids.length > 0) {
-      const { error: posErr, count: posCount } = await supabase
-        .from('rechnung_positionen')
-        .delete({ count: 'exact' })
-        .in('rechnung_id', ids)
-      if (posErr) result.errors.push(`rechnung_positionen: ${posErr.message}`)
-      else result.rechnungen.positionsDeleted = posCount || 0
-      // teilzahlungen best-effort (ON DELETE CASCADE in Migration 011 sollte das eh abfedern)
-      await supabase.from('teilzahlungen').delete().in('rechnung_id', ids)
-      const { error: delErr } = await supabase
-        .from('rechnungen')
-        .delete()
-        .in('id', ids)
-      if (delErr) result.errors.push(`rechnungen: ${delErr.message}`)
-      else result.rechnungen.deleted = ids.length
-    }
-  } catch (e: any) {
-    result.errors.push(`rechnungen-cleanup: ${e.message}`)
-  }
-
-  // Lieferscheine + zugehörige Positionen
-  try {
-    const { data: lieferscheineToDelete } = await supabase
-      .from('lieferscheine')
-      .select('id')
-      .not('geloescht_am', 'is', null)
-      .lt('geloescht_am', cutoffIso)
-    const ids = (lieferscheineToDelete || []).map((l: any) => l.id)
-    if (ids.length > 0) {
-      const { error: posErr, count: posCount } = await supabase
-        .from('lieferschein_positionen')
-        .delete({ count: 'exact' })
-        .in('lieferschein_id', ids)
-      if (posErr) result.errors.push(`lieferschein_positionen: ${posErr.message}`)
-      else result.lieferscheine.positionsDeleted = posCount || 0
-      const { error: delErr } = await supabase
-        .from('lieferscheine')
-        .delete()
-        .in('id', ids)
-      if (delErr) result.errors.push(`lieferscheine: ${delErr.message}`)
-      else result.lieferscheine.deleted = ids.length
-    }
-  } catch (e: any) {
-    result.errors.push(`lieferscheine-cleanup: ${e.message}`)
-  }
+  // Reihenfolge: Lieferscheine und Rechnungen zuerst, danach Angebote —
+  // sonst blockieren die Folgebelege jedes Angebot per Fremdschluessel.
+  await raeumeAuf('lieferscheine', 'lieferschein_positionen', 'lieferschein_id', result.lieferscheine)
+  await raeumeAuf('rechnungen', 'rechnung_positionen', 'rechnung_id', result.rechnungen, async (id) => {
+    // teilzahlungen best-effort (ON DELETE CASCADE in Migration 011 sollte das eh abfedern)
+    await supabase.from('teilzahlungen').delete().eq('rechnung_id', id)
+  })
+  await raeumeAuf('angebote', 'angebot_positionen', 'angebot_id', result.angebote)
 
   if (result.errors.length > 0) {
     await logEvent('error', 'cron-cleanup',

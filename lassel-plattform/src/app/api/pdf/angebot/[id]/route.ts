@@ -108,6 +108,11 @@ export async function GET(
     supabase.from('company_settings').select('*').limit(1).single(),
   ])
   if (error || !angebot) return new NextResponse('Angebot nicht gefunden', { status: 404 })
+  // Belege im Papierkorb nicht mehr ausliefern — sonst laesst sich ein
+  // geloeschter Beleg ueber seine PDF-URL weiterhin abrufen und versenden.
+  if (angebot.geloescht_am != null) {
+    return new NextResponse('Angebot befindet sich im Papierkorb', { status: 410 })
+  }
 
   if (posResult.error) {
     console.error('Positionen Query Fehler:', posResult.error)
@@ -128,6 +133,7 @@ export async function GET(
     plz: angebot.kunde_plz,
     ort: angebot.kunde_ort,
     uid: angebot.kunde_uid,
+    uidHausinhabung: angebot.uid_von_hi,
   })
 
   const posRows = positionen.map((p, i) => {
