@@ -72,12 +72,17 @@ export async function POST(req: NextRequest) {
       ).catch(() => {})
     }
 
-    // Skip if already exists
+    // Skip if already exists.
+    // limit(1): ohne das wirft maybeSingle() bei bereits vorhandenen
+    // Duplikaten, `existing` wäre undefined und der Code legte eine weitere
+    // Sammelrechnung zum selben Ticket an — bei jedem Aufruf eine mehr.
     const { data: existing } = await supabase
       .from('rechnungen')
       .select('id, rechnungsnummer')
       .eq('zoho_ticket_id', ticketId)
       .eq('rechnungstyp', 'sammelrechnung')
+      .order('created_at', { ascending: false })
+      .limit(1)
       .maybeSingle()
 
     if (existing) {

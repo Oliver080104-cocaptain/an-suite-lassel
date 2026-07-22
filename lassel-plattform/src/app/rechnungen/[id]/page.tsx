@@ -93,6 +93,13 @@ const defaultInvoice = {
   geschaeftsfallnummer: '',
   summeBrutto: 0,
   bezahltBetrag: 0,
+  // Teilfaktura: bei Anzahlung/Teilrechnung ist teilbetragNetto der tatsächlich
+  // abgerechnete Betrag. Die Positionen des Angebots hängen nur als Referenz
+  // mit dran und dürfen NICHT aufsummiert werden.
+  teilbetragNetto: 0,
+  teilbetragBrutto: 0,
+  istSchlussrechnung: false,
+  bereitsFakturiertNetto: 0,
 }
 
 const defaultPosition: InvoicePosition = {
@@ -264,6 +271,14 @@ export default function InvoiceDetailPage() {
         skontoTage: existingInvoice.skonto_tage ?? defaultInvoice.skontoTage,
         stornoVonRechnung: existingInvoice.storno_von || '',
         reverseCharge: existingInvoice.reverse_charge || false,
+        // Teilfaktura-Felder wurden bisher NICHT geladen. Folge: bei einer aus
+        // dem Angebot erzeugten Anzahlung/Teilrechnung war teilbetragNetto
+        // undefined, die Pflichtprüfung in handleSave schlug zu und der Beleg
+        // ließ sich nicht speichern.
+        teilbetragNetto: num(existingInvoice.teilbetrag_netto, 0),
+        teilbetragBrutto: num(existingInvoice.teilbetrag_brutto, 0),
+        istSchlussrechnung: existingInvoice.ist_schlussrechnung || false,
+        bereitsFakturiertNetto: num(existingInvoice.bereits_fakturiert_netto, 0),
       })
       // Arbeitstage → selectedDates (UTC-safe parsing auf Mittag, damit lokale TZ nicht rückwärts kippt)
       const at = Array.isArray(existingInvoice.arbeitstage) ? existingInvoice.arbeitstage : []
@@ -315,7 +330,17 @@ export default function InvoiceDetailPage() {
       try {
         const d = parseISO(invoice.datum)
         if (isValid(d)) {
-          setInvoice(prev => ({ ...prev, faelligAm: format(addDays(d, Number(prev.zahlungszielTage)), 'yyyy-MM-dd') }))
+          setInvoice(prev => {
+            const berechnet = format(addDays(d, Number(prev.zahlungszielTage)), 'yyyy-MM-dd')
+            // Unverändert? Dann dieselbe Referenz zurückgeben, damit React den
+            // Re-Render abbricht. Vorher entstand hier bei JEDEM Laden ein
+            // neues invoice-Objekt — das hebelte den justInitialized-Schutz aus
+            // und schrieb rund eine Sekunde nach dem Öffnen den kompletten
+            // Beleg samt aller Positionen zurück, obwohl niemand etwas
+            // geändert hatte. Genau dieser Phantom-Save hat die mehrzeiligen
+            // Positionsbeschreibungen gelöscht und Teilrechnungen aufgebläht.
+            return prev.faelligAm === berechnet ? prev : { ...prev, faelligAm: berechnet }
+          })
         }
       } catch {}
     }
@@ -412,23 +437,63 @@ export default function InvoiceDetailPage() {
     return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current) }
   }, [invoice, positions])
 
+  /**
+   * Belegsummen.
+   *
+   * WICHTIG bei Anzahlung und Teilrechnung: dort trägt die Rechnung als
+   * Position 1 die Abschlagszeile und darunter ALLE Positionen des Angebots
+   * zum vollen Preis — die stehen nur als Referenz drauf, abgerechnet wird
+   * ausschließlich der Teilbetrag.
+   *
+   * Vorher summierte diese Berechnung stumpf über alle Positionen. Da der
+   * Autosave eine Sekunde nach dem Öffnen der Seite `totals` in
+   * netto_gesamt/mwst_gesamt/brutto_gesamt schreibt, hat schon das bloße
+   * ANSEHEN einer Anzahlungsrechnung deren Betrag um die volle Angebotssumme
+   * aufgebläht — ohne Fehlermeldung, dauerhaft in der Datenbank.
+   */
   const totals = useMemo(() => {
     const reverseCharge = Boolean(invoice.reverseCharge)
-    const summeRabatt = positions.reduce((sum, p) => {
+    const istTeilfaktura = ['anzahlung', 'teilrechnung'].includes(invoice.rechnungstyp)
+    const teilNetto = num(invoice.teilbetragNetto, 0)
+    const teilfakturaAktiv = istTeilfaktura && teilNetto > 0
+
+    const positionsNetto = positions.reduce((sum, p) => sum + num(p.gesamtNetto, 0), 0)
+
+    // Rabatt beschreibt die Angebotspositionen — bei einer Abschlagsrechnung
+    // wird davon nichts abgerechnet, die Zeile wäre also irreführend.
+    const summeRabatt = teilfakturaAktiv ? 0 : positions.reduce((sum, p) => {
       const menge = num(p.menge, 0)
       const einzelpreis = num(p.einzelpreisNetto, 0)
       const rabatt = num(p.rabattProzent, 0)
       return sum + (menge * einzelpreis * (rabatt / 100))
     }, 0)
+
     // gesamtNetto pro Position wird bereits in InvoicePositionsTable berechnet;
     // USt Reverse-Charge-bewusst (0 bei RC) und 0%-Sätze bleiben 0 (kein still-20%).
-    const summeNetto = positions.reduce((sum, p) => sum + num(p.gesamtNetto, 0), 0)
-    const summeUst = reverseCharge ? 0 : positions.reduce((sum, p) => {
-      return sum + num(p.gesamtNetto, 0) * (num(p.ustSatz, STANDARD_MWST) / 100)
-    }, 0)
+    const summeNetto = teilfakturaAktiv ? teilNetto : positionsNetto
+
+    let summeUst = 0
+    if (!reverseCharge) {
+      summeUst = teilfakturaAktiv
+        // Satz der Abschlagszeile (Position 1) verwenden, nicht pauschal 20 %.
+        ? teilNetto * (num(positions[0]?.ustSatz, STANDARD_MWST) / 100)
+        : positions.reduce(
+            (sum, p) => sum + num(p.gesamtNetto, 0) * (num(p.ustSatz, STANDARD_MWST) / 100),
+            0
+          )
+    }
+
     const summeBrutto = summeNetto + summeUst
     return { summeNetto, summeRabatt, summeUst, summeBrutto }
-  }, [positions, invoice.reverseCharge])
+  }, [positions, invoice.reverseCharge, invoice.rechnungstyp, invoice.teilbetragNetto])
+
+  /**
+   * Vorbelegter Empfänger für das E-Mail-Modal.
+   * Der frühere Fallback las `invoice.kunde_email` — der lokale State ist aber
+   * camelCase (`kundeEmail`), der Ausdruck war also immer undefined. Bei
+   * leerem `email_rechnung` öffnete das Modal ohne Empfänger.
+   */
+  const emailEmpfaenger = invoice.emailRechnung || invoice.kundeEmail || ''
 
   const generateInvoiceNumber = async () => {
     const year = new Date().getFullYear()
@@ -440,7 +505,16 @@ export default function InvoiceDetailPage() {
   const buildPosData = (p: InvoicePosition, rechnungId: string) => ({
     rechnung_id: rechnungId,
     position: p.pos,
-    beschreibung: p.produktName || p.beschreibung || '-',
+    // Die DB-Spalte trägt "Produktname\nLangtext" — beim Laden wird sie in
+    // produktName (erste Zeile) und beschreibung (Rest) zerlegt. Vorher stand
+    // hier `p.produktName || p.beschreibung`, wodurch der Langtext beim
+    // Speichern verlorenging: eine Sekunde nach dem Öffnen einer aus dem
+    // Angebot erzeugten Rechnung war die mehrzeilige Leistungsbeschreibung
+    // aus Datenbank und PDF verschwunden. Gleiche Zusammensetzung wie in
+    // angebote/[id] und lieferscheine/[id].
+    beschreibung: p.produktName
+      ? (p.beschreibung ? `${p.produktName}\n${p.beschreibung}` : p.produktName)
+      : (p.beschreibung || '-'),
     menge: parseFloat(p.menge as string) || 1,
     einheit: p.einheit,
     einzelpreis: num(p.einzelpreisNetto, 0),
@@ -588,6 +662,11 @@ export default function InvoiceDetailPage() {
     skonto_prozent: inv.skontoAktiv ? (parseFloat(String(inv.skontoProzent)) || null) : null,
     skonto_tage: inv.skontoAktiv ? (parseInt(String(inv.skontoTage)) || null) : null,
     storno_von: inv.stornoVonRechnung || null,
+    // Teilfaktura-Felder mitschreiben, damit sie ein Speichern überleben.
+    teilbetrag_netto: num(inv.teilbetragNetto, 0) || null,
+    teilbetrag_brutto: num(inv.teilbetragBrutto, 0) || null,
+    ist_schlussrechnung: !!inv.istSchlussrechnung,
+    bereits_fakturiert_netto: num(inv.bereitsFakturiertNetto, 0),
   })
 
   const performAutoSave = async () => {
@@ -771,7 +850,13 @@ export default function InvoiceDetailPage() {
         rechnungstyp: 'storno',
         reverse_charge: invoice.reverseCharge || false,
         status: 'entwurf',
-        storno_von_rechnung_id: invoiceId,
+        // Die Spalte heißt storno_von und trägt die BELEGNUMMER der
+        // stornierten Rechnung — so liest sie der Ladepfad (stornoVonRechnung)
+        // und so schreibt sie buildRechnungData. Vorher stand hier
+        // storno_von_rechnung_id mit der UUID: die Spalte existiert in der
+        // Prod-DB nicht, der Insert schlug fehl, und selbst wenn er durchging,
+        // blockierte die Storno-Pflichtprüfung in handleSave jedes Speichern.
+        storno_von: invoice.rechnungsNummer || null,
         storno_grund: cancelReason,
         kunde_name: invoice.kundeName,
         kunde_strasse: invoice.kundeStrasse || null,
@@ -1660,7 +1745,7 @@ export default function InvoiceDetailPage() {
           objektAdresse={invoice.objektBezeichnung || invoice.objektStrasse || ''}
           bruttoGesamt={totals.summeBrutto}
           erstelltVon={invoice.erstelltDurch || ''}
-          emailAn={(invoice as any).emailRechnung || (invoice as any).kunde_email || ''}
+          emailAn={emailEmpfaenger}
           extraPayload={{
             // Zoho- + Ticket-Referenzen die der n8n-Flow zum Ticket-Update braucht
             ticketId: invoice.ticketId || null,

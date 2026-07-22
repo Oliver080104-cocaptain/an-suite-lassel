@@ -840,7 +840,11 @@ export default function OfferDetailPage() {
           einheit: 'pausch.',
           einzelpreis: teilNetto ?? 0,
           rabatt_prozent: 0,
-          mwst_satz: 20,
+          // effRate ist der effektive USt-Satz des Angebots und bei
+          // Reverse Charge 0. Vorher stand hier hart 20 — eine
+          // Anzahlungsrechnung zu einem RC-Angebot hat damit 20 % USt
+          // ausgewiesen, obwohl der Rechnungskopf 0 % trug.
+          mwst_satz: round2(effRate * 100),
           gesamtpreis: teilNetto ?? 0,
         })
         posToInsert.push(
@@ -917,34 +921,10 @@ export default function OfferDetailPage() {
     }
   }
 
-  const handleSendOffer = async () => {
-    if (!offerId) { toast.error('Angebot muss zuerst gespeichert werden'); return }
-    try {
-      await supabase.from('angebote').update({ status: 'versendet' }).eq('id', offerId)
-      setOffer((prev: any) => ({ ...prev, status: 'versendet' }))
-      const webhookName_angebotVersendet = 'angebot-versendet'
-      const docNummer_angebotVersendet = offer.angebotsnummer
-      try {
-        const editUrl = `${window.location.origin}/angebote/${offerId}`
-        await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/ab34322b-aed4-4a93-b232-9178bf75ecaf', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ offerId, angebotNummer: offer.angebotsnummer, editUrl, status: 'versendet', timestamp: new Date().toISOString() })
-        })
-      } catch (e) {
-        const err = e as Error
-        console.error('Webhook fehlgeschlagen:', err)
-        await logEvent('error', 'webhook-outgoing',
-          `Zoho-Webhook fehlgeschlagen — ${webhookName_angebotVersendet} für ${docNummer_angebotVersendet}`,
-          { webhookName: webhookName_angebotVersendet, docNummer: docNummer_angebotVersendet, error: err.message }
-        )
-      }
-      queryClient.invalidateQueries({ queryKey: ['offers'] })
-      toast.success('Angebot versendet')
-    } catch (error: any) {
-      toast.error('Fehler: ' + error.message)
-    }
-  }
+  // handleSendOffer wurde entfernt: die Funktion war seit Längerem ohne
+  // Aufrufer, feuerte aber den alten Mail-Webhook ab34322b mit einem Payload
+  // ohne email-Block. Versand läuft ausschließlich über EmailVorschauModal
+  // → /api/email/senden (Microsoft Graph).
 
   if (loadingOffer || loadingPositions) {
     return (

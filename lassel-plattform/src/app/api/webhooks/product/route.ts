@@ -39,10 +39,15 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // limit(1): gibt es den Produktnamen bereits doppelt, würde maybeSingle()
+    // werfen, `existing` bliebe undefined und der Code legte ein weiteres
+    // Duplikat an — mit jedem Webhook-Aufruf eines mehr.
     const { data: existing } = await supabase
       .from('produkte')
       .select('id')
       .eq('name', name)
+      .order('created_at', { ascending: false })
+      .limit(1)
       .maybeSingle()
 
     if (existing) {

@@ -203,11 +203,17 @@ export async function POST(req: NextRequest) {
     // Vermittler-ID via Name-Match auflösen (falls vorhanden)
     const vermittlerId = await resolveVermittlerId(body.meta?.zoho?.vermittler?.name, { ticketId })
 
-    // Prüfen ob Angebot bereits existiert
+    // Prüfen ob Angebot bereits existiert.
+    // limit(1) verhindert, dass maybeSingle() bei bereits vorhandenen
+    // Duplikaten wirft: dann wäre `existing` undefined, der Code liefe in den
+    // INSERT-Zweig und legte bei JEDEM weiteren Zoho-Update ein zusätzliches
+    // Angebot zum selben Ticket an. Gleiches Muster wie in webhooks/invoice.
     const { data: existing } = await supabase
       .from('angebote')
       .select('id, angebotsnummer')
       .eq('zoho_ticket_id', ticketId)
+      .order('created_at', { ascending: false })
+      .limit(1)
       .maybeSingle()
 
     let angebotId: string
