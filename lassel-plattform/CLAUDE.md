@@ -10,7 +10,8 @@
 | Versand über Microsoft Graph | fertig, **nicht aktiv** | `MS_GRAPH_*` setzen, dann Modus auf `graph` |
 | Lese-API `/api/v1/**` | fertig, **inaktiv ohne Token** | `API_TOKEN_READ` |
 | MCP-Server `/api/mcp` | fertig, 9 Tools | derselbe Token, als Custom Connector eintragen |
-| Entwurfsraum (Schreibzugriff) | fertig, Migrationen eingespielt | `API_TOKEN_WRITE` + `SUPABASE_SERVICE_ROLE_KEY` |
+| Entwurfsraum (Schreibzugriff) | fertig, unter „Sonstiges → Entwürfe" | `API_TOKEN_WRITE` + `SUPABASE_SERVICE_ROLE_KEY` |
+| Belegnummern | atomar über `naechste_belegnummer()` | Migrationen 023 + 025, eingespielt |
 | Zoho-Ablage nach Graph-Versand | **abgeschaltet** | `N8N_ZOHO_WEBHOOK_ANGEBOT` / `_RECHNUNG` |
 
 **Drei Fallen, die man kennen muss, bevor man hier etwas ändert:**
@@ -470,11 +471,58 @@ tatsächlich unterscheidet. Die **Positionen laufen bewusst weiter** — dort
 gibt es preisneutrale Änderungen (Umsortieren, Text, Einheit), die im
 Kopf-Payload gar nicht auftauchen und sonst still verlorengingen.
 
-### ⚠️ Deploy-Action
-**Migration 025 ausführen.** Bis dahin arbeiten die Detailseiten im Fallback
-(nicht atomar, wie bisher) und melden das im Monitoring unter `belegnummer`.
-Die Webhooks und die API laufen schon jetzt atomar, weil sie mit dem
-Service-Role-Key arbeiten.
+**Migration 025 ist eingespielt und verifiziert** (2026-07-22): unbekannte
+Kreise werden abgelehnt, der Anon-Key darf die Funktion aufrufen, die Tabelle
+aber weiterhin nicht direkt lesen. Zähler unverändert: AN=109, RE=60, LI=58.
+
+Ebenfalls nachgeholt: `/entwuerfe` war nirgends in der Navigation verlinkt —
+die Seite existierte, war aber nur über die direkte URL erreichbar. Jetzt
+unter „Sonstiges".
+
+### Was sich für die Anwender ändert
+
+Die Bedienung bleibt gleich — gleiche Seiten, gleiche Knöpfe, gleicher Ablauf.
+Sichtbar anders ist aber Folgendes, und das sollte man wissen, bevor jemand
+anruft:
+
+**PDFs sehen an vier Stellen anders aus.** Der Steuersatz steht jetzt korrekt
+statt pauschal „20 %", bei gemischten Sätzen erscheint pro Satz eine Zeile.
+Unter dem Einzelpreis steht bei Rabatt neu „abzgl. X % Rabatt". Ein
+vereinbartes Skonto wird ausgewiesen. Storno und Gutschrift fordern nicht mehr
+zur Überweisung auf. Bei Anzahlung und Teilrechnung stehen die
+Angebotspositionen unter einer Zwischenüberschrift und ohne Preise.
+
+**Die Firmendaten auf der Rechnung können sich ändern.** Das Rechnungs-PDF las
+sie bisher aus einer Tabelle, in die die Einstellungen-Seite nie geschrieben
+hat — es zeigte also immer die fest hinterlegten Werte. Jetzt kommen sie aus
+`company_settings`. **Vor dem ersten Versand einmal die Einstellungen-Seite
+prüfen**, besonders IBAN und UID.
+
+**Die Angebots-Statusfilter heißen anders.** „In Bearbeitung" und „Abgelaufen"
+gab es in der Datenbank nie; „Entwurf" filterte wegen eines falschen Werts
+nicht. Jetzt: Entwurf, Offen, Versendet, Final, Angenommen, Abgelehnt,
+Archiviert.
+
+**Analytics zeigt höhere Zahlen bei offenen Forderungen.** Nicht weil etwas
+dazugekommen ist — die Kacheln rechneten nur auf das gewählte Jahr, alle
+Altforderungen fehlten.
+
+**Neue Rechnungsnummern richten sich nach dem Typ.** Legt man auf der
+Rechnungsseite eine Anzahlung an, bekommt sie jetzt `AN-…` statt `RE-…`. Der
+Dialog-Weg „Rechnung erzeugen" aus dem Angebot hat das schon immer so gemacht,
+die Detailseite nicht — beide Wege sind jetzt gleich.
+
+**Fehler werden sichtbar, die vorher verschluckt wurden.** „Gespeichert & in
+Zoho abgelegt" kann jetzt „…die Zoho-Ablage hat aber nicht geklappt" heißen.
+Das endgültige Löschen im Papierkorb meldet einen Fehler, wenn Folgebelege
+daran hängen. Beides war vorher eine falsche Erfolgsmeldung — die Meldungen
+sind neu, das Problem dahinter nicht.
+
+**Gelöschte Belege lassen sich nicht mehr per PDF-Link abrufen oder
+versenden.** Der Link liefert jetzt einen Hinweis auf den Papierkorb.
+
+Nicht geändert: E-Mail-Versand (läuft weiter über n8n), Zoho-Ablage,
+Ticket-Sync, PDF-Layout im Übrigen, Login (gibt es weiterhin keins).
 
 ## Session 2026-07-13 — Audit + Steuer/RC/Fail-silent/Secret/Analytics-Fixes
 
@@ -563,6 +611,10 @@ Drei Fixes, alle nach `main` gepusht (Vercel deployt auto):
       `/api/email/senden` liegt seit 2026-07-22 im Weg, auch im Modus `n8n`,
       wo sie nur durchreicht. Payload-Gleichheit ist verifiziert (0 Unterschiede
       über 23 Felder), ein Livelauf steht aus.
+- [ ] **Firmendaten in den Einstellungen prüfen** (IBAN, UID, Fußtext) — das
+      Rechnungs-PDF liest sie seit 2026-07-22 aus `company_settings`, statt
+      fest hinterlegte Werte zu drucken. Einmal vor dem nächsten
+      Rechnungsversand kontrollieren.
 - [ ] **Erste Übernahme im UI** unter `/entwuerfe` durchspielen — der Pfad
       Nummernvergabe → Kopf-Insert → Positionen → Rollback ist der einzige
       ungetestete, weil er einen echten Beleg erzeugt.
@@ -589,10 +641,8 @@ Drei Fixes, alle nach `main` gepusht (Vercel deployt auto):
       pending Änderung ein No-op ist.
 - [x] ~~Altgeneratoren auf `naechste_belegnummer()` umstellen~~ — alle zehn
       Stellen umgestellt, siehe Teil 7.
-- [ ] **Migration 025 ausführen** (`025_belegnummern_freigabe.sql`) — bis dahin
-      arbeiten die Detailseiten im Fallback (MAX+1, nicht atomar) und melden
-      das im Monitoring unter `belegnummer`. Webhooks und API laufen bereits
-      atomar, weil sie den Service-Role-Key nutzen.
+- [x] ~~Migration 025 ausführen~~ — eingespielt und verifiziert
+      (unbekannte Kreise abgelehnt, Anon darf die Funktion, nicht die Tabelle).
 - [ ] **Echte Auth + restriktive RLS** — wichtigster offener Punkt aus dem Audit
       2026-07-13, durch API und MCP dringlicher geworden.
 - [ ] Monitoring Runde 3: Errors + Info einbauen (9 + 5 Stellen)

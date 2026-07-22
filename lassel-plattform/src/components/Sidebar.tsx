@@ -16,6 +16,7 @@ import {
   ChevronLeft,
   Users,
   Upload,
+  Inbox,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -28,6 +29,10 @@ const navigation = [
     name: 'Sonstiges',
     icon: FileText,
     submenu: [
+      // Vorschlaege aus der Schnittstelle (MCP/API). Bewusst unter
+      // "Sonstiges": die Seite ist leer, solange kein Schreib-Token gesetzt
+      // ist, und soll die taegliche Navigation nicht aufblaehen.
+      { name: 'Entwürfe', href: '/entwuerfe', icon: Inbox },
       { name: 'Rustler', href: '/hausverwaltungen', icon: Upload },
       { name: 'Vermittler', href: '/vermittler', icon: Users },
       { name: 'Analytics', href: '/analytics', icon: LayoutDashboard },
