@@ -82,30 +82,56 @@ export async function listeBelege(typ: BelegTyp, opt: ListeOptionen) {
   const t = TABELLE[typ]
   const db = apiDb()
 
-  let query = db.from(t.haupt).select('*').order('created_at', { ascending: false })
-
-  if (opt.status) query = query.eq('status', opt.status)
-  if (opt.vonDatum) query = query.gte(t.datum, opt.vonDatum)
-  if (opt.bisDatum) query = query.lte(t.datum, opt.bisDatum)
-  if (opt.suche) {
-    const s = opt.suche.replace(/[%,()]/g, ' ').trim()
-    if (s) query = query.or(`${t.nummer}.ilike.%${s}%,kunde_name.ilike.%${s}%,objekt_adresse.ilike.%${s}%`)
+  // Query je Runde NEU bauen: ein supabase-js Query-Builder ist nicht
+  // wiederverwendbar, ein zweites await auf demselben Objekt liefert nicht
+  // das erwartete Ergebnis.
+  const baueQuery = (von: number, bis: number) => {
+    let q = db.from(t.haupt).select('*').order('created_at', { ascending: false })
+    if (opt.status) q = q.eq('status', opt.status)
+    if (opt.vonDatum) q = q.gte(t.datum, opt.vonDatum)
+    if (opt.bisDatum) q = q.lte(t.datum, opt.bisDatum)
+    if (opt.suche) {
+      const s = opt.suche.replace(/[%,()]/g, ' ').trim()
+      if (s) q = q.or(`${t.nummer}.ilike.%${s}%,kunde_name.ilike.%${s}%,objekt_adresse.ilike.%${s}%`)
+    }
+    return q.range(von, bis)
   }
 
-  // Puffer für die nachgelagerte Papierkorb-Filterung.
-  query = query.range(opt.offset, opt.offset + opt.limit * 2)
+  /**
+   * Der Papierkorb-Filter läuft in JavaScript (die Spalte `geloescht_am` ist
+   * von der Schema-Drift betroffen, eine serverseitige Bedingung könnte die
+   * ganze Abfrage killen). Der Offset zählt aber Datenbankzeilen, nicht
+   * gefilterte — deshalb wird ab hier durchgeblättert, bis genug
+   * NICHT-gelöschte Zeilen zusammen sind. Vorher lieferte die Folgeseite
+   * dieselben Belege noch einmal, sobald in der Charge etwas herausgefiltert
+   * wurde.
+   */
+  const rows: Record<string, unknown>[] = []
+  let dbOffset = opt.offset
+  let weitere = false
 
-  const { data, error } = await query
-  if (error) throw new ApiError(502, 'db-fehler', `Abfrage fehlgeschlagen: ${error.message}`)
+  for (let runde = 0; runde < 5 && rows.length < opt.limit; runde++) {
+    const charge = opt.limit * 2
+    const { data, error } = await baueQuery(dbOffset, dbOffset + charge - 1)
+    if (error) throw new ApiError(502, 'db-fehler', `Abfrage fehlgeschlagen: ${error.message}`)
 
-  const rows = ohneGeloeschte((data || []) as Record<string, unknown>[]).slice(0, opt.limit)
+    const geladen = (data || []) as Record<string, unknown>[]
+    rows.push(...ohneGeloeschte(geladen))
+    dbOffset += geladen.length
+    if (geladen.length < charge) break        // Ende der Tabelle erreicht
+    weitere = true
+  }
+
+  const seite = rows.slice(0, opt.limit)
   return {
-    anzahl: rows.length,
+    anzahl: seite.length,
     limit: opt.limit,
+    /** Offset für die nächste Seite — zählt DB-Zeilen, nicht gefilterte. */
     offset: opt.offset,
-    /** true, wenn es vermutlich weitere Treffer gibt. */
-    weitere: (data || []).length > opt.limit,
-    belege: rows.map((r) => nurFelder(r, LISTE[typ])),
+    naechsterOffset: dbOffset,
+    /** true, wenn es weitere Treffer geben kann. */
+    weitere: weitere || rows.length > opt.limit,
+    belege: seite.map((r) => nurFelder(r, LISTE[typ])),
   }
 }
 

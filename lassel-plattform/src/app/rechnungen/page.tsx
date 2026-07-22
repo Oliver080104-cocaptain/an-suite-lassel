@@ -29,8 +29,21 @@ const invoiceTypeOptions = [
   { value: 'teilrechnung', label: 'Teilrechnung (TR-)' },
   { value: 'schlussrechnung', label: 'Schlussrechnung (SR-)' },
   { value: 'gutschrift', label: 'Gutschrift (GS-)' },
+  { value: 'sammelrechnung', label: 'Sammelrechnung' },
   { value: 'storno', label: 'Storno' },
 ]
+
+/**
+ * Rechnungstyp normalisieren: NULL und der DB-Default 'rechnung' sind
+ * fachlich eine normale Rechnung. Vorher behandelten Zaehler und Filter das
+ * unterschiedlich, und Zeilen mit dem Wert 'rechnung' waren ueber KEIN
+ * Filterelement erreichbar.
+ */
+function normalisierterTyp(typ: unknown): string {
+  const t = typeof typ === 'string' ? typ.trim() : ''
+  if (!t || t === 'rechnung') return 'normal'
+  return t
+}
 
 export default function RechnungenPage() {
   const queryClient = useQueryClient()
@@ -161,7 +174,7 @@ export default function RechnungenPage() {
         if (getYear(new Date(i.rechnungsdatum)) !== parseInt(filters.year)) return false
       }
       if (filters.status !== 'all' && i.status !== filters.status) return false
-      if (filters.type !== 'all' && (i.rechnungstyp || 'normal') !== filters.type) return false
+      if (filters.type !== 'all' && normalisierterTyp(i.rechnungstyp) !== filters.type) return false
       // Wie in der Angebotsliste: der Filter war reine Deko.
       if (filters.employee !== 'all' && (i.erstellt_von || '') !== filters.employee) return false
       return true
@@ -284,7 +297,12 @@ export default function RechnungenPage() {
                   <SelectItem value="all">Alle Typen ({invoices.length})</SelectItem>
                   {invoiceTypeOptions.map(option => (
                     <SelectItem key={option.value} value={option.value}>
-                      {option.label} ({invoices.filter((i: any) => i.rechnungstyp === option.value).length})
+                      {/* Zaehler nach derselben Regel wie die Filterung:
+                          NULL und der DB-Default 'rechnung' zaehlen als
+                          'normal'. Vorher zaehlte nur der exakte Wert, die
+                          Anzahl neben "Normal" war deshalb systematisch zu
+                          niedrig. */}
+                      {option.label} ({invoices.filter((i: any) => normalisierterTyp(i.rechnungstyp) === option.value).length})
                     </SelectItem>
                   ))}
                 </SelectContent>

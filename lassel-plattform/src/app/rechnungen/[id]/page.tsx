@@ -835,6 +835,10 @@ export default function InvoiceDetailPage() {
       setInvoice(prev => ({ ...prev, status: 'bezahlt', summeBrutto: totals.summeBrutto }))
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
       queryClient.invalidateQueries({ queryKey: ['invoice', invoiceId] })
+      // Der Flow "rechnung-bezahlt" wurde bisher NUR vom Status-Dropdown
+      // gefeuert. Der Button hier und die Teilzahlung setzten den Status
+      // ebenfalls auf "bezahlt" — Zoho erfuhr davon nie.
+      await meldeRechnungBezahlt()
       toast.success('Rechnung als bezahlt markiert')
     } catch (err: any) {
       toast.error('Fehler: ' + err.message)
@@ -964,6 +968,9 @@ export default function InvoiceDetailPage() {
       const newStatus = bezahltGesamt >= totals.summeBrutto ? 'bezahlt' : 'teilweise_bezahlt'
       await supabase.from('rechnungen').update({ bezahlt_betrag: bezahltGesamt, status: newStatus }).eq('id', invoiceId)
       setInvoice(p => ({ ...p, status: newStatus, bezahltBetrag: bezahltGesamt }))
+      // Deckt die Teilzahlung den Rechnungsbetrag vollstaendig ab, ist die
+      // Rechnung bezahlt — Zoho muss das genauso erfahren wie beim Dropdown.
+      if (newStatus === 'bezahlt') await meldeRechnungBezahlt()
       setTeilzahlungModalOpen(false)
       setNewTeilzahlung({ betrag: '', datum: format(new Date(), 'yyyy-MM-dd'), zahlungsart: 'überweisung', notizen: '' })
       refetchTeilzahlungen()
@@ -998,37 +1005,50 @@ export default function InvoiceDetailPage() {
     }
   }
 
+  /**
+   * Meldet Zoho, dass die Rechnung bezahlt ist.
+   *
+   * Ausgelagert, weil der Status an drei Stellen auf "bezahlt" gesetzt wird:
+   * Status-Dropdown, Button "Als bezahlt markieren" und die Teilzahlung, die
+   * den Rechnungsbetrag vollstaendig abdeckt. Gefeuert wurde der Flow bisher
+   * nur vom Dropdown — in den beiden anderen Faellen erfuhr Zoho nie davon.
+   */
+  const meldeRechnungBezahlt = async () => {
+    if (!invoiceId) return
+    const webhookName_bezahlt = 'rechnung-bezahlt'
+    const docNummer_bezahlt = invoice.rechnungsNummer
+    try {
+      await zohoFetch('https://n8n.srv1367876.hstgr.cloud/webhook/fd01a47a-4d74-4763-b551-e5c3a29155da', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rechnungsId: invoiceId,
+          rechnungsNummer: invoice.rechnungsNummer,
+          status: 'bezahlt',
+          ticketNumber: invoice.ticketNumber,
+          objektBezeichnung: invoice.objektBezeichnung,
+          kundeName: invoice.kundeName,
+          summeBrutto: totals.summeBrutto,
+          datum: invoice.datum,
+          faelligAm: invoice.faelligAm,
+          timestamp: new Date().toISOString()
+        })
+      })
+    } catch (e) {
+      const err = e as Error
+      console.error('Bezahlt webhook failed:', err)
+      await logEvent('error', 'webhook-outgoing',
+        `Zoho-Webhook fehlgeschlagen — ${webhookName_bezahlt} für ${docNummer_bezahlt}`,
+        { webhookName: webhookName_bezahlt, docNummer: docNummer_bezahlt, error: err.message }
+      )
+    }
+  }
+
   const handleStatusChange = async (v: string) => {
     setInvoice(prev => ({ ...prev, status: v }))
     if (v === 'bezahlt' && invoiceId) {
-      const webhookName_bezahlt = 'rechnung-bezahlt'
-      const docNummer_bezahlt = invoice.rechnungsNummer
-      try {
-        await zohoFetch('https://n8n.srv1367876.hstgr.cloud/webhook/fd01a47a-4d74-4763-b551-e5c3a29155da', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            rechnungsId: invoiceId,
-            rechnungsNummer: invoice.rechnungsNummer,
-            status: 'bezahlt',
-            ticketNumber: invoice.ticketNumber,
-            objektBezeichnung: invoice.objektBezeichnung,
-            kundeName: invoice.kundeName,
-            summeBrutto: totals.summeBrutto,
-            datum: invoice.datum,
-            faelligAm: invoice.faelligAm,
-            timestamp: new Date().toISOString()
-          })
-        })
-        toast.success('Status auf Bezahlt gesetzt')
-      } catch (e) {
-        const err = e as Error
-        console.error('Bezahlt webhook failed:', err)
-        await logEvent('error', 'webhook-outgoing',
-          `Zoho-Webhook fehlgeschlagen — ${webhookName_bezahlt} für ${docNummer_bezahlt}`,
-          { webhookName: webhookName_bezahlt, docNummer: docNummer_bezahlt, error: err.message }
-        )
-      }
+      await meldeRechnungBezahlt()
+      toast.success('Status auf Bezahlt gesetzt')
     }
   }
 
@@ -1711,7 +1731,17 @@ export default function InvoiceDetailPage() {
               className="resize-none"
             />
           </Card>
-          <OfferSummary positions={positions} reverseCharge={invoice.reverseCharge} />
+          {/* Bei Anzahlung und Teilrechnung haengen die Angebotspositionen nur
+              als Referenz am Beleg — OfferSummary kennt weder teilbetragNetto
+              noch rechnungstyp und summierte stumpf ueber alle Zeilen, zeigte
+              also die volle Angebotssumme statt des Abschlags. Dort deshalb
+              nur die Positionen, die wirklich abgerechnet werden. */}
+          <OfferSummary
+            positions={['anzahlung', 'teilrechnung'].includes(invoice.rechnungstyp) && num(invoice.teilbetragNetto, 0) > 0
+              ? positions.slice(0, 1)
+              : positions}
+            reverseCharge={invoice.reverseCharge}
+          />
         </div>
 
         {/* Fußzeile – volle Breite */}

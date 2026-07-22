@@ -342,9 +342,14 @@ Behoben wurden die fünf mit dem klarsten Schaden-/Aufwand-Verhältnis:
    `entwurf`. Der häufigste Status war nicht filterbar; `offen`, `final` und
    `archiviert` fehlten ganz.
 
-#### Bestätigt, aber NICHT behoben — nach Schwere geordnet
-Diese 54 Funde liegen vor und sind je einzeln belegt. Sie brauchen entweder
-eine fachliche Entscheidung oder greifen tiefer in gewachsene Pfade ein:
+#### Nachtrag: die restlichen Funde wurden ebenfalls abgearbeitet
+In fünf Blöcken, je ein Commit: `976e249` (eingehende Webhooks), `063ab86`
+(Persistenz), `de96ed4` (PDF), `52e25d0` (Angebot), `47fbd29` (Papierkorb,
+Analytics, Sonstiges) und ein Abschluss-Commit für die Einzelfunde.
+Die Liste unten ist damit erledigt und dient nur noch als Historie.
+
+<details>
+<summary>Ursprüngliche Liste der offenen Funde</summary>
 
 - **Stale-Cache in `savePositions`** (`rechnungen/[id]`, `lieferscheine/[id]`):
   neu hinzugefügte Positionen werden nach dem ersten Autosave nie wieder
@@ -380,8 +385,53 @@ eine fachliche Entscheidung oder greifen tiefer in gewachsene Pfade ein:
 - **Query-Key-Kollisionen**: `['vermittler']`/`['mitarbeiter']` liegen unter
   demselben Schlüssel mit unterschiedlich gefilterten Abfragen.
 
-Vollständige Liste mit Szenario und Begründung je Fund:
-`.claude/…/scratchpad/einstimmig.json` der Session (nicht im Repo).
+</details>
+
+### Teil 6 — Alle 59 Funde abgearbeitet
+
+Fünf thematische Blöcke plus ein Abschluss-Commit. Die Muster, die dabei
+mehrfach auftraten und beim Weiterbauen wichtig sind:
+
+**1. `supabase-js` wirft nicht.** Es liefert `{ error }`. An sieben Stellen
+wurde der Rückgabewert nicht ausgewertet, also lief immer der Erfolgspfad —
+in den vier Beleg-Webhooks, im Papierkorb und im Cron-Cleanup. Folge jeweils:
+ein halb geschriebener Zustand mit Erfolgsmeldung. **Jeden `delete()`,
+`insert()` und `update()`-Rückgabewert prüfen.**
+
+**2. Beim Löschen zuerst den Hauptdatensatz, dann die Positionen.** Umgekehrt
+sind bei einem Fremdschlüssel-Konflikt die Positionen weg und der Beleg
+bleibt. Beim Leeren des Papierkorbs außerdem Lieferscheine und Rechnungen vor
+den Angeboten.
+
+**3. Der React-Query-Cache ist kein Abbild der Datenbank.** `savePositions`
+verglich gegen einen Snapshot, der nie invalidiert wird — eine während der
+Sitzung angelegte Position fiel durch alle Filter. Jetzt führt ein Ref die
+tatsächlichen DB-IDs mit.
+
+**4. `produktName` und `beschreibung` liegen im State GETRENNT vor.** Die
+DB-Spalte trägt `"Titel\nLangtext"`, der Ladepfad zerlegt sie. Wer danach
+nochmal splittet, verliert den Titel — passiert an drei Stellen im
+Lieferschein.
+
+**5. Zuordnung über Inhalt, nie über den Array-Index.** Die Monteur-Fotos
+hingen am Index und wanderten beim Umsortieren auf die falsche Leistung.
+
+**6. Ein neuer Schreibpfad muss alle Kopffelder übernehmen.** Der
+„Rechnung"-Button in der Angebotsliste setzte 10 von ~30 Feldern und keine
+Summen — eine versendbare 0-Euro-Rechnung.
+
+**7. `res.ok` prüfen.** Neu: `src/lib/zoho-webhook.ts`. Alle neun ausgehenden
+n8n-Aufrufe laufen darüber; ein HTTP-Fehler wirft jetzt wie ein
+Netzwerkfehler, damit die vorhandenen catch-Blöcke greifen.
+
+**8. Offene Forderungen sind keine Jahresgröße.** Analytics rechnete drei
+Cashflow-Kacheln auf das gewählte Jahr — am 1. Januar verschwanden alle
+Altforderungen aus der Mahnübersicht.
+
+Verifiziert nach jedem Block: `tsc --noEmit`, `next build`, Lint gegen den
+HEAD-Stand. Am Ende **366 statt 371** Lint-Findings, also fünf weniger als
+vorher. Dazu die Pagination der API gegen die Produktivdatenbank
+durchgeblättert (vier Seiten, keine Doppelten).
 
 ## Session 2026-07-13 — Audit + Steuer/RC/Fail-silent/Secret/Analytics-Fixes
 

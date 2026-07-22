@@ -114,8 +114,12 @@ export default function CreateInvoiceDialog({
 
   const teilbetragBrutto = useMemo(() => {
     const netto = parseFloat(teilbetragNetto) || 0
-    return netto * 1.2
-  }, [teilbetragNetto])
+    // Effektiver USt-Satz des Angebots statt hart 20 % — bei Reverse Charge
+    // oder abweichenden Saetzen zeigte die Vorschau sonst einen Bruttobetrag,
+    // den handleCreateInvoice anschliessend ganz anders berechnet.
+    const satz = angebotsnetto > 0 ? angebotsUst / angebotsnetto : 0.2
+    return netto * (1 + satz)
+  }, [teilbetragNetto, angebotsnetto, angebotsUst])
 
   const handleSubmit = () => {
     const opts: CreateInvoiceOptions = {

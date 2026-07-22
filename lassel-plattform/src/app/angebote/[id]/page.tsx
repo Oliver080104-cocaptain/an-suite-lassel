@@ -270,6 +270,12 @@ export default function OfferDetailPage() {
         pos: 1, produktName: '', beschreibung: '', menge: 1, einheit: 'Stk',
         einzelpreisNetto: 0, rabattProzent: 0, ustSatz: 20, gesamtNetto: 0, gesamtBrutto: 0
       }])
+      // Auch dieser Init setzt den Schutz: Angebot und Positionen kommen aus
+      // zwei getrennten Queries mit eigenen Guards. Das Flag wurde bisher nur
+      // vom Angebots-Effect gesetzt und vom ersten State-Wechsel verbraucht —
+      // die zweite Init-Zustandsaenderung loeste damit beim Oeffnen jedes
+      // Angebots einen Autosave mit Cache-Daten aus.
+      justInitialized.current = true
       positionsInitialized.current = true
     }
   }, [existingPositions])
