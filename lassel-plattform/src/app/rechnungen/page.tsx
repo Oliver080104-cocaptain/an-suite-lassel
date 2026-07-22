@@ -162,6 +162,8 @@ export default function RechnungenPage() {
       }
       if (filters.status !== 'all' && i.status !== filters.status) return false
       if (filters.type !== 'all' && (i.rechnungstyp || 'normal') !== filters.type) return false
+      // Wie in der Angebotsliste: der Filter war reine Deko.
+      if (filters.employee !== 'all' && (i.erstellt_von || '') !== filters.employee) return false
       return true
     })
 

@@ -23,6 +23,7 @@ import OfferSummary from '@/components/offers/OfferSummary'
 import EmailVorschauModal from '@/components/EmailVorschauModal'
 import { getTypInfo } from '@/lib/rechnung-typ'
 import { logEvent } from '@/lib/monitoring'
+import { zohoFetch } from '@/lib/zoho-webhook'
 import { num, STANDARD_MWST } from '@/lib/money'
 
 interface InvoicePosition {
@@ -578,11 +579,13 @@ export default function InvoiceDetailPage() {
   const stripOptionalColumns = (data: Record<string, unknown>) => {
     const clean = { ...data }
     for (const col of missingColumns.current) delete clean[col]
-    // vermittler_id nie mit null senden — wenn kein Vermittler gewählt ist,
-    // soll die Spalte gar nicht im Payload sein (vermeidet Schema-Drift-400
-    // in Prod-DBs ohne die Spalte).
-    if (clean.vermittler_id === null || clean.vermittler_id === undefined || clean.vermittler_id === '') {
-      delete clean.vermittler_id
+    // vermittler_id auch als null mitschicken: wurde der Schlüssel bei leerem
+    // Wert entfernt, liess sich ein einmal gesetzter Vermittler nicht mehr
+    // loswerden — der alte Wert blieb in der Datenbank stehen. Ein
+    // Schema-Drift-400 faengt der Retry-Mechanismus oben ab, der die Spalte
+    // dann in missingColumns aufnimmt.
+    if (clean.vermittler_id === undefined || clean.vermittler_id === '') {
+      clean.vermittler_id = null
     }
     return clean
   }
@@ -775,9 +778,12 @@ export default function InvoiceDetailPage() {
       setInvoice(prev => ({ ...prev, pdfUrl: pdfLink }))
 
       // Trigger Zoho webhook
+      // Ergebnis der Zoho-Ablage mitfuehren: der Toast meldete vorher
+      // ausnahmslos Erfolg, auch bei einem HTTP-Fehler des Flows.
+      let zohoAblageOk = false
       const webhookName_rechnungZoho = 'rechnung-zoho-ablage'
       const docNummer_rechnungZoho = invCopy.rechnungsNummer
-      await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/48a021d8-c88d-4663-80f6-dc09a70d598b', {
+      await zohoFetch('https://n8n.srv1367876.hstgr.cloud/webhook/48a021d8-c88d-4663-80f6-dc09a70d598b', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -798,7 +804,7 @@ export default function InvoiceDetailPage() {
           summen: { netto: totals.summeNetto, ust: totals.summeUst, brutto: totals.summeBrutto },
           timestamp: new Date().toISOString()
         })
-      }).catch(async (err: Error) => {
+      }).then(() => { zohoAblageOk = true }).catch(async (err: Error) => {
         console.error('Zoho webhook failed:', err)
         await logEvent('error', 'webhook-outgoing',
           `Zoho-Webhook fehlgeschlagen — ${webhookName_rechnungZoho} für ${docNummer_rechnungZoho}`,
@@ -807,7 +813,9 @@ export default function InvoiceDetailPage() {
       })
 
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
-      toast.success('Gespeichert & in Zoho abgelegt')
+      toast.success(zohoAblageOk
+        ? 'Gespeichert & in Zoho abgelegt'
+        : 'Gespeichert — die Zoho-Ablage hat aber nicht geklappt.')
     } catch (err: any) {
       toast.error('Fehler: ' + err.message)
     } finally {
@@ -996,7 +1004,7 @@ export default function InvoiceDetailPage() {
       const webhookName_bezahlt = 'rechnung-bezahlt'
       const docNummer_bezahlt = invoice.rechnungsNummer
       try {
-        await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/fd01a47a-4d74-4763-b551-e5c3a29155da', {
+        await zohoFetch('https://n8n.srv1367876.hstgr.cloud/webhook/fd01a47a-4d74-4763-b551-e5c3a29155da', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

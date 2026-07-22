@@ -175,6 +175,9 @@ export default function AngebotePage() {
         if (new Date(o.angebotsdatum as string).getFullYear() !== parseInt(filters.year)) return false
       }
       if (filters.status !== 'all' && o.status !== filters.status) return false
+      // Der Mitarbeiter-Filter wurde gesetzt, gezaehlt und angezeigt, aber nie
+      // ausgewertet — die Liste aenderte sich beim Auswaehlen nicht.
+      if (filters.employee !== 'all' && (o.erstellt_von || '') !== filters.employee) return false
       return true
     })
 

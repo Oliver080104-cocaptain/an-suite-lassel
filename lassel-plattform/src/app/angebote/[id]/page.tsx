@@ -25,6 +25,7 @@ import CreateInvoiceDialog, { type CreateInvoiceOptions } from '@/components/Cre
 import EditableDocNumber from '@/components/shared/EditableDocNumber'
 import { generateRechnungsNummer, getTypInfo, type Rechnungstyp } from '@/lib/rechnung-typ'
 import { logEvent } from '@/lib/monitoring'
+import { zohoFetch } from '@/lib/zoho-webhook'
 import { num, round2, computeTotals, STANDARD_MWST } from '@/lib/money'
 
 const MITARBEITER_LISTE = [
@@ -372,11 +373,11 @@ export default function OfferDetailPage() {
       email_angebot: offerState.email_angebot || null,
       email_rechnung: offerState.email_rechnung || null,
     }
-    // vermittler_id nur senden wenn gesetzt — vermeidet PGRST204 wenn Spalte im
-    // Schema-Cache fehlt und User keinen Vermittler ausgewählt hat.
-    if (offerState.vermittler_id) {
-      data.vermittler_id = offerState.vermittler_id
-    }
+    // vermittler_id IMMER senden, auch als null — sonst lässt sich ein einmal
+    // gesetzter Vermittler nicht mehr entfernen: der Schlüssel fiel aus dem
+    // Payload und der alte Wert blieb in der Datenbank stehen.
+    // Fehlt die Spalte in der Prod-DB, fängt der Schema-Drift-Retry das ab.
+    data.vermittler_id = offerState.vermittler_id || null
     return data
   }
 
@@ -541,9 +542,12 @@ export default function OfferDetailPage() {
       setOffer((prev: any) => ({ ...prev, pdf_url: pdfLink }))
 
       const editUrl = `${window.location.origin}/angebote/${savedOffer.id}`
+      // Ergebnis der Zoho-Ablage mitfuehren: vorher meldete der Toast
+      // ausnahmslos Erfolg, auch wenn der Flow gar nicht geantwortet hat.
+      let zohoAblageOk = false
       const webhookName_zohoAblage = 'angebot-zoho-ablage'
       const docNummer_zohoAblage = savedOffer.angebotsnummer
-      await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/fccf5130-51b2-4e66-8aa2-84d29da4862a', {
+      await zohoFetch('https://n8n.srv1367876.hstgr.cloud/webhook/fccf5130-51b2-4e66-8aa2-84d29da4862a', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -565,7 +569,7 @@ export default function OfferDetailPage() {
           skizzenLink: offer.skizzen_link,
           timestamp: new Date().toISOString()
         })
-      }).catch(async (err: Error) => {
+      }).then(() => { zohoAblageOk = true }).catch(async (err: Error) => {
         console.error(err)
         await logEvent('error', 'webhook-outgoing',
           `Zoho-Webhook fehlgeschlagen — ${webhookName_zohoAblage} für ${docNummer_zohoAblage}`,
@@ -574,7 +578,11 @@ export default function OfferDetailPage() {
       })
 
       queryClient.invalidateQueries({ queryKey: ['offers'] })
-      toast.success('PDF erfolgreich in Zoho abgespeichert')
+      if (zohoAblageOk) {
+        toast.success('PDF erfolgreich in Zoho abgespeichert')
+      } else {
+        toast.warning('Angebot gespeichert — die Zoho-Ablage hat aber nicht geklappt.')
+      }
     } catch (error: any) {
       toast.error('Fehler: ' + error.message)
     } finally {
@@ -639,7 +647,7 @@ export default function OfferDetailPage() {
       const docNummer_lieferschein = lieferscheinnummer
       try {
         const editUrl = `${window.location.origin}/lieferscheine/${deliveryNote.id}`
-        await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/5e4e9681-a79e-42be-a1d0-309bfdc36909', {
+        await zohoFetch('https://n8n.srv1367876.hstgr.cloud/webhook/5e4e9681-a79e-42be-a1d0-309bfdc36909', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -894,7 +902,7 @@ export default function OfferDetailPage() {
       const docNummer_rechnungErstellt = invoice.rechnungsnummer
       try {
         const editUrl = `${window.location.origin}/rechnungen/${invoice.id}`
-        await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/47c3bc5b-17e6-4c07-bd72-71a546d023d5', {
+        await zohoFetch('https://n8n.srv1367876.hstgr.cloud/webhook/47c3bc5b-17e6-4c07-bd72-71a546d023d5', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -927,7 +935,10 @@ export default function OfferDetailPage() {
               ustSatz: p.mwst_satz,
               gesamtNetto: p.gesamtpreis
             })),
-            summen: { netto: totals.netto_gesamt, ust: totals.mwst_gesamt, brutto: totals.brutto_gesamt },
+            // Die tatsaechlich gebuchten Rechnungsbetraege melden, nicht die
+            // Angebotssumme: bei Anzahlung/Teilrechnung wich das um ein
+            // Vielfaches ab, und Zoho bekam den falschen Wert.
+            summen: { netto: insertNetto, ust: insertMwst, brutto: insertBrutto },
             timestamp: new Date().toISOString()
           })
         })
@@ -1280,7 +1291,7 @@ export default function OfferDetailPage() {
                           const webhookName_angenommen = 'angebot-angenommen'
                           const docNummer_angenommen = offer.angebotsnummer
                           try {
-                            await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/2c51d71e-b55d-493d-aafb-1443d1d100cc', {
+                            await zohoFetch('https://n8n.srv1367876.hstgr.cloud/webhook/2c51d71e-b55d-493d-aafb-1443d1d100cc', {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify({
@@ -1292,7 +1303,10 @@ export default function OfferDetailPage() {
                   geschaeftsfallNummer: offer.geschaeftsfallNummer,
                   rechnungsempfaengerName: offer.kunde_name,
                   objektBezeichnung: offer.objekt_bezeichnung || offer.objekt_adresse,
-                  summeBrutto: offer.brutto_gesamt,
+                  // totals statt offer.brutto_gesamt: das State-Feld wird nur
+                  // beim Initialisieren aus der DB gesetzt und danach nie mehr
+                  // aktualisiert — Zoho bekam den Betrag vom Seitenaufruf.
+                  summeBrutto: totals.brutto_gesamt,
                   datum: offer.angebotsdatum,
                   timestamp: new Date().toISOString()
                 })
@@ -1379,7 +1393,8 @@ export default function OfferDetailPage() {
         {/* Verknüpfte Dokumente – volle Breite */}
         {!isNew && ((linkedInvoices as any[]).length > 0 || (linkedDeliveryNotes as any[]).length > 0) && (() => {
           const bereitsFakturiert = fakturierteRechnungen.reduce((sum: number, inv: any) => sum + (Number(inv.brutto_gesamt) || 0), 0)
-          const angebotsbrutto = offer.brutto_gesamt || 0
+          // totals statt offer.brutto_gesamt — siehe oben.
+          const angebotsbrutto = totals.brutto_gesamt || 0
           const offenerBetrag = angebotsbrutto - bereitsFakturiert
           return (
             <Card className="p-6 mb-8">

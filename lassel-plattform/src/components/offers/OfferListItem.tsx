@@ -30,7 +30,7 @@ import { format } from 'date-fns'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
-import { num, STANDARD_MWST } from '@/lib/money'
+import { num, STANDARD_MWST, computeTotals } from '@/lib/money'
 
 interface MatchField {
   field: string
@@ -103,25 +103,76 @@ export default function OfferListItem({ offer, onDelete, searchTerm = '' }: Prop
       const today = format(new Date(), 'yyyy-MM-dd')
       const fälligAm = format(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd')
 
-      const invoiceData = {
+      // Summen aus den Positionen rechnen — vorher fehlten netto_gesamt,
+      // mwst_gesamt und brutto_gesamt komplett, die Rechnung stand mit 0,00 €
+      // in Liste, Analytics und PDF und war in diesem Zustand versendbar.
+      const summen = computeTotals(
+        (positions || []).map((p: Record<string, unknown>) => ({
+          menge: p.menge,
+          einzelpreis: p.einzelpreis,
+          rabattProzent: p.rabatt_prozent,
+          mwstSatz: p.mwst_satz,
+        })),
+        { reverseCharge: Boolean(offer.reverse_charge) }
+      )
+
+      // Kopfdaten vollständig übernehmen. Vorher fehlten unter anderem
+      // kunde_uid (bei Reverse Charge Pflichtangabe), objekt_adresse,
+      // ticket_nummer, erstellt_von (das PDF unterschrieb mit dem
+      // Geschäftsführer statt der Sachbearbeiterin) und die Angebotsreferenz —
+      // dieser Button erzeugte damit einen ganz anderen Beleg als der
+      // Dialog-Pfad in angebote/[id].
+      const invoiceData: Record<string, unknown> = {
         rechnungsdatum: today,
         faellig_bis: fälligAm,
         status: 'entwurf',
+        rechnungstyp: 'normal',
         rechnungsnummer,
         kunde_name: offer.kunde_name || '',
         kunde_strasse: offer.kunde_strasse || '',
         kunde_plz: offer.kunde_plz || '',
         kunde_ort: offer.kunde_ort || '',
+        kunde_uid: offer.kunde_uid || null,
+        kunde_email: offer.kunde_email || null,
+        email_rechnung: offer.email_rechnung || offer.kunde_email || null,
+        ansprechpartner: offer.ansprechpartner || null,
+        objekt_adresse: offer.objekt_bezeichnung || offer.objekt_adresse || null,
+        objekt_plz: offer.objekt_plz || null,
+        objekt_ort: offer.objekt_ort || null,
+        hausinhabung: offer.hausinhabung || null,
+        hausverwaltung_name: offer.hausverwaltung_name || null,
+        rechnung_an_hi: !!offer.rechnung_an_hi,
+        uid_von_hi: offer.uid_von_hi || null,
+        ticket_nummer: offer.ticket_nummer || null,
+        zoho_ticket_id: offer.zoho_ticket_id || null,
+        geschaeftsfallnummer: offer.geschaeftsfallnummer || null,
+        erstellt_von: offer.erstellt_von || null,
+        vermittler_id: offer.vermittler_id || null,
+        zahlungskondition: '30 Tage netto',
         reverse_charge: offer.reverse_charge || false,
         angebot_id: offer.id as string,
+        referenz_angebot_id: offer.id as string,
+        referenz_angebot_nummer: offer.angebotsnummer || null,
+        netto_gesamt: summen.netto,
+        mwst_gesamt: summen.mwst,
+        brutto_gesamt: summen.brutto,
       }
 
-      const { data: newInvoice, error: invoiceError } = await supabase
-        .from('rechnungen')
-        .insert(invoiceData)
-        .select()
-        .single()
-      if (invoiceError) throw invoiceError
+      // Schema-Drift: fehlt eine Spalte in der Prod-DB, wird sie aus dem
+      // Payload genommen und erneut versucht — gleiches Muster wie im
+      // Dialog-Pfad, sonst scheitert das Anlegen komplett.
+      const payload = { ...invoiceData }
+      let newInvoice: Record<string, unknown> | null = null
+      let letzterFehler: Error | null = null
+      for (let versuch = 0; versuch < 8; versuch++) {
+        const res = await supabase.from('rechnungen').insert(payload).select().single()
+        if (!res.error) { newInvoice = res.data; letzterFehler = null; break }
+        letzterFehler = new Error(res.error.message)
+        const fehlend = /Could not find the '([^']+)' column/i.exec(res.error.message || '')?.[1]
+        if (!fehlend || !(fehlend in payload)) break
+        delete payload[fehlend]
+      }
+      if (!newInvoice) throw letzterFehler ?? new Error('Rechnung konnte nicht angelegt werden')
 
       for (const pos of positions || []) {
         await supabase.from('rechnung_positionen').insert({

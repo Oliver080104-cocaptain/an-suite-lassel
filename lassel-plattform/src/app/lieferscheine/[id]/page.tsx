@@ -17,6 +17,7 @@ import Link from 'next/link'
 import DeliveryNotePositionsTable from '@/components/deliveryNotes/DeliveryNotePositionsTable'
 import EditableDocNumber from '@/components/shared/EditableDocNumber'
 import { logEvent } from '@/lib/monitoring'
+import { zohoFetch } from '@/lib/zoho-webhook'
 
 interface DNPosition {
   id?: string
@@ -473,9 +474,12 @@ export default function DeliveryNoteDetailPage() {
       await supabase.from('lieferscheine').update({ pdf_url: pdfLink }).eq('id', savedId!)
       setDn((prev: any) => ({ ...prev, pdf_url: pdfLink }))
 
+      // Ergebnis der Zoho-Ablage mitfuehren: der Toast meldete vorher
+      // ausnahmslos Erfolg, auch bei einem HTTP-Fehler des Flows.
+      let zohoAblageOk = false
       const webhookName_lsZoho = 'lieferschein-zoho-ablage'
       const docNummer_lsZoho = dnCopy.lieferscheinnummer
-      await fetch('https://n8n.srv1367876.hstgr.cloud/webhook/b15d8baa-e8ec-4d8a-aa85-0865048b9c31', {
+      await zohoFetch('https://n8n.srv1367876.hstgr.cloud/webhook/b15d8baa-e8ec-4d8a-aa85-0865048b9c31', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -492,7 +496,7 @@ export default function DeliveryNoteDetailPage() {
           referenzAngebotNummer: dnCopy.referenz_angebot_nummer,
           timestamp: new Date().toISOString()
         })
-      }).catch(async (err: Error) => {
+      }).then(() => { zohoAblageOk = true }).catch(async (err: Error) => {
         console.error('Zoho webhook failed:', err)
         await logEvent('error', 'webhook-outgoing',
           `Zoho-Webhook fehlgeschlagen — ${webhookName_lsZoho} für ${docNummer_lsZoho}`,
@@ -502,7 +506,9 @@ export default function DeliveryNoteDetailPage() {
 
       queryClient.invalidateQueries({ queryKey: ['deliveryNotes'] })
       queryClient.invalidateQueries({ queryKey: ['deliveryNote', savedId] })
-      toast.success('Gespeichert & in Zoho abgelegt')
+      toast.success(zohoAblageOk
+        ? 'Gespeichert & in Zoho abgelegt'
+        : 'Gespeichert — die Zoho-Ablage hat aber nicht geklappt.')
     } catch (err: any) {
       toast.error('Fehler: ' + err.message)
     } finally {
@@ -546,7 +552,7 @@ export default function DeliveryNoteDetailPage() {
       // 2) 5e4e9681 — Zoho CRM Ticket updaten (Lieferschein_Formular Subform + Projektstatus)
       const docNummer_push = dn.lieferscheinnummer
       const settledResults = await Promise.allSettled([
-        fetch('https://n8n.srv1367876.hstgr.cloud/webhook/b15d8baa-e8ec-4d8a-aa85-0865048b9c31', {
+        zohoFetch('https://n8n.srv1367876.hstgr.cloud/webhook/b15d8baa-e8ec-4d8a-aa85-0865048b9c31', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -566,7 +572,7 @@ export default function DeliveryNoteDetailPage() {
             timestamp: new Date().toISOString(),
           }),
         }),
-        fetch('https://n8n.srv1367876.hstgr.cloud/webhook/5e4e9681-a79e-42be-a1d0-309bfdc36909', {
+        zohoFetch('https://n8n.srv1367876.hstgr.cloud/webhook/5e4e9681-a79e-42be-a1d0-309bfdc36909', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
