@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { validateWebhookSecret, unauthorizedResponse } from '@/lib/webhook-auth'
 import { resolveKundeName, isKundeNameFallback } from '@/lib/webhook-kunde'
 import { logEvent } from '@/lib/monitoring'
+import { naechsteBelegnummer } from '@/lib/belegnummer'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -11,20 +12,10 @@ const supabase = createClient(
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://an-suite-lassel.vercel.app'
 
+/** Atomare Vergabe ueber naechste_belegnummer (Migration 023/025)
+ *  statt COUNT+1 bzw. MAX+1 — beides war nicht atomar. */
 async function generateLieferscheinnummer(): Promise<string> {
-  const year = new Date().getFullYear()
-  const { data } = await supabase
-    .from('lieferscheine')
-    .select('lieferscheinnummer')
-    .like('lieferscheinnummer', `LI-${year}-%`)
-  const existingCount = data?.length || 0
-  const nextNumber = existingCount + 1
-  const nummer = `LI-${year}-${String(nextNumber).padStart(5, '0')}`
-  logEvent('warning', 'lieferscheinnummer-race',
-    `Lieferscheinnummer via Frontend-Count vergeben — Race möglich`,
-    { nummer, year, existingCount }
-  ).catch(() => {})
-  return nummer
+  return naechsteBelegnummer(supabase, 'LI')
 }
 
 // Payload: { ticketId, ticketNumber, kunde, angebot, positionen, meta }

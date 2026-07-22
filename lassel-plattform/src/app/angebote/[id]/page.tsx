@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDebouncedCallback } from 'use-debounce'
 import { supabase } from '@/lib/supabase'
+import { naechsteBelegnummer } from '@/lib/belegnummer'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -482,12 +483,8 @@ export default function OfferDetailPage() {
     }
   }
 
-  const generateOfferNumber = async () => {
-    const year = new Date().getFullYear()
-    const { data } = await supabase.from('angebote').select('angebotsnummer').like('angebotsnummer', `AN-${year}-%`)
-    const nextNumber = (data?.length || 0) + 1
-    return `AN-${year}-${String(nextNumber).padStart(5, '0')}`
-  }
+  // Atomare Vergabe statt COUNT+1 — siehe src/lib/belegnummer.ts.
+  const generateOfferNumber = () => naechsteBelegnummer(supabase, 'AN')
 
   const handleSave = async () => {
     setSaving(true)
@@ -602,15 +599,7 @@ export default function OfferDetailPage() {
     setCreatingDeliveryNote(true)
     toast.loading('Lieferschein wird erstellt...')
     try {
-      const year = new Date().getFullYear()
-      const liPrefix = `LI-${year}-`
-      const { data: lastLi } = await supabase.from('lieferscheine').select('lieferscheinnummer')
-        .like('lieferscheinnummer', `${liPrefix}%`)
-        .order('lieferscheinnummer', { ascending: false })
-        .limit(1).maybeSingle()
-      const lieferscheinnummer = lastLi?.lieferscheinnummer
-        ? `${liPrefix}${String(parseInt(lastLi.lieferscheinnummer.replace(liPrefix, ''), 10) + 1).padStart(5, '0')}`
-        : `${liPrefix}00001`
+      const lieferscheinnummer = await naechsteBelegnummer(supabase, 'LI')
 
       const { data: deliveryNote, error } = await supabase.from('lieferscheine').insert({
         lieferscheinnummer,

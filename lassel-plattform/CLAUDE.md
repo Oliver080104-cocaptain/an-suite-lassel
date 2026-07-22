@@ -433,6 +433,49 @@ HEAD-Stand. Am Ende **366 statt 371** Lint-Findings, also fünf weniger als
 vorher. Dazu die Pagination der API gegen die Produktivdatenbank
 durchgeblättert (vier Seiten, keine Doppelten).
 
+### Teil 7 — Restarbeiten: Nummernvergabe, Query-Keys, Dirty-Guard
+
+**Query-Key-Bruch** (aus Teil 6 übersehen): Die Rechnungsliste hängt an
+`['rechnungen']`, die Detailseite invalidierte an sieben Stellen `['invoices']`.
+React Query matcht per Prefix — die Liste wurde nie getroffen und zeigte bis zu
+fünf Minuten den alten Status. Beim Lieferschein dasselbe
+(`['lieferscheine']` vs. `['deliveryNotes']`). Beide Schlüssel werden jetzt
+invalidiert, weil `['invoices']` zusätzlich von Analytics genutzt wird.
+
+**Belegnummern: alle zehn Generatoren auf die atomare Vergabe umgestellt.**
+Vorher zählte jede Stelle selbst; zwei gleichzeitige Anlagen bekamen dieselbe
+Nummer, und das einzige Rettungsnetz war der UNIQUE-Constraint mit einer rohen
+Postgres-Meldung. Jetzt läuft alles über `naechsteBelegnummer()` →
+`naechste_belegnummer()` (Migration 023). Gegen die Produktivdatenbank
+geprüft: 20 gleichzeitige Aufrufe, 20 verschiedene Nummern, lückenlos.
+
+Zwei Details dabei:
+- **Nummernkreise sind nach TABELLE getrennt, nicht nach Prefix.** Eine
+  Anzahlungsrechnung trägt `AN-…` wie ein Angebot, ist aber ein anderer Beleg
+  in einer anderen Tabelle. Kreise: `AN`, `RE`, `LI` plus `RE_AN`, `RE_TR`,
+  `RE_SR`, `RE_GS` für die Rechnungstypen.
+- **Migration 025 ist nötig**, damit die Detailseiten die Vergabe nutzen
+  können: `belegnummern_kreise` hat RLS ohne Policy, der Anon-Key aus dem
+  Browser scheitert mit *„new row violates row-level security policy"*.
+  025 macht die Funktion `SECURITY DEFINER` (mit festem `search_path`) und
+  beschränkt sie auf die bekannten Kreise — die Tabelle selbst bleibt zu.
+  Solange 025 fehlt, fällt `naechsteBelegnummer` auf MAX+1 zurück und meldet
+  das als Warnung ans Monitoring; gegen die echte Datenbank geprüft, der
+  Fallback liefert dieselben Nummern wie der Zähler.
+
+**Dirty-Guard im Autosave** (Rechnung, Lieferschein): `visibilitychange` und
+`onBlurCapture` lösten bei jedem Tab-Wechsel einen Save aus, auch ohne
+Änderung. Der Kopf wird jetzt nur geschrieben, wenn sich der Payload
+tatsächlich unterscheidet. Die **Positionen laufen bewusst weiter** — dort
+gibt es preisneutrale Änderungen (Umsortieren, Text, Einheit), die im
+Kopf-Payload gar nicht auftauchen und sonst still verlorengingen.
+
+### ⚠️ Deploy-Action
+**Migration 025 ausführen.** Bis dahin arbeiten die Detailseiten im Fallback
+(nicht atomar, wie bisher) und melden das im Monitoring unter `belegnummer`.
+Die Webhooks und die API laufen schon jetzt atomar, weil sie mit dem
+Service-Role-Key arbeiten.
+
 ## Session 2026-07-13 — Audit + Steuer/RC/Fail-silent/Secret/Analytics-Fixes
 
 ### Umfassendes internes Audit (ohne n8n-Flows)
@@ -540,13 +583,16 @@ Drei Fixes, alle nach `main` gepusht (Vercel deployt auto):
       Fertiges JSON liegt in `n8n/rechnung-zoho-ablage.reduziert.json`.
 - [ ] **Parkraumsperre-Mail** (`/api/parksperre-senden`) läuft weiter über n8n,
       gleiches Anhang-Risiko. Umstellung auf `sendMail()` wären ~20 Zeilen.
-- [ ] **Dirty-Guard im Autosave** der drei Detailseiten — `visibilitychange`
-      schreibt heute bei jedem Tab-Wechsel den kompletten Beleg zurück.
-      Achtung: nur den Kopf-Update abbrechen, `savePositions` weiterlaufen
-      lassen, sonst gehen preisneutrale Positionsänderungen verloren.
-- [ ] **Altgeneratoren auf `naechste_belegnummer()` umstellen** — elf Stellen
-      zählen weiter `COUNT+1`. Die atomare Vergabe existiert seit Migration 023
-      parallel; ein Trigger hält beide Verfahren synchron.
+- [x] ~~Dirty-Guard im Autosave~~ — für Rechnung und Lieferschein umgesetzt
+      (Kopf nur bei echter Änderung, Positionen laufen weiter). Das Angebot
+      braucht keinen: dort feuert `visibilitychange` nur `.flush()`, was ohne
+      pending Änderung ein No-op ist.
+- [x] ~~Altgeneratoren auf `naechste_belegnummer()` umstellen~~ — alle zehn
+      Stellen umgestellt, siehe Teil 7.
+- [ ] **Migration 025 ausführen** (`025_belegnummern_freigabe.sql`) — bis dahin
+      arbeiten die Detailseiten im Fallback (MAX+1, nicht atomar) und melden
+      das im Monitoring unter `belegnummer`. Webhooks und API laufen bereits
+      atomar, weil sie den Service-Role-Key nutzen.
 - [ ] **Echte Auth + restriktive RLS** — wichtigster offener Punkt aus dem Audit
       2026-07-13, durch API und MCP dringlicher geworden.
 - [ ] Monitoring Runde 3: Errors + Info einbauen (9 + 5 Stellen)

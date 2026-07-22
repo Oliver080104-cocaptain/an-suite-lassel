@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import { naechsteBelegnummer, kreisFuerRechnungstyp } from '@/lib/belegnummer'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
@@ -378,6 +379,18 @@ export default function InvoiceDetailPage() {
   // Ref auf die IMMER latest performAutoSave — damit die Callback im setTimeout
   // nicht einen stale Closure mit altem invoice/positions nutzt.
   const performAutoSaveRef = useRef<() => Promise<void>>(async () => {})
+  /**
+   * Letzter geschriebener Kopf-Payload. Nur der KOPF bekommt einen
+   * Dirty-Guard: `visibilitychange` und `onBlurCapture` loesen einen Save
+   * bei jedem Tab-Wechsel aus, auch wenn niemand etwas geaendert hat — das
+   * schrieb bisher jedes Mal den kompletten Datensatz zurueck.
+   *
+   * Die POSITIONEN laufen bewusst weiter: dort gibt es preisneutrale
+   * Aenderungen (Umsortieren, Text, Einheit), die im Kopf-Payload gar nicht
+   * auftauchen und sonst still verlorengingen.
+   */
+  const zuletztGeschriebenerKopf = useRef<string>('')
+
 
   /**
    * Blocking-Helper für direkte DB-Writes (z.B. "Als bezahlt markieren"):
@@ -510,12 +523,11 @@ export default function InvoiceDetailPage() {
    */
   const emailEmpfaenger = invoice.emailRechnung || invoice.kundeEmail || ''
 
-  const generateInvoiceNumber = async () => {
-    const year = new Date().getFullYear()
-    const { data } = await supabase.from('rechnungen').select('rechnungsnummer').ilike('rechnungsnummer', `RE-${year}%`)
-    const nextNum = (data?.length || 0) + 1
-    return `RE-${year}-${String(nextNum).padStart(5, '0')}`
-  }
+  // Atomare Vergabe, Nummernkreis passend zum Rechnungstyp. Vorher zaehlte
+  // die Funktion pauschal RE-Nummern, egal ob Anzahlung, Teil- oder
+  // Schlussrechnung angelegt wurde.
+  const generateInvoiceNumber = () =>
+    naechsteBelegnummer(supabase, kreisFuerRechnungstyp(invoice.rechnungstyp))
 
   const buildPosData = (p: InvoicePosition, rechnungId: string) => ({
     rechnung_id: rechnungId,
@@ -694,7 +706,12 @@ export default function InvoiceDetailPage() {
   const performAutoSave = async () => {
     if (!invoiceId || !invoice.kundeName) return
     try {
-      await updateRechnungSafe(invoiceId, buildRechnungData(invoice, totals))
+      const kopf = buildRechnungData(invoice, totals)
+      const kopfSignatur = JSON.stringify(kopf)
+      if (kopfSignatur !== zuletztGeschriebenerKopf.current) {
+        await updateRechnungSafe(invoiceId, kopf)
+        zuletztGeschriebenerKopf.current = kopfSignatur
+      }
       await savePositions(invoiceId, positions)
       // Cache invalidieren damit ein Remount der Seite frische DB-Daten
       // lädt statt stale cache-Werte — verhindert Phantom-Overwrites
@@ -860,10 +877,7 @@ export default function InvoiceDetailPage() {
     // der status='storniert'-Update nicht durch autosave überschrieben wird.
     await acquireAutosaveLock()
     try {
-      const year = new Date().getFullYear()
-      const { data: allInvoices } = await supabase.from('rechnungen').select('rechnungsnummer').ilike('rechnungsnummer', `RE-${year}%`)
-      const nextNum = (allInvoices?.length || 0) + 1
-      const stornoNummer = `RE-${year}-${String(nextNum).padStart(5, '0')}`
+      const stornoNummer = await naechsteBelegnummer(supabase, 'RE')
 
       // Bei Anzahlung und Teilrechnung trägt der Beleg NUR die Abschlagszeile
       // als abgerechnete Leistung; die Angebotspositionen darunter stehen als

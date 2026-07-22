@@ -8,6 +8,7 @@
  */
 
 import { supabase } from '@/lib/supabase'
+import { naechsteBelegnummer, kreisFuerRechnungstyp } from '@/lib/belegnummer'
 
 export type Rechnungstyp =
   | 'normal'
@@ -88,23 +89,9 @@ export function getTypInfo(typ: string | null | undefined): RechnungstypInfo {
  * und gibt die nächste fortlaufende Nummer zurück.
  */
 export async function generateRechnungsNummer(typ: Rechnungstyp): Promise<string> {
-  const prefix = RECHNUNGSTYP_INFO[typ].prefix
-  const year = new Date().getFullYear()
-  const fullPrefix = `${prefix}-${year}-`
-
-  const { data } = await supabase
-    .from('rechnungen')
-    .select('rechnungsnummer')
-    .like('rechnungsnummer', `${fullPrefix}%`)
-    .order('rechnungsnummer', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  if (!data?.rechnungsnummer) {
-    return `${fullPrefix}00001`
-  }
-
-  const lastNum = parseInt(data.rechnungsnummer.replace(fullPrefix, ''), 10)
-  const nextNum = isNaN(lastNum) ? 1 : lastNum + 1
-  return `${fullPrefix}${String(nextNum).padStart(5, '0')}`
+  // Atomare Vergabe je Nummernkreis (Migration 023/025). Vorher wurde die
+  // hoechste vorhandene Nummer mit gleichem Prefix gesucht und +1 gerechnet —
+  // zwei gleichzeitige Anlagen bekamen dieselbe Nummer, und das einzige
+  // Rettungsnetz war der UNIQUE-Constraint mit einer rohen Postgres-Meldung.
+  return naechsteBelegnummer(supabase, kreisFuerRechnungstyp(typ))
 }

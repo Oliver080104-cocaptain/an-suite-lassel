@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { validateWebhookSecret, unauthorizedResponse } from '@/lib/webhook-auth'
 import { resolveKundeName, isKundeNameFallback } from '@/lib/webhook-kunde'
 import { logEvent } from '@/lib/monitoring'
+import { naechsteBelegnummer } from '@/lib/belegnummer'
 import { num, computeTotals, lineNetto, STANDARD_MWST } from '@/lib/money'
 
 const supabase = createClient(
@@ -12,21 +13,10 @@ const supabase = createClient(
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://an-suite-lassel.vercel.app'
 
+/** Atomare Vergabe ueber naechste_belegnummer (Migration 023/025)
+ *  statt COUNT+1 bzw. MAX+1 — beides war nicht atomar. */
 async function generateRechnungsnummer(): Promise<string> {
-  const year = new Date().getFullYear()
-  const prefix = `RE-${year}-`
-  const { data } = await supabase
-    .from('rechnungen')
-    .select('rechnungsnummer')
-    .like('rechnungsnummer', `${prefix}%`)
-    .order('rechnungsnummer', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  if (data?.rechnungsnummer) {
-    const lastNum = parseInt(data.rechnungsnummer.replace(prefix, ''), 10)
-    return `${prefix}${String(lastNum + 1).padStart(5, '0')}`
-  }
-  return `${prefix}00001`
+  return naechsteBelegnummer(supabase, 'RE')
 }
 
 export async function POST(req: NextRequest) {

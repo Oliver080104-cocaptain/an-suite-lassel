@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import { naechsteBelegnummer } from '@/lib/belegnummer'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
@@ -87,6 +88,18 @@ export default function DeliveryNoteDetailPage() {
   // Ref auf die IMMER latest performAutoSave — damit der Save-Callback
   // keinen stale Closure mit veraltetem dn/positions nutzt.
   const performAutoSaveRef = useRef<() => Promise<void>>(async () => {})
+  /**
+   * Letzter geschriebener Kopf-Payload. Nur der KOPF bekommt einen
+   * Dirty-Guard: `visibilitychange` und `onBlurCapture` loesen einen Save
+   * bei jedem Tab-Wechsel aus, auch wenn niemand etwas geaendert hat — das
+   * schrieb bisher jedes Mal den kompletten Datensatz zurueck.
+   *
+   * Die POSITIONEN laufen bewusst weiter: dort gibt es preisneutrale
+   * Aenderungen (Umsortieren, Text, Einheit), die im Kopf-Payload gar nicht
+   * auftauchen und sonst still verlorengingen.
+   */
+  const zuletztGeschriebenerKopf = useRef<string>('')
+
 
   const { data: existingDN, isLoading: loadingDN } = useQuery({
     queryKey: ['deliveryNote', deliveryNoteId],
@@ -322,7 +335,12 @@ export default function DeliveryNoteDetailPage() {
   const performAutoSave = async () => {
     if (!deliveryNoteId || !dn.kunde_name) return
     try {
-      await updateLieferscheinSafe(deliveryNoteId, buildDNData())
+      const kopf = buildDNData()
+      const kopfSignatur = JSON.stringify(kopf)
+      if (kopfSignatur !== zuletztGeschriebenerKopf.current) {
+        await updateLieferscheinSafe(deliveryNoteId, kopf)
+        zuletztGeschriebenerKopf.current = kopfSignatur
+      }
       await savePositions(deliveryNoteId, positions)
       await syncPositionsToTicket()
       // Cache invalidieren damit ein Remount der Seite frische DB-Daten
@@ -442,12 +460,8 @@ export default function DeliveryNoteDetailPage() {
     }
   }
 
-  const generateNumber = async () => {
-    const year = new Date().getFullYear()
-    const { data } = await supabase.from('lieferscheine').select('lieferscheinnummer').ilike('lieferscheinnummer', `LI-${year}%`)
-    const nextNum = (data?.length || 0) + 1
-    return `LI-${year}-${String(nextNum).padStart(5, '0')}`
-  }
+  // Atomare Vergabe statt COUNT+1.
+  const generateNumber = () => naechsteBelegnummer(supabase, 'LI')
 
   const handleSaveAndZoho = async () => {
     setSaving(true)

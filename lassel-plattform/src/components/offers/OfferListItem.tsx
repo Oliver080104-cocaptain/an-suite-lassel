@@ -28,6 +28,7 @@ import StatusBadge from '@/components/shared/StatusBadge'
 import CurrencyDisplay from '@/components/shared/CurrencyDisplay'
 import { format } from 'date-fns'
 import { supabase } from '@/lib/supabase'
+import { naechsteBelegnummer } from '@/lib/belegnummer'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
 import { num, STANDARD_MWST, computeTotals } from '@/lib/money'
@@ -91,14 +92,8 @@ export default function OfferListItem({ offer, onDelete, searchTerm = '' }: Prop
         .eq('angebot_id', offer.id)
         .order('position')
 
-      // Rechnungsnummer generieren
-      const year = new Date().getFullYear()
-      const { data: existingInvoices } = await supabase
-        .from('rechnungen')
-        .select('rechnungsnummer')
-        .like('rechnungsnummer', `RE-${year}-%`)
-      const nextNumber = (existingInvoices?.length || 0) + 1
-      const rechnungsnummer = `RE-${year}-${String(nextNumber).padStart(5, '0')}`
+      // Rechnungsnummer atomar vergeben statt zu zaehlen.
+      const rechnungsnummer = await naechsteBelegnummer(supabase, 'RE')
 
       const today = format(new Date(), 'yyyy-MM-dd')
       const fälligAm = format(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd')
