@@ -141,10 +141,18 @@ export async function GET(
   const [
     { data: rechnung, error },
     { data: positionenRaw },
+    { data: companySettings },
     { data: einstellungen },
   ] = await Promise.all([
     supabase.from('rechnungen').select('*').eq('id', id).single(),
     supabase.from('rechnung_positionen').select('*').eq('rechnung_id', id).order('position'),
+    // company_settings ist die Tabelle, in die die Einstellungen-Seite
+    // schreibt. Die Rechnungs-Route las bisher NUR die Key/Value-Tabelle
+    // `einstellungen`, in der diese Schluessel nie angelegt werden — geaenderte
+    // Firmen- und Bankdaten erreichten die Rechnung dadurch nie, und der
+    // global gepflegte Rechnungs-Fusstext war dauerhaft leer. Das Angebots-PDF
+    // liest company_settings bereits korrekt.
+    supabase.from('company_settings').select('*').limit(1).maybeSingle(),
     supabase.from('einstellungen').select('key, value'),
   ])
 
@@ -195,22 +203,29 @@ export async function GET(
     try { s[e.key] = JSON.parse(e.value) } catch { s[e.key] = e.value }
   })
 
+  // Vorrang: company_settings (Einstellungen-Seite) > einstellungen-Key/Value
+  // (Altbestand) > fest hinterlegter Default. Die Feldnamen unterscheiden
+  // sich zwischen den beiden Quellen, deshalb je Feld beide Schreibweisen.
+  const cs: Record<string, string> = (companySettings as Record<string, string>) || {}
+  const wert = (ausCs: string | undefined, ausKv: string | undefined, standard: string) =>
+    (ausCs && String(ausCs).trim()) || (ausKv && String(ausKv).trim()) || standard
+
   const firma = {
-    firmenname: s.firmenname || 'Lassel GmbH',
-    strasse: s.strasse || 'Hetzmannsdorf 25',
-    plz: s.plz || '2041',
-    ort: s.ort || 'Wullersdorf',
-    telefon: s.telefon || '+436608060050',
-    email: s.email || 'office@hoehenarbeiten-lassel.at',
-    website: s.website || 'www.hoehenarbeiten-lassel.at',
-    ust_id: s.ust_id || 'ATU78127607',
-    steuernummer: s.steuernummer || '22375/5414',
-    amtsgericht: s.amtsgericht || 'Korneuburg',
-    geschaeftsfuehrung: s.geschaeftsfuehrung || 'Reinhard Lassel',
-    bank: s.bank || 'Bank Volksbank',
-    iban: s.iban || 'AT454300048406028000',
-    bic: s.bic || 'VBOEATWWXXX',
-    rechnungFusstext: s.rechnungFusstext || '',
+    firmenname: wert(cs.firmenname, s.firmenname, 'Lassel GmbH'),
+    strasse: wert(cs.strasse, s.strasse, 'Hetzmannsdorf 25'),
+    plz: wert(cs.plz, s.plz, '2041'),
+    ort: wert(cs.ort, s.ort, 'Wullersdorf'),
+    telefon: wert(cs.telefon, s.telefon, '+436608060050'),
+    email: wert(cs.email, s.email, 'office@hoehenarbeiten-lassel.at'),
+    website: wert(cs.website, s.website, 'www.hoehenarbeiten-lassel.at'),
+    ust_id: wert(cs.ustIdNr, s.ust_id, 'ATU78127607'),
+    steuernummer: wert(cs.steuernummer, s.steuernummer, '22375/5414'),
+    amtsgericht: wert(cs.amtsgericht, s.amtsgericht, 'Korneuburg'),
+    geschaeftsfuehrung: wert(cs.geschaeftsfuehrung, s.geschaeftsfuehrung, 'Reinhard Lassel'),
+    bank: wert(cs.bankName, s.bank, 'Bank Volksbank'),
+    iban: wert(cs.iban, s.iban, 'AT454300048406028000'),
+    bic: wert(cs.bic, s.bic, 'VBOEATWWXXX'),
+    rechnungFusstext: wert(cs.rechnungFusstext, s.rechnungFusstext, ''),
   }
 
   const aktiv = isHausinhabungAktiv(rechnung.hausinhabung)
@@ -224,6 +239,20 @@ export async function GET(
     uid: rechnung.kunde_uid,
   })
 
+  /**
+   * Bei Anzahlung und Teilrechnung trägt der Beleg als Position 1 die
+   * Abschlagszeile; darunter hängen ALLE Angebotspositionen zum vollen Preis
+   * als Referenz. Ohne Kennzeichnung ergab die Positionsspalte im PDF eine
+   * ganz andere Summe als der Summenblock darunter — für die Buchhaltung des
+   * Kunden nicht nachvollziehbar und formal angreifbar.
+   *
+   * Die Referenzzeilen bekommen deshalb eine eigene Überschrift und keine
+   * Preisspalte: sie beschreiben den Leistungsumfang, abgerechnet wird nur
+   * der Abschlag.
+   */
+  const istTeilfaktura = ['anzahlung', 'teilrechnung'].includes(rechnung.rechnungstyp || '')
+    && num(rechnung.teilbetrag_netto, 0) > 0
+
   const posRows = positionen.map((p, i) => {
     const lines = (p.beschreibung as string || '').split('\n')
     const titel = esc(lines[0] || '')
@@ -231,19 +260,78 @@ export async function GET(
     // ?? statt ||: legitimer 0-Betrag (Gratis-/Info-Position) bleibt 0 statt
     // still durch Einzelpreis×Menge ersetzt zu werden.
     const gesamt = p.gesamtpreis != null ? num(p.gesamtpreis, 0) : round2(num(p.einzelpreis, 0) * num(p.menge, 0))
-    return `
+      // Rabatt sichtbar machen: gesamtpreis enthaelt ihn bereits, ohne
+      // Ausweisung ergab Menge x Einzelpreis fuer den Kunden nicht den
+      // Gesamtpreis — typische Rueckfrage, und der gewaehrte Nachlass war
+      // nicht erkennbar.
+    const rabatt = num(p.rabatt_prozent, 0)
+    const rabattHinweis = rabatt > 0
+      ? `<div style="font-size: 8.5pt; color: #666;">abzgl. ${formatProzent(rabatt)} Rabatt</div>`
+      : ''
+    // Referenzzeilen einer Abschlagsrechnung: Leistungsumfang ohne Preise.
+    const istReferenz = istTeilfaktura && i > 0
+    const trenner = istTeilfaktura && i === 1
+      ? `
+    <div style="margin-top: 14pt; padding: 6pt; font-size: 9pt; color: #555; background: #f8f8f8; border-bottom: 1px solid #ddd;">
+      Leistungsumfang laut Angebot (Nachweis, nicht Teil dieser Abrechnung):
+    </div>`
+      : ''
+
+    return `${trenner}
     <div class="position-item">
       <div class="pos-col-desc">
         <div class="pos-title">${i + 1}. ${titel}</div>
         ${desc ? `<div class="pos-desc">${esc(desc)}</div>` : ''}
       </div>
       <div class="pos-col-menge">${fmtMenge(p.menge)} ${esc(p.einheit || 'Stk')}</div>
-      <div class="pos-col-preis">${formatEuro(p.einzelpreis || 0)}</div>
-      <div class="pos-col-gesamt">${formatEuro(gesamt)}</div>
+      <div class="pos-col-preis">${istReferenz ? '' : `${formatEuro(p.einzelpreis || 0)}${rabattHinweis}`}</div>
+      <div class="pos-col-gesamt">${istReferenz ? '<span style="color:#888;">—</span>' : formatEuro(gesamt)}</div>
     </div>`
   }).join('')
 
   const fusstext = rechnung.fusszeile || firma.rechnungFusstext
+
+  /**
+   * Zahlungsblock.
+   *
+   * Zwei Korrekturen gegenüber vorher:
+   * 1. Bei Storno und Gutschrift stand hier unverändert „Bitte überweisen Sie
+   *    den Rechnungsbetrag" — auf einem Beleg mit negativen Beträgen, der eine
+   *    Zahlung RÜCKGÄNGIG macht. Diese Typen bekommen jetzt einen eigenen Text.
+   * 2. Skonto und ein abweichendes Zahlungsziel wurden zwar gepflegt, aber von
+   *    keiner PDF-Route je ausgegeben — die Vereinbarung stand nirgends auf
+   *    dem Beleg und war damit nicht durchsetzbar.
+   */
+  const zahlungsblock = (() => {
+    const typ = rechnung.rechnungstyp || 'normal'
+    const istGutschrift = typ === 'storno' || typ === 'gutschrift'
+
+    const skontoZeile = rechnung.skonto_aktiv && num(rechnung.skonto_prozent, 0) > 0
+      ? `
+    <div style="margin-top: 4px;"><strong>Skonto:</strong> ${formatProzent(num(rechnung.skonto_prozent, 0))} bei Zahlung innerhalb von ${num(rechnung.skonto_tage, 0)} Tagen</div>`
+      : ''
+
+    if (istGutschrift) {
+      return `
+  <div class="payment">
+    <div style="font-size: 9pt;">
+      Der ausgewiesene Betrag wird Ihnen gutgeschrieben. Eine Zahlung Ihrerseits
+      ist nicht erforderlich.
+    </div>
+  </div>`
+    }
+
+    return `
+  <div class="payment">
+    <div><strong>Zahlungsbedingungen:</strong> ${esc(rechnung.zahlungskondition || '30 Tage netto')}</div>
+    ${rechnung.faellig_bis ? `
+    <div style="margin-top: 4px;"><strong>Fällig am:</strong> ${formatDate(rechnung.faellig_bis)}</div>` : ''}${skontoZeile}
+    <div style="margin-top: 12px; font-size: 9pt;">
+      Bitte überweisen Sie den Rechnungsbetrag unter Angabe der Rechnungsnummer
+      auf das unten angegebene Konto.
+    </div>
+  </div>`
+  })()
 
   // Reverse-Charge-bewusste Beträge: bei RC gilt immer USt=0 / Brutto=Netto,
   // auch wenn evtl. fehlerhaft gespeicherte Alt-Beträge etwas anderes sagen.
@@ -382,15 +470,7 @@ export async function GET(
   </div>
   `})() : ''}
 
-  <div class="payment">
-    <div><strong>Zahlungsbedingungen:</strong> ${esc(rechnung.zahlungskondition || '30 Tage netto')}</div>
-    ${rechnung.faellig_bis ? `
-    <div style="margin-top: 4px;"><strong>Fällig am:</strong> ${formatDate(rechnung.faellig_bis)}</div>` : ''}
-    <div style="margin-top: 12px; font-size: 9pt;">
-      Bitte überweisen Sie den Rechnungsbetrag unter Angabe der Rechnungsnummer
-      auf das unten angegebene Konto.
-    </div>
-  </div>
+  ${zahlungsblock}
 
   ${fusstext ? `
   <div style="margin-top: 20pt; margin-bottom: 15pt; padding-top: 10pt; border-top: 1px solid #ddd; font-size: 9pt; color: #333; line-height: 1.6; white-space: pre-wrap;">${esc(fusstext)}</div>` : ''}

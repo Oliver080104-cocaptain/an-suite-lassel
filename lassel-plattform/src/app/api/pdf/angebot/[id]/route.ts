@@ -134,6 +134,13 @@ export async function GET(
     const lines = (p.beschreibung as string || '').split('\n')
     const titel = esc(lines[0] || '')
     const desc = lines.slice(1).join('\n').trim()
+    // Rabatt sichtbar machen: gesamtpreis enthält ihn bereits, ohne Ausweisung
+    // ergab Menge × Einzelpreis für den Kunden nicht den Gesamtpreis — typische
+    // Rückfrage, und der gewährte Nachlass war nicht erkennbar.
+    const rabatt = num(p.rabatt_prozent, 0)
+    const rabattHinweis = rabatt > 0
+      ? `<div style="font-size: 8.5pt; color: #666;">abzgl. ${formatProzent(rabatt)} Rabatt</div>`
+      : ''
     return `
     <div class="position-item">
       <div class="pos-col-desc">
@@ -141,7 +148,7 @@ export async function GET(
         ${desc ? `<div class="pos-desc">${esc(desc)}</div>` : ''}
       </div>
       <div class="pos-col-menge">${fmtMenge(p.menge)} ${esc(p.einheit || 'Stk')}</div>
-      <div class="pos-col-preis">${formatEuro(p.einzelpreis)}</div>
+      <div class="pos-col-preis">${formatEuro(p.einzelpreis)}${rabattHinweis}</div>
       <div class="pos-col-gesamt">${formatEuro(p.gesamtpreis)}</div>
     </div>`
   }).join('')
