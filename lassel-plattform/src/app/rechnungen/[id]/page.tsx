@@ -60,7 +60,6 @@ const defaultInvoice = {
   kundeOrt: '',
   kundeEmail: '',
   emailRechnung: '',
-  kundeAnsprechpartner: '',
   erstelltDurch: '',
   ticketId: '',
   ticketNumber: '',
@@ -132,6 +131,18 @@ export default function InvoiceDetailPage() {
 
   const invoiceInitialized = useRef(false)
   const positionsInitialized = useRef(false)
+  /**
+   * IDs der Positionen, die tatsaechlich in der Datenbank stehen.
+   *
+   * Vorher wurde dafuer `existingPositions` benutzt — der React-Query-Cache,
+   * der beim Oeffnen einmal geladen und nie invalidiert wird. Eine waehrend
+   * der Sitzung angelegte Position bekommt zwar eine id, steht aber nicht in
+   * diesem Snapshot und fiel damit durch ALLE drei Filter in savePositions:
+   * nicht toCreate (hat eine id), nicht toUpdate (nicht im Snapshot), nicht
+   * toDelete. Ergebnis: die Zeile stand dauerhaft mit den Werten des
+   * Anlagemoments in der DB, waehrend die Oberflaeche etwas anderes zeigte.
+   */
+  const dbPositionIds = useRef<Set<string>>(new Set())
   const autoSaveLock = useRef(false)
   // Dirty-Flag: gesetzt wenn während eines laufenden Saves getippt wird.
   // Nach dem Save wird dann nochmal gespeichert, damit keine Eingaben
@@ -320,6 +331,9 @@ export default function InvoiceDetailPage() {
         gesamtBrutto: p.gesamtpreis || 0,
         }
       }))
+      dbPositionIds.current = new Set(
+        (existingPositions as { id?: string }[]).map((p) => p.id).filter(Boolean) as string[]
+      )
       positionsInitialized.current = true
     }
   }, [existingPositions])
@@ -524,15 +538,19 @@ export default function InvoiceDetailPage() {
     gesamtpreis: num(p.gesamtNetto, 0),
   })
 
-  const savePositions = async (targetId: string, currentPositions: InvoicePosition[], existingPosData: any[]) => {
-    const toDelete = existingPosData.filter(ep => !currentPositions.find(p => p.id === ep.id))
-    const toUpdate = currentPositions.filter(p => p.id && existingPosData.find(ep => ep.id === p.id))
+  const savePositions = async (targetId: string, currentPositions: InvoicePosition[]) => {
+    // Eine id kommt ausschliesslich aus der Datenbank (Ladepfad oder Insert),
+    // sie ist damit der verlaessliche Marker fuer "existiert bereits".
+    const toUpdate = currentPositions.filter(p => p.id)
     const toCreate = currentPositions.filter(p => !p.id)
+    const nochVorhanden = new Set(currentPositions.map(p => p.id).filter(Boolean) as string[])
+    const toDelete = [...dbPositionIds.current].filter(id => !nochVorhanden.has(id))
 
     await Promise.all([
-      ...toDelete.map(p => supabase.from('rechnung_positionen').delete().eq('id', p.id)),
+      ...toDelete.map(id => supabase.from('rechnung_positionen').delete().eq('id', id)),
       ...toUpdate.map(p => supabase.from('rechnung_positionen').update(buildPosData(p, targetId)).eq('id', p.id!)),
     ])
+    for (const id of toDelete) dbPositionIds.current.delete(id)
     if (toCreate.length > 0) {
       const { data: inserted } = await supabase
         .from('rechnung_positionen')
@@ -547,6 +565,7 @@ export default function InvoiceDetailPage() {
           const match = inserted.find((i: any) => i.position === p.pos)
           return match ? { ...p, id: match.id } : p
         }))
+        for (const i of inserted as { id?: string }[]) if (i.id) dbPositionIds.current.add(i.id)
       }
     }
   }
@@ -673,7 +692,7 @@ export default function InvoiceDetailPage() {
     if (!invoiceId || !invoice.kundeName) return
     try {
       await updateRechnungSafe(invoiceId, buildRechnungData(invoice, totals))
-      await savePositions(invoiceId, positions, existingPositions)
+      await savePositions(invoiceId, positions)
       // Cache invalidieren damit ein Remount der Seite frische DB-Daten
       // lädt statt stale cache-Werte — verhindert Phantom-Overwrites
       // nach Extension-induziertem Reparenting.
@@ -717,7 +736,7 @@ export default function InvoiceDetailPage() {
         await updateRechnungSafe(invoiceId!, buildRechnungData(invCopy, totals))
       }
 
-      await savePositions(savedId!, positions, isNew ? [] : existingPositions)
+      await savePositions(savedId!, positions)
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
       queryClient.invalidateQueries({ queryKey: ['invoice', savedId] })
       queryClient.invalidateQueries({ queryKey: ['invoicePositions', savedId] })
@@ -748,7 +767,7 @@ export default function InvoiceDetailPage() {
         await updateRechnungSafe(invoiceId!, buildRechnungData(invCopy, totals))
       }
 
-      await savePositions(savedId!, positions, isNew ? [] : existingPositions)
+      await savePositions(savedId!, positions)
 
       // PDF Link explizit setzen (nicht mehr automatisch beim PDF-Render)
       const pdfLink = `${window.location.origin}/api/pdf/rechnung/${savedId}`
@@ -880,7 +899,20 @@ export default function InvoiceDetailPage() {
         rechnungsdatum: format(new Date(), 'yyyy-MM-dd'),
         faellig_bis: null,
         objekt_adresse: invoice.objektBezeichnung || null,
+        objekt_plz: invoice.objektPlz || null,
+        objekt_ort: invoice.objektOrt || null,
         ticket_nummer: invoice.ticketNumber || null,
+        // Ohne diese Felder hing die Stornorechnung an keinem Angebot und an
+        // keinem Ticket: sie tauchte weder unter "Verknüpfte Dokumente" auf
+        // noch im Fakturierungsstand, und im PDF fehlte die Angebotsreferenz.
+        angebot_id: invoice.referenzAngebotId || null,
+        referenz_angebot_id: invoice.referenzAngebotId || null,
+        referenz_angebot_nummer: invoice.referenzAngebotNummer || null,
+        zoho_ticket_id: invoice.ticketId || null,
+        geschaeftsfallnummer: invoice.geschaeftsfallnummer || null,
+        erstellt_von: invoice.erstelltDurch || null,
+        vermittler_id: invoice.vermittlerId || null,
+        ansprechpartner: invoice.ansprechpartner || null,
         notizen: cancelReason,
         netto_gesamt: -Math.abs(totals.summeNetto),
         mwst_gesamt: -Math.abs(totals.summeUst),
@@ -1206,7 +1238,11 @@ export default function InvoiceDetailPage() {
                 </div>
                 <div>
                   <Label>Ansprechpartner</Label>
-                  <Input value={invoice.kundeAnsprechpartner || ''} onChange={e => setInvoice(p => ({ ...p, kundeAnsprechpartner: e.target.value }))} placeholder="Ansprechpartner" className="mt-1" />
+                  {/* `ansprechpartner`, nicht `kundeAnsprechpartner`: nur der
+                      erste Key wird geladen und in die Spalte ansprechpartner
+                      geschrieben. Das Feld war damit reine Deko — die Eingabe
+                      war nach jedem Reload weg und stand in keinem PDF. */}
+                  <Input value={invoice.ansprechpartner || ''} onChange={e => setInvoice(p => ({ ...p, ansprechpartner: e.target.value }))} placeholder="Ansprechpartner" className="mt-1" />
                 </div>
                 <div>
                   <Label>UID-Nummer</Label>

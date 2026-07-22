@@ -66,6 +66,15 @@ export default function DeliveryNoteDetailPage() {
 
   const dnInitialized = useRef(false)
   const posInitialized = useRef(false)
+  /**
+   * IDs der Positionen, die tatsaechlich in der Datenbank stehen.
+   * Ersetzt den nie invalidierten React-Query-Cache als Vergleichsbasis —
+   * eine waehrend der Sitzung angelegte Position hat zwar eine id, stand aber
+   * nicht im Snapshot und fiel damit durch alle Filter in savePositions:
+   * Korrekturen daran landeten nie in der DB, und eine wieder geloeschte
+   * Position blieb dort stehen.
+   */
+  const dbPositionIds = useRef<Set<string>>(new Set())
   // Verhindert phantom-autosave nach dem initialen setDn(existingDN)
   // (siehe Angebot/Rechnung Bugfix 2026-04-23 v3).
   const justInitialized = useRef(false)
@@ -152,6 +161,9 @@ export default function DeliveryNoteDetailPage() {
           einheit: p.einheit || 'Stk',
         }
       }))
+      dbPositionIds.current = new Set(
+        (existingPositions as { id?: string }[]).map((p) => p.id).filter(Boolean) as string[]
+      )
       posInitialized.current = true
     }
   }, [existingPositions])
@@ -215,25 +227,35 @@ export default function DeliveryNoteDetailPage() {
     return () => document.removeEventListener('visibilitychange', handleVisibility)
   }, [dn, positions, isNew, deliveryNoteId])
 
-  const buildDNData = () => ({
-    lieferscheinnummer: dn.lieferscheinnummer,
-    status: dn.status,
-    kunde_name: dn.kunde_name,
-    kunde_strasse: dn.kunde_strasse || null,
-    kunde_plz: dn.kunde_plz || null,
-    kunde_ort: dn.kunde_ort || null,
-    kunde_uid: dn.kunde_uid || null,
-    objekt_adresse: dn.objekt_adresse || null,
-    ansprechpartner: dn.ansprechpartner || null,
-    lieferdatum: dn.lieferdatum,
-    erstellt_von: dn.erstellt_von || null,
-    ticket_nummer: dn.ticket_nummer || null,
-    zoho_ticket_id: dn.zoho_ticket_id || null,
-    geschaeftsfallnummer: dn.geschaeftsfallnummer || null,
-    notizen: dn.notizen || null,
-    pdf_url: dn.pdf_url || null,
-    angebot_id: dn.angebot_id || null,
-    referenz_angebot_nummer: dn.referenz_angebot_nummer || null,
+  /**
+   * `stand` erlaubt es, einen frisch erzeugten Zustand zu uebergeben, statt auf
+   * den noch nicht gerenderten React-State zu warten. Vorher schrieb der
+   * isNew-Zweig die generierte Nummer nur in eine lokale Kopie, der INSERT las
+   * aber `dn` — der Lieferschein landete OHNE Nummer in der Datenbank,
+   * waehrend Zoho eine Nummer bekam, die kein Beleg trug. Zusaetzlich zaehlt
+   * generateNumber per ilike 'LI-JAHR%'; die leere Nummer fiel aus dem Filter,
+   * der Zaehler stieg nicht und der naechste Lieferschein bekam dieselbe
+   * Nummer erneut und schickte sie ein zweites Mal nach Zoho.
+   */
+  const buildDNData = (stand: any = dn) => ({
+    lieferscheinnummer: stand.lieferscheinnummer,
+    status: stand.status,
+    kunde_name: stand.kunde_name,
+    kunde_strasse: stand.kunde_strasse || null,
+    kunde_plz: stand.kunde_plz || null,
+    kunde_ort: stand.kunde_ort || null,
+    kunde_uid: stand.kunde_uid || null,
+    objekt_adresse: stand.objekt_adresse || null,
+    ansprechpartner: stand.ansprechpartner || null,
+    lieferdatum: stand.lieferdatum,
+    erstellt_von: stand.erstellt_von || null,
+    ticket_nummer: stand.ticket_nummer || null,
+    zoho_ticket_id: stand.zoho_ticket_id || null,
+    geschaeftsfallnummer: stand.geschaeftsfallnummer || null,
+    notizen: stand.notizen || null,
+    pdf_url: stand.pdf_url || null,
+    angebot_id: stand.angebot_id || null,
+    referenz_angebot_nummer: stand.referenz_angebot_nummer || null,
   })
 
   // Schema-Drift-Fallback: Set von Spalten, die in der Prod-DB (noch) fehlen.
@@ -300,7 +322,7 @@ export default function DeliveryNoteDetailPage() {
     if (!deliveryNoteId || !dn.kunde_name) return
     try {
       await updateLieferscheinSafe(deliveryNoteId, buildDNData())
-      await savePositions(deliveryNoteId, positions, existingPositions)
+      await savePositions(deliveryNoteId, positions)
       await syncPositionsToTicket()
       // Cache invalidieren damit ein Remount der Seite frische DB-Daten
       // lädt statt stale cache — schützt gegen Phantom-Overwrite nach
@@ -331,24 +353,53 @@ export default function DeliveryNoteDetailPage() {
         .eq('ticketnummer', dn.ticket_nummer.trim())
         .maybeSingle()
       if (!ticket?.id) return
-      const existingFotosByPos: Record<string, any[]> = {}
-      const existingErledigtByPos: Record<string, boolean> = {}
+
+      /**
+       * Fotos und Erledigt-Haken der Monteure werden über den INHALT der
+       * Position wiedergefunden, nicht über den Array-Index.
+       *
+       * Vorher lief die Zuordnung über `String(i)`: verschob jemand eine Zeile
+       * im Lieferschein oder löschte eine, wanderten die Baustellenfotos auf
+       * eine andere Leistung und Positionen waren fälschlich als erledigt
+       * markiert. Fotos am Listenende verschwanden ganz aus dem Ticket.
+       * Da der Sync bei jedem Autosave und jedem Tab-Wechsel läuft, reichte
+       * dafür eine einzige Umsortierung — ohne jede Rückmeldung.
+       */
+      const schluessel = (name: string, menge: unknown, einheit: string) =>
+        `${(name || '').trim().toLowerCase()}|${parseFloat(String(menge)) || 0}|${(einheit || '').trim().toLowerCase()}`
+
+      const bestand = new Map<string, { fotos: any[]; erledigt: boolean }>()
       if (Array.isArray(ticket.angebotspositionen)) {
-        ticket.angebotspositionen.forEach((p: any, i: number) => {
-          const key = String(i)
-          existingFotosByPos[key] = Array.isArray(p?.fotos) ? p.fotos : []
-          existingErledigtByPos[key] = !!p?.erledigt
+        ticket.angebotspositionen.forEach((p: any) => {
+          const k = schluessel(p?.produktName, p?.menge, p?.einheit)
+          // Erste Zeile gewinnt — bei zwei identischen Positionen ist eine
+          // eindeutige Zuordnung ohnehin nicht möglich.
+          if (!bestand.has(k)) {
+            bestand.set(k, {
+              fotos: Array.isArray(p?.fotos) ? p.fotos : [],
+              erledigt: !!p?.erledigt,
+            })
+          }
         })
       }
-      const newPositions = positions.map((p, i) => {
-        const lines = (p.beschreibung || '').split('\n')
+
+      const newPositions = positions.map((p) => {
+        // produktName und beschreibung liegen im State bereits GETRENNT vor
+        // (der Ladepfad hat die DB-Spalte "Produktname\nLangtext" zerlegt).
+        // Vorher wurde hier ein zweites Mal gesplittet — dabei ging der
+        // Produktname verloren und der Langtext rutschte eine Zeile hoch,
+        // sodass die Monteure im Tourenplaner leere Positionstitel sahen.
+        const name = p.produktName || ''
+        const menge = parseFloat(p.menge as string) || 1
+        const einheit = p.einheit || 'Stk'
+        const vorhanden = bestand.get(schluessel(name, menge, einheit))
         return {
-          produktName: lines[0] || '',
-          beschreibung: lines.slice(1).join('\n'),
-          menge: parseFloat(p.menge as string) || 1,
-          einheit: p.einheit || 'Stk',
-          erledigt: existingErledigtByPos[String(i)] ?? false,
-          fotos: existingFotosByPos[String(i)] ?? [],
+          produktName: name,
+          beschreibung: p.beschreibung || '',
+          menge,
+          einheit,
+          erledigt: vorhanden?.erledigt ?? false,
+          fotos: vorhanden?.fotos ?? [],
         }
       })
       await supabase
@@ -360,14 +411,18 @@ export default function DeliveryNoteDetailPage() {
     }
   }
 
-  const savePositions = async (targetId: string, current: DNPosition[], existing: any[]) => {
-    const toDelete = existing.filter(ep => !current.find(p => p.id === ep.id))
-    const toUpdate = current.filter(p => p.id && existing.find(ep => ep.id === p.id))
+  const savePositions = async (targetId: string, current: DNPosition[]) => {
+    // Eine id kommt ausschliesslich aus der Datenbank — verlaesslicher Marker
+    // fuer "existiert bereits".
+    const toUpdate = current.filter(p => p.id)
     const toCreate = current.filter(p => !p.id)
+    const nochVorhanden = new Set(current.map(p => p.id).filter(Boolean) as string[])
+    const toDelete = [...dbPositionIds.current].filter(id => !nochVorhanden.has(id))
     await Promise.all([
-      ...toDelete.map(p => supabase.from('lieferschein_positionen').delete().eq('id', p.id)),
+      ...toDelete.map(id => supabase.from('lieferschein_positionen').delete().eq('id', id)),
       ...toUpdate.map(p => supabase.from('lieferschein_positionen').update(buildPosData(p, targetId)).eq('id', p.id!)),
     ])
+    for (const id of toDelete) dbPositionIds.current.delete(id)
     if (toCreate.length > 0) {
       const { data: inserted } = await supabase
         .from('lieferschein_positionen')
@@ -381,6 +436,7 @@ export default function DeliveryNoteDetailPage() {
           const match = inserted.find((i: any) => i.position === p.pos)
           return match ? { ...p, id: match.id } : p
         }))
+        for (const i of inserted as { id?: string }[]) if (i.id) dbPositionIds.current.add(i.id)
       }
     }
   }
@@ -402,14 +458,14 @@ export default function DeliveryNoteDetailPage() {
       if (isNew) {
         dnCopy.lieferscheinnummer = await generateNumber()
         setDn(dnCopy)
-        const inserted = await insertLieferscheinSafe(buildDNData())
+        const inserted = await insertLieferscheinSafe(buildDNData(dnCopy))
         savedId = inserted.id
         router.replace(`/lieferscheine/${savedId}`)
       } else {
         await updateLieferscheinSafe(deliveryNoteId!, buildDNData())
       }
 
-      await savePositions(savedId!, positions, isNew ? [] : existingPositions)
+      await savePositions(savedId!, positions)
       await syncPositionsToTicket()
 
       // PDF Link explizit setzen (nicht mehr automatisch beim PDF-Render)
@@ -469,20 +525,20 @@ export default function DeliveryNoteDetailPage() {
     try {
       // Sicherstellen dass aktueller State persistiert ist
       await updateLieferscheinSafe(deliveryNoteId, buildDNData())
-      await savePositions(deliveryNoteId, positions, existingPositions)
+      await savePositions(deliveryNoteId, positions)
       await syncPositionsToTicket()
 
       // Positionen einmal für beide Webhooks aufbereiten.
-      const positionenForWebhook = positions.map(p => {
-        const lines = (p.beschreibung || '').split('\n')
-        return {
-          pos: p.pos,
-          produktName: lines[0] || '',
-          beschreibung: lines.slice(1).join('\n'),
-          menge: parseFloat(p.menge as string) || 1,
-          einheit: p.einheit || 'Stk',
-        }
-      })
+      // produktName und beschreibung liegen im State bereits getrennt vor —
+      // ein zweiter Split hier hat den Produktnamen verworfen und den Langtext
+      // eine Zeile hochgeschoben (gleicher Fehler wie in syncPositionsToTicket).
+      const positionenForWebhook = positions.map(p => ({
+        pos: p.pos,
+        produktName: p.produktName || '',
+        beschreibung: p.beschreibung || '',
+        menge: parseFloat(p.menge as string) || 1,
+        einheit: p.einheit || 'Stk',
+      }))
       const editUrl = `${window.location.origin}/lieferscheine/${deliveryNoteId}`
 
       // Beide n8n-Flows parallel anstoßen:
