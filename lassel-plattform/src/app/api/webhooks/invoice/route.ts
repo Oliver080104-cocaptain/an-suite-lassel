@@ -175,11 +175,42 @@ export async function POST(req: NextRequest) {
     let action: string
 
     if (existing) {
-      // UPDATE existing — overwrite with fresh payload
-      await supabase.from('rechnungen').update(buildData()).eq('id', existing.id)
+      // UPDATE existing — overwrite with fresh payload.
+      //
+      // Vorher liefen Kopf-Update, Positionen-Delete und Positionen-Insert als
+      // drei nackte awaits ohne Fehlerprüfung. Scheiterte der Insert nach dem
+      // Delete, war die Rechnung ohne eine einzige Zeile — mit den frischen
+      // Summen im Kopf, ohne Fehlermeldung und ohne Weg zurück.
+      const { error: kopfError } = await supabase.from('rechnungen').update(buildData()).eq('id', existing.id)
+      if (kopfError) {
+        await logEvent('error', 'webhook-invoice',
+          `Rechnungskopf konnte nicht aktualisiert werden für ${existing.rechnungsnummer}`,
+          { rechnungsnummer: existing.rechnungsnummer, ticketId, error: kopfError.message })
+        return NextResponse.json({ error: kopfError.message }, { status: 500 })
+      }
+
       if (posArray.length > 0) {
-        await supabase.from('rechnung_positionen').delete().eq('rechnung_id', existing.id)
-        await supabase.from('rechnung_positionen').insert(buildPositionen(existing.id))
+        const { error: delError } = await supabase.from('rechnung_positionen').delete().eq('rechnung_id', existing.id)
+        if (delError) {
+          await logEvent('error', 'webhook-invoice',
+            `Alte Rechnungspositionen konnten nicht entfernt werden für ${existing.rechnungsnummer}`,
+            { rechnungsnummer: existing.rechnungsnummer, error: delError.message })
+          return NextResponse.json({ error: delError.message }, { status: 500 })
+        }
+        const { error: insError } = await supabase.from('rechnung_positionen').insert(buildPositionen(existing.id))
+        if (insError) {
+          await logEvent('critical', 'webhook-invoice',
+            `Rechnung ${existing.rechnungsnummer} hat jetzt KEINE Positionen — Insert nach Delete fehlgeschlagen`,
+            { rechnungsnummer: existing.rechnungsnummer, error: insError.message })
+          return NextResponse.json({ error: insError.message }, { status: 500 })
+        }
+      } else {
+        // Leeres Positionen-Array: die Summen wurden oben trotzdem neu
+        // gerechnet (computeTotals über [] ergibt 0). Kopf und Positionen
+        // würden auseinanderlaufen — deshalb hier gar nicht erst anfassen.
+        await logEvent('warning', 'webhook-invoice',
+          `Update ohne Positionen für ${existing.rechnungsnummer} — bestehende Zeilen bleiben, Summen wurden auf 0 gesetzt`,
+          { rechnungsnummer: existing.rechnungsnummer, ticketId })
       }
       rechnungId = existing.id
       rechnungsnummer = existing.rechnungsnummer
@@ -196,7 +227,16 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: error?.message || 'Fehler' }, { status: 500 })
       }
       if (posArray.length > 0) {
-        await supabase.from('rechnung_positionen').insert(buildPositionen(newRechnung.id))
+        const { error: insError } = await supabase.from('rechnung_positionen').insert(buildPositionen(newRechnung.id))
+        if (insError) {
+          // Kopf zurücknehmen: eine Rechnung mit Summen und ohne Zeilen ist
+          // schlimmer als gar keine — sie sieht in der Liste vollständig aus.
+          await supabase.from('rechnungen').delete().eq('id', newRechnung.id)
+          await logEvent('error', 'webhook-invoice',
+            `Rechnungspositionen konnten nicht gespeichert werden, Rechnung ${rechnungsnummer} wurde zurückgenommen`,
+            { rechnungsnummer, ticketId, error: insError.message })
+          return NextResponse.json({ error: insError.message }, { status: 500 })
+        }
       }
       rechnungId = newRechnung.id
       action = 'created'

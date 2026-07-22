@@ -48,6 +48,33 @@ export async function POST(req: NextRequest) {
       ).catch(() => {})
     }
 
+    // Idempotenz: als einziger der vier Beleg-Webhooks hat delivery-note
+    // bisher keine Duplikatsprüfung gemacht UND zoho_ticket_id gar nicht
+    // gespeichert — jeder erneute Aufruf legte einen weiteren Lieferschein
+    // mit fortlaufender Nummer an, und der Zusammenhang war nachträglich
+    // nicht einmal rekonstruierbar. Gleiches Muster wie in webhooks/invoice.
+    const { data: existing } = await supabase
+      .from('lieferscheine')
+      .select('id, lieferscheinnummer')
+      .eq('zoho_ticket_id', ticketId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (existing) {
+      logEvent('warning', 'lieferschein-exists',
+        `Lieferschein für Ticket ${ticketId} existiert bereits — kein zweiter angelegt`,
+        { ticketId, existingId: existing.id }
+      ).catch(() => {})
+      return NextResponse.json({
+        success: true,
+        lieferscheinId: existing.id,
+        lieferscheinNummer: existing.lieferscheinnummer,
+        editUrl: `${APP_URL}/lieferscheine/${existing.id}`,
+        action: 'already_exists',
+      })
+    }
+
     const lieferscheinnummer = await generateLieferscheinnummer()
     const posArray = Array.isArray(positionen) ? positionen : []
     if (posArray.length === 0) {
@@ -68,6 +95,8 @@ export async function POST(req: NextRequest) {
         kunde_ort: kunde.ort || null,
         objekt_adresse: angebot?.objektBeschreibung || null,
         ticket_nummer: ticketNumber || null,
+        // Ohne diese Spalte war die Duplikatsprüfung oben wirkungslos.
+        zoho_ticket_id: ticketId || null,
         lieferdatum: new Date().toISOString().split('T')[0],
       })
       .select()
@@ -78,7 +107,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (posArray.length > 0) {
-      await supabase.from('lieferschein_positionen').insert(
+      const { error: posError } = await supabase.from('lieferschein_positionen').insert(
         posArray.map((p: any) => ({
           lieferschein_id: newLS.id,
           position: p.pos || 1,
@@ -89,6 +118,16 @@ export async function POST(req: NextRequest) {
           einheit: p.einheit || 'Stk',
         }))
       )
+      if (posError) {
+        // Kopf zurücknehmen, sonst bliebe ein leerer Lieferschein mit
+        // verbrauchter Nummer stehen und die Duplikatsprüfung würde ihn
+        // beim nächsten Aufruf für gültig halten.
+        await supabase.from('lieferscheine').delete().eq('id', newLS.id)
+        await logEvent('error', 'webhook-delivery-note',
+          `Positionen konnten nicht gespeichert werden, Lieferschein ${lieferscheinnummer} wurde zurückgenommen`,
+          { lieferscheinnummer, ticketId, error: posError.message })
+        return NextResponse.json({ error: posError.message }, { status: 500 })
+      }
     }
 
     const editUrl = `${APP_URL}/lieferscheine/${newLS.id}`

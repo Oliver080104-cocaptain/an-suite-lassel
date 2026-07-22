@@ -62,7 +62,11 @@ export async function POST(req: NextRequest) {
       name: body.name,
       email: body.email || null,
       telefon: body.telefon || null,
-      provisionssatz: parseFloat(body.provisionssatz) || 10,
+      // num() statt `|| 10`: eine echte 0-%-Provision ist ein gültiger Wert
+      // und wurde hier still auf 10 % angehoben. Der UPDATE-Zweig direkt
+      // darüber war bereits umgestellt — dieselbe Route verhielt sich in
+      // beiden Pfaden unterschiedlich.
+      provisionssatz: num(body.provisionssatz, 10),
       status: body.status || 'aktiv',
       notizen: body.notizen || null,
     }).select().single()

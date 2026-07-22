@@ -148,7 +148,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (posArray.length > 0) {
-      await supabase.from('rechnung_positionen').insert(
+      // Fehler hier NICHT verschlucken: der Kopf existiert bereits mit Nummer
+      // und Summen, jeder erneute Aufruf verliesse die Route oben mit
+      // 'already_exists' — die fehlenden Zeilen kaemen also nie nach.
+      const { error: posError } = await supabase.from('rechnung_positionen').insert(
         posArray.map((p: any) => ({
           rechnung_id: newRechnung.id,
           position: p.pos || 1,
@@ -165,6 +168,16 @@ export async function POST(req: NextRequest) {
           gesamtpreis: lineNetto({ menge: p.menge, einzelpreis: p.einzelpreisNetto, rabattProzent: p.rabattProzent }),
         }))
       )
+      if (posError) {
+        // Kopf zurücknehmen — eine Sammelrechnung mit Summen und ohne
+        // Leistungszeilen ist nicht rechtskonform und über den Webhook nicht
+        // mehr reparierbar (der nächste Aufruf meldet 'already_exists').
+        await supabase.from('rechnungen').delete().eq('id', newRechnung.id)
+        await logEvent('error', 'webhook-sammelrechnung',
+          `Positionen konnten nicht gespeichert werden, Sammelrechnung ${rechnungsnummer} wurde zurückgenommen`,
+          { rechnungsnummer, ticketId, error: posError.message })
+        return NextResponse.json({ error: posError.message }, { status: 500 })
+      }
     }
 
     const editUrl = `${APP_URL}/rechnungen/${newRechnung.id}`

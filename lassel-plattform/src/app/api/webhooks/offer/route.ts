@@ -283,7 +283,22 @@ export async function POST(req: NextRequest) {
           gesamtpreis: lineNetto({ menge: p.menge, einzelpreis: p.einzelpreisNetto, rabattProzent: p.rabattProzent }),
         }))
         const { error: posError } = await supabase.from('angebot_positionen').insert(posData)
-        if (posError) console.error('[webhooks/offer] positionen insert error:', posError)
+        if (posError) {
+          // Vorher nur console.error: der Webhook meldete Zoho HTTP 200, das
+          // Angebot stand mit Summen aber ohne eine einzige Position in der
+          // Liste, und ein erneutes Senden lief in den UPDATE-Zweig — die
+          // Positionen kamen also nie nach. Jetzt schlägt der Aufruf fehl,
+          // damit n8n es erneut versucht bzw. der Fehler sichtbar wird.
+          console.error('[webhooks/offer] positionen insert error:', posError)
+          await logEvent('error', 'webhook-offer',
+            `Angebotspositionen konnten nicht gespeichert werden für ${angebotsnummer}`,
+            { angebotsnummer, ticketId, error: posError.message }
+          )
+          return NextResponse.json(
+            { error: `Positionen konnten nicht gespeichert werden: ${posError.message}`, angebotsnummer },
+            { status: 500 }
+          )
+        }
       }
     }
 
