@@ -120,6 +120,50 @@ Befunde, alle behoben:
   einen Netzwerk-Hop. Funktioniert nur, weil `/api/pdf/**` öffentlich ist —
   bei einer späteren Auth-Härtung muss das mitwandern.
 
+## Session 2026-07-22 (4) — Entwurfsraum: Schreibzugriff für die API
+
+Volle Doku: `docs/api-v1.md`. Der Agent kann jetzt Angebote **vorschlagen**;
+ein Mensch macht daraus per Klick einen Beleg.
+
+**Warum nicht direkt schreiben:** Die Detailseiten halten den Beleg als einmalig
+eingefrorenen React-Snapshot (Init-Guards werden nie zurückgesetzt) und schreiben
+bei jedem Autosave den kompletten Datensatz plus alle Positionen zurück — beim
+Angebot als delete-then-insert. Ein API-Write wäre spurlos weg, sobald jemand den
+Beleg offen hat. Eine Zeile in `beleg_entwuerfe` kann in keinem dieser Pfade
+liegen, weil die Tabelle dort nicht vorkommt.
+
+**Neu:**
+- `supabase/migrations/023_belegnummern_kreise.sql` — atomare Nummernvergabe per
+  `INSERT … ON CONFLICT DO UPDATE … RETURNING`, aus `MAX()` geseedet, mit Trigger
+  der handgesetzte Nummern nachzieht. Die elf `COUNT+1`-Generatoren im UI bleiben
+  unangetastet und laufen parallel weiter.
+- `supabase/migrations/024_beleg_entwuerfe.sql` — Entwurfstabelle, **RLS ohne
+  Policy**. Damit kommt der Anon-Key aus dem Browser-Bundle nicht heran; das ist
+  der Unterschied zu allen anderen Tabellen mit ihrer „Allow all"-Policy.
+- `src/lib/entwuerfe.ts` — zod-Validierung (strikt: unbekannte Felder → 422) und
+  die Übernahme. Der Zustandswechsel läuft als bedingtes UPDATE mit `.select()`
+  und geprüfter Zeilenzahl; ohne `.select()` liefert supabase-js bei null
+  getroffenen Zeilen `error === null` und ein Konflikt sähe wie Erfolg aus.
+  Schlägt etwas nach dem Anspruch fehl, wird der Entwurf wieder freigegeben.
+- `src/lib/belegnummer.ts`, `src/app/api/entwuerfe/route.ts` (UI, tokenfrei,
+  Herkunftsprüfung), `src/app/entwuerfe/page.tsx` (Freigabe-Oberfläche).
+- MCP: `angebot_entwurf_anlegen`, `entwuerfe_auflisten`. Übernehmen und Verwerfen
+  sind bewusst KEINE Tools.
+
+**Bewusst nicht in der Übernahme:** keine n8n-Webhooks, keine Weiterleitung auf
+die Detailseite (deren Öffnen startet den Autosave-Zyklus), kein `pdf_url`, kein
+Status außer `entwurf`.
+
+**Nötig zum Aktivieren:** Migrationen 023 + 024 ausführen,
+`SUPABASE_SERVICE_ROLE_KEY` und `API_TOKEN_WRITE` setzen. Ohne das antworten die
+Endpunkte mit einer Meldung, die genau das sagt.
+
+Verifiziert: 17 Validierungs- und Rechenfälle (Rabatt, Reverse Charge, gemischte
+Sätze, untergeschobene Felder), 8 Routenprüfungen gegen den Dev-Server
+(Token-Trennung, 422-Text, 403 bei fremdem Origin, MCP-Tool-Fehler statt Crash).
+Die SQL-Migrationen konnten mangels lokaler Postgres-Instanz nicht ausgeführt
+werden — sie sind idempotent, brauchen aber einen ersten Lauf unter Aufsicht.
+
 ## Session 2026-07-22 (3) — Bestandsbugs behoben
 
 Sieben verifizierte Bugs, alle mit Wirkung auf echte Geschäftsdaten.

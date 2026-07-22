@@ -135,6 +135,81 @@ const TOOLS = [
     },
   },
   {
+    name: 'angebot_entwurf_anlegen',
+    title: 'Angebots-Entwurf vorschlagen',
+    description:
+      'Legt einen Angebots-ENTWURF an. Das ist noch kein Angebot: der Vorschlag erscheint in der '
+      + 'Angebotssuite unter "Entwürfe" und wird erst zu einem Beleg mit Nummer, wenn ein Mitarbeiter '
+      + 'ihn dort ausdrücklich übernimmt. Es wird nichts versendet, nichts nach Zoho übertragen und '
+      + 'kein bestehender Beleg verändert. Sag dem Nutzer klar, dass der Entwurf noch freigegeben '
+      + 'werden muss. Beträge sind Netto-Einzelpreise in Euro; die Summen rechnet der Server.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kunde: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            strasse: { type: 'string' },
+            plz: { type: 'string' },
+            ort: { type: 'string' },
+            uid: { type: 'string' },
+            email: { type: 'string' },
+          },
+          required: ['name'],
+        },
+        objekt: {
+          type: 'object',
+          properties: {
+            bezeichnung: { type: 'string' },
+            adresse: { type: 'string' },
+            plz: { type: 'string' },
+            ort: { type: 'string' },
+          },
+        },
+        positionen: {
+          type: 'array',
+          minItems: 1,
+          items: {
+            type: 'object',
+            properties: {
+              titel: { type: 'string', description: 'Kurzbezeichnung, erscheint fett in der Positionszeile' },
+              beschreibung: { type: 'string', description: 'Optionaler Langtext unter dem Titel' },
+              menge: { type: 'number' },
+              einheit: { type: 'string', description: 'z.B. Stk, m, m², pausch. — Standard: Stk' },
+              einzelpreisNetto: { type: 'number' },
+              rabattProzent: { type: 'number' },
+              ustSatz: { type: 'number', description: 'Standard 20. Bei Reverse Charge wird keine USt gerechnet.' },
+            },
+            required: ['titel', 'menge', 'einzelpreisNetto'],
+          },
+        },
+        reverseCharge: { type: 'boolean', description: 'Bauleistung nach §19 Abs. 1a UStG — keine USt' },
+        angebotsdatum: { type: 'string', description: 'YYYY-MM-DD, Standard heute' },
+        gueltigBis: { type: 'string', description: 'YYYY-MM-DD' },
+        ansprechpartner: { type: 'string' },
+        ticketNummer: { type: 'string' },
+        notizen: { type: 'string' },
+        notiz: { type: 'string', description: 'Hinweis an die Person, die den Entwurf prüft' },
+      },
+      required: ['kunde', 'positionen'],
+    },
+  },
+  {
+    name: 'entwuerfe_auflisten',
+    title: 'Entwürfe auflisten',
+    description:
+      'Zeigt die vorgeschlagenen Entwürfe und ihren Zustand (offen, übernommen, verworfen). '
+      + 'Das Übernehmen selbst ist über diese Schnittstelle nicht möglich — das passiert in der App.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        zustand: { type: 'string', enum: ['offen', 'uebernommen', 'verworfen', 'alle'], default: 'offen' },
+        limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
+      },
+    },
+  },
+  {
     name: 'pdf_link',
     title: 'PDF-Link',
     description:
@@ -152,13 +227,23 @@ const TOOLS = [
 ] as const
 
 /** Ruft die interne v1-API auf, damit Tool und REST-Endpunkt nie auseinanderlaufen. */
-async function v1(req: NextRequest, pfad: string, params: Record<string, string | number | undefined> = {}) {
+async function v1(
+  req: NextRequest,
+  pfad: string,
+  params: Record<string, string | number | undefined> = {},
+  body?: unknown
+) {
   const url = new URL(`/api/v1/${pfad}`, req.nextUrl.origin)
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v))
   }
   const res = await fetch(url, {
-    headers: { authorization: req.headers.get('authorization') || '' },
+    method: body === undefined ? 'GET' : 'POST',
+    headers: {
+      authorization: req.headers.get('authorization') || '',
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
     cache: 'no-store',
     signal: AbortSignal.timeout(25_000),
   })
@@ -203,6 +288,16 @@ async function toolAusfuehren(req: NextRequest, name: string, args: Record<strin
       return v1(req, 'produkte', { suche: args.suchbegriff ? String(args.suchbegriff) : undefined, limit })
     case 'stammdaten_abrufen':
       return v1(req, 'stammdaten', { art: String(args.art || '') })
+    case 'angebot_entwurf_anlegen':
+      // Braucht den Schreib-Token. Trägt der Connector nur den Lese-Token,
+      // antwortet die v1-Route mit 401 und der Agent bekommt das als
+      // Tool-Fehler zurück — genau das gewünschte Verhalten.
+      return v1(req, 'entwuerfe', {}, args)
+    case 'entwuerfe_auflisten':
+      return v1(req, 'entwuerfe', {
+        zustand: args.zustand ? String(args.zustand) : 'offen',
+        limit,
+      })
     case 'pdf_link': {
       if (!typ) throw new ApiError(400, 'parameter-fehlt', 'typ fehlt.')
       const beleg = await belegDetail(typ, String(args.beleg || ''))

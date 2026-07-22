@@ -13,8 +13,17 @@ openssl rand -hex 32
 
 | Variable | Zweck |
 |---|---|
-| `API_TOKEN_READ` | Lesezugriff. Dieses Token bekommt der MCP-Connector. |
-| `API_TOKEN_WRITE` | Vorbereitung für spätere Schreib-Endpunkte. Aktuell ohne Wirkung, kann leer bleiben. |
+| `API_TOKEN_READ` | Lesezugriff. |
+| `API_TOKEN_WRITE` | Lesen **und** Entwürfe anlegen. Nur setzen, wenn der Agent Angebote vorschlagen können soll. |
+
+Der MCP-Connector bekommt genau eines der beiden. Mit `API_TOKEN_READ` ist er
+physisch schreibunfähig; mit `API_TOKEN_WRITE` kann er Entwürfe anlegen, aber
+weiterhin keinen Beleg erzeugen — das Übernehmen liegt außerhalb seiner Reichweite.
+
+Der Entwurfsraum braucht zusätzlich `SUPABASE_SERVICE_ROLE_KEY`: die Tabellen
+`beleg_entwuerfe` und `belegnummern_kreise` haben RLS ohne Policy, ein Anon-Client
+bekäme dort wortlos leere Ergebnisse. Fehlt der Key, antworten die
+Entwurfs-Endpunkte mit einem klaren 500 statt still zu versagen.
 
 **Ohne gesetztes Token antwortet die API mit `503`.** Sie steht nie offen — auch nicht
 versehentlich nach einem Deploy, bei dem die Variable vergessen wurde.
@@ -93,6 +102,11 @@ eingetippt werden, sonst kommt beim Server nur der nackte Token an.
 | `produkte_suchen` | Produktkatalog |
 | `stammdaten_abrufen` | Vermittler, Mitarbeiter, Hausverwaltungen, Textvorlagen |
 | `pdf_link` | URL zum PDF eines Belegs |
+| `angebot_entwurf_anlegen` | Angebot vorschlagen (braucht `API_TOKEN_WRITE`) |
+| `entwuerfe_auflisten` | eigene Vorschläge und ihr Zustand |
+
+Übernehmen und Verwerfen sind bewusst **keine** Tools. Ein Agent kann damit
+vorschlagen, aber nichts freigeben.
 
 ### Lokal testen
 
@@ -106,10 +120,65 @@ Für einen Test gegen das echte claude.ai braucht es einen HTTPS-Tunnel
 (`cloudflared tunnel --url http://localhost:3000`) — Anthropic ruft Connectors
 von eigener Infrastruktur aus auf und erreicht `localhost` nicht.
 
-## Warum nur lesend
+## Schreibzugriff: der Entwurfsraum
+
+Die API schreibt **niemals** in `angebote`, `rechnungen` oder `lieferscheine`.
+Sie kennt genau ein schreibendes Verb: *Entwurf anlegen*.
+
+```
+Agent ──POST /api/v1/entwuerfe──▶ beleg_entwuerfe (Vorschlag, keine Nummer)
+                                        │
+Mensch ──/entwuerfe → "Übernehmen"──────┘
+                                        ▼
+                              angebote (Status "Entwurf", source "api")
+```
+
+| Endpunkt | Wer | Zweck |
+|---|---|---|
+| `POST /api/v1/entwuerfe` | Agent, Schreib-Token | Vorschlag ablegen. Antwortet `201` mit `entwurfId` und den gerechneten Summen. |
+| `GET /api/v1/entwuerfe` | Agent | eigene Vorschläge und ihr Zustand |
+| `GET /api/entwuerfe` | Oberfläche | Liste für die Seite `/entwuerfe`, ohne Token |
+| `POST /api/entwuerfe` | Oberfläche | `{id, aktion: "uebernehmen"\|"verwerfen", entschiedenVon}` |
+
+**Warum das die Kollision vermeidet:** Die Detailseiten halten einen Beleg als
+einmalig eingefrorenen React-Snapshot und schreiben bei jedem Autosave den
+kompletten Datensatz plus alle Positionen zurück — beim Angebot als
+delete-then-insert. Eine Zeile in `beleg_entwuerfe` kann in keinem dieser Pfade
+liegen, weil die Tabelle dort schlicht nicht vorkommt.
+
+**Was die Übernahme bewusst nicht tut:** keine n8n-Webhooks feuern, keine
+Weiterleitung auf die Detailseite, kein `pdf_url` setzen, keinen Status außer
+`entwurf` vergeben. All das gehört einer bewussten Handlung eines Menschen —
+sonst schlägt eine Agenten-Aktion ungebremst bis nach Zoho durch.
+
+**Was gegen Doppelübernahme schützt:** Der Zustandswechsel läuft als bedingtes
+`UPDATE … WHERE zustand = 'offen'` mit `.select()` und geprüfter Zeilenzahl.
+Ohne `.select()` liefert supabase-js bei null getroffenen Zeilen `error === null`
+— zwei Sachbearbeiter am selben Stapel erzeugten zwei identische Angebote, ohne
+dass jemand einen Fehler sähe.
+
+**Belegnummern** kommen aus `naechste_belegnummer()` (Migration 023), einem
+`INSERT … ON CONFLICT DO UPDATE … RETURNING` — unter Postgres atomar. Die elf
+bestehenden `COUNT+1`-Generatoren im UI bleiben unangetastet; ein Trigger zieht
+den Zähler nach, wenn eine Nummer an diesem Weg vorbei gesetzt wird. Beide
+Verfahren laufen deshalb parallel, ohne sich zu überholen.
+
+**Validierung** ist strikt: unbekannte Felder werden mit `422` abgelehnt, nicht
+geschluckt. Ein Agent, der sich ein Feld ausdenkt, soll das erfahren — sonst
+meldet er dem Anwender „gespeichert", während die Hälfte verworfen wurde.
+Untergeschobene Felder wie `status` oder `angebotsnummer` fallen damit
+automatisch durch.
+
+### Nötige Migrationen
+
+`023_belegnummern_kreise.sql` und `024_beleg_entwuerfe.sql` im Supabase
+SQL-Editor ausführen. Bis dahin antworten die Entwurfs-Endpunkte mit einer
+Meldung, die genau das sagt.
+
+## Warum weiterhin kein Ändern bestehender Belege
 
 Vier Gründe, alle im Code belegt. Sie müssen gelöst sein, bevor ein
-Schreib-Endpunkt entstehen darf:
+änderndernder Endpunkt entstehen darf:
 
 1. **Autosave überschreibt jeden API-Write lautlos.**
    `angebote/[id]/page.tsx` (`handleAutoSave`) schreibt eine Sekunde nach jeder

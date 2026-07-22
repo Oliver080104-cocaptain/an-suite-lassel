@@ -417,6 +417,10 @@ export default function OfferDetailPage() {
     const buildPosData = (pos: any, index: number) => ({
       angebot_id: targetOfferId,
       position: index + 1,
+      // produkt_id mitschreiben: savePositions ist delete-then-insert, ohne
+      // dieses Feld verliert JEDER Autosave die Produktverknüpfung der
+      // Positionen — auch die, die beim Anlegen des Angebots gesetzt wurde.
+      produkt_id: pos.produkt_id || pos.produktId || null,
       beschreibung: pos.produktName
         ? (pos.beschreibung ? `${pos.produktName}\n${pos.beschreibung}` : pos.produktName)
         : (pos.beschreibung || ''),

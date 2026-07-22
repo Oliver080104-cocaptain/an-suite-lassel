@@ -43,6 +43,22 @@ export function nutztServiceRole(): boolean {
   return !!process.env.SUPABASE_SERVICE_ROLE_KEY
 }
 
+/**
+ * Datenbankzugang für SCHREIBENDE Endpunkte. Anders als `apiDb()` gibt es
+ * hier keinen Anon-Fallback: `beleg_entwuerfe` und `belegnummern_kreise`
+ * haben RLS ohne Policy, ein Anon-Client bekäme dort wortlos leere
+ * Ergebnisse statt eines Fehlers. Lieber hart abbrechen.
+ */
+export function apiDbSchreiben(): SupabaseClient {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) {
+    throw new ApiError(500, 'service-role-fehlt',
+      'Schreibzugriff ist nicht konfiguriert. SUPABASE_SERVICE_ROLE_KEY in den Umgebungsvariablen setzen.')
+  }
+  return createClient(url, key, { auth: { persistSession: false } })
+}
+
 // ------------------------------------------------------------------- Fehler
 
 export class ApiError extends Error {

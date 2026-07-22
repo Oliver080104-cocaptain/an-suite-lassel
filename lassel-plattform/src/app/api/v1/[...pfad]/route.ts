@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import {
-  pruefeToken, fehlerAntwort, ApiError, apiDb, nutztServiceRole,
+  pruefeToken, fehlerAntwort, ApiError, apiDb, apiDbSchreiben, nutztServiceRole,
   ganzzahl, nurFelder, ohneGeloeschte, DEFAULT_LIMIT, MAX_LIMIT,
 } from '@/lib/api-core'
 import { listeBelege, belegDetail, TABELLE, type BelegTyp } from '@/lib/api-belege'
+import { entwurfSchema, entwurfSummen } from '@/lib/entwuerfe'
 
 /**
  * Lese-API der Angebotssuite, Version 1.
@@ -116,6 +118,27 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ pfad: strin
       return NextResponse.json(await stammdaten(q.get('art') || ''))
     }
 
+    // ------------------------------------------------------- /v1/entwuerfe
+    if (pfad[0] === 'entwuerfe' && pfad.length === 1) {
+      const db = apiDbSchreiben()
+      const zustand = q.get('zustand') || 'offen'
+      let query = db.from('beleg_entwuerfe').select('*').order('erstellt_am', { ascending: false })
+      if (zustand !== 'alle') query = query.eq('zustand', zustand)
+      const { data, error } = await query.range(offset, offset + limit - 1)
+      if (error) throw new ApiError(502, 'db-fehler', entwurfsraumFehler(error.message))
+      return NextResponse.json({
+        anzahl: (data || []).length,
+        entwuerfe: (data || []).map(entwurfAusgabe),
+      })
+    }
+    if (pfad[0] === 'entwuerfe' && pfad.length === 2) {
+      const db = apiDbSchreiben()
+      const { data, error } = await db.from('beleg_entwuerfe').select('*').eq('id', pfad[1]).maybeSingle()
+      if (error) throw new ApiError(502, 'db-fehler', entwurfsraumFehler(error.message))
+      if (!data) throw new ApiError(404, 'nicht-gefunden', 'Entwurf nicht gefunden.')
+      return NextResponse.json(entwurfAusgabe(data))
+    }
+
     // ------------------------------------------------------ /v1/kennzahlen
     if (pfad[0] === 'kennzahlen' && pfad.length === 1) {
       return NextResponse.json(await kennzahlen(q.get('jahr')))
@@ -138,6 +161,79 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ pfad: strin
   } catch (err) {
     return fehlerAntwort(err)
   }
+}
+
+/**
+ * Entwurf anlegen — der EINZIGE schreibende Endpunkt der v1-API.
+ *
+ * Bewusst kein Übernehmen/Verwerfen hier: das ist der Moment, in dem aus
+ * einem Vorschlag ein Beleg wird, und gehört einem Menschen. Diese Aktionen
+ * liegen unter /api/entwuerfe/{id} und sind nur aus der App heraus
+ * erreichbar — ein Agent, der über MCP nur die freigegebenen Tools kennt,
+ * kann sie nicht auslösen.
+ */
+export async function POST(req: NextRequest, ctx: { params: Promise<{ pfad: string[] }> }) {
+  try {
+    const { pfad } = await ctx.params
+
+    if (pfad[0] === 'entwuerfe' && pfad.length === 1) {
+      pruefeToken(req, 'write')
+      const db = apiDbSchreiben()
+      const body = await req.json().catch(() => null)
+      const geprueft = entwurfSchema.safeParse(body)
+      if (!geprueft.success) {
+        throw new ApiError(422, 'validierung-fehlgeschlagen', validierungsText(geprueft.error))
+      }
+      const daten = geprueft.data
+      const summen = entwurfSummen(daten)
+
+      const { data, error } = await db.from('beleg_entwuerfe').insert({
+        beleg_typ: daten.belegTyp,
+        zustand: 'offen',
+        herkunft: daten.herkunft || null,
+        notiz: daten.notiz || null,
+        daten,
+      }).select().single()
+      if (error) throw new ApiError(502, 'db-fehler', entwurfsraumFehler(error.message))
+
+      return NextResponse.json({
+        ok: true,
+        entwurfId: data.id,
+        zustand: 'offen',
+        summen,
+        hinweis:
+          'Der Entwurf ist noch KEIN Angebot. Er erscheint unter /entwuerfe in der '
+          + 'Angebotssuite und wird erst durch ausdrückliche Übernahme zu einem Beleg mit Nummer.',
+      }, { status: 201 })
+    }
+
+    throw new ApiError(404, 'unbekannter-endpunkt', `POST /api/v1/${pfad.join('/')} existiert nicht.`)
+  } catch (err) {
+    return fehlerAntwort(err)
+  }
+}
+
+/** Zod-Fehler in eine Meldung, mit der ein Agent etwas anfangen kann. */
+function validierungsText(fehler: z.ZodError): string {
+  return fehler.issues
+    .slice(0, 10)
+    .map((i) => `${i.path.join('.') || '(Wurzel)'}: ${i.message}`)
+    .join('; ')
+}
+
+/** Fehlt die Migration, ist die Meldung von PostgREST wenig hilfreich. */
+function entwurfsraumFehler(meldung: string): string {
+  if (/beleg_entwuerfe/i.test(meldung) && /does not exist|schema cache|not find/i.test(meldung)) {
+    return 'Der Entwurfsraum ist noch nicht eingerichtet. Bitte Migration 024_beleg_entwuerfe.sql in Supabase ausführen.'
+  }
+  return meldung
+}
+
+function entwurfAusgabe(row: Record<string, unknown>) {
+  return nurFelder(row, [
+    'id', 'erstellt_am', 'beleg_typ', 'zustand', 'herkunft', 'notiz', 'daten',
+    'entschieden_am', 'entschieden_von', 'erzeugte_beleg_id', 'erzeugte_nummer', 'fehler',
+  ])
 }
 
 /**
