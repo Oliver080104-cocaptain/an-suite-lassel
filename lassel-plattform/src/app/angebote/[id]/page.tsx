@@ -246,6 +246,13 @@ export default function OfferDetailPage() {
           return {
             id: p.id,
             pos: i + 1,
+            // produkt_id MUSS hier mitgeladen werden: savePositions ist
+            // delete-then-insert und schreibt nur, was im State steht. Ohne
+            // das nullt jeder Autosave die Produktverknüpfung aller
+            // Positionen eines bereits gespeicherten Angebots — und
+            // handleCreateInvoice sowie das Duplizieren vererben die Null
+            // weiter an die Folgebelege.
+            produkt_id: p.produkt_id || null,
             produktName: lines[0] || '',
             beschreibung: lines.slice(1).join('\n'),
             menge: p.menge,

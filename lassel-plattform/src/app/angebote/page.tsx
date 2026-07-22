@@ -14,14 +14,20 @@ import EmptyState from '@/components/shared/EmptyState'
 import OfferListItem from '@/components/offers/OfferListItem'
 import { format } from 'date-fns'
 
+// Die Werte müssen exakt den DB-Werten der Spalte angebote.status entsprechen
+// (ENUM angebot_status, siehe schema.sql). 'draft' stand hier nie in der
+// Datenbank — der häufigste Status war damit nicht filterbar und wurde
+// dauerhaft mit Anzahl 0 angezeigt. 'final', 'archiviert' und 'offen' fehlten
+// ganz, obwohl sie im Detail-Dropdown auswählbar sind.
 const offerStatusOptions = [
   { value: 'all', label: 'Alle Status' },
-  { value: 'draft', label: 'Entwurf' },
-  { value: 'in_bearbeitung', label: 'In Bearbeitung' },
+  { value: 'entwurf', label: 'Entwurf' },
+  { value: 'offen', label: 'Offen' },
   { value: 'versendet', label: 'Versendet' },
+  { value: 'final', label: 'Final' },
   { value: 'angenommen', label: 'Angenommen' },
   { value: 'abgelehnt', label: 'Abgelehnt' },
-  { value: 'abgelaufen', label: 'Abgelaufen' },
+  { value: 'archiviert', label: 'Archiviert' },
 ]
 
 export default function AngebotePage() {

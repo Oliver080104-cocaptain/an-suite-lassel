@@ -834,9 +834,23 @@ export default function InvoiceDetailPage() {
       const nextNum = (allInvoices?.length || 0) + 1
       const stornoNummer = `RE-${year}-${String(nextNum).padStart(5, '0')}`
 
-      const stornoPositions = positions.map(pos => ({
-        position: pos.pos,
-        beschreibung: pos.produktName || pos.beschreibung || '-',
+      // Bei Anzahlung und Teilrechnung trägt der Beleg NUR die Abschlagszeile
+      // als abgerechnete Leistung; die Angebotspositionen darunter stehen als
+      // Referenz drauf (siehe totals-Memo). Würde man hier alle Zeilen negativ
+      // kopieren, ergäbe das Storno einer 3.600-€-Anzahlung eine Gutschrift
+      // über die volle Angebotssumme — mehrfach zu viel.
+      const istTeilfaktura = ['anzahlung', 'teilrechnung'].includes(invoice.rechnungstyp)
+      const zuStornieren = istTeilfaktura && num(invoice.teilbetragNetto, 0) > 0
+        ? positions.slice(0, 1)
+        : positions
+
+      const stornoPositions = zuStornieren.map((pos, i) => ({
+        position: i + 1,
+        // Titel und Langtext wieder zusammensetzen, sonst geht der Langtext
+        // im Stornobeleg verloren (gleiche Zusammensetzung wie buildPosData).
+        beschreibung: pos.produktName
+          ? (pos.beschreibung ? `${pos.produktName}\n${pos.beschreibung}` : pos.produktName)
+          : (pos.beschreibung || '-'),
         menge: -Math.abs(parseFloat(pos.menge as string) || 0),
         einheit: pos.einheit,
         einzelpreis: Math.abs(parseFloat(pos.einzelpreisNetto as string) || 0),

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { renderHtmlToPdfResponse } from '@/lib/pdf-renderer'
 import { buildAdressblock } from '@/lib/adressblock'
-import { num, round2, STANDARD_MWST } from '@/lib/money'
+import { num, round2, STANDARD_MWST, ustNachSaetzen } from '@/lib/money'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,6 +20,12 @@ function formatDate(d: string | null | undefined): string {
   if (!d) return ''
   try { return new Date(d).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }) }
   catch { return String(d) }
+}
+
+/** Steuersatz ohne unnoetige Nachkommastellen: 20 -> "20%", 13,5 -> "13,5%". */
+function formatProzent(n: number): string {
+  const gerundet = Math.round(n * 100) / 100
+  return `${new Intl.NumberFormat('de-AT', { maximumFractionDigits: 2 }).format(gerundet)}%`
 }
 
 function formatEuro(n: unknown): string {
@@ -154,6 +160,32 @@ export async function GET(
     ? nettoGesamt
     : (angebot.brutto_gesamt != null ? num(angebot.brutto_gesamt, 0) : round2(nettoGesamt + mwstGesamt))
 
+  /**
+   * Umsatzsteuer je Satz ausweisen statt pauschal „20%".
+   * § 11 UStG verlangt den Steuersatz; bei gemischten Sätzen getrennt.
+   * Weicht die Summe der Gruppen vom gespeicherten mwst_gesamt ab, ist der
+   * Kopfbetrag maßgeblich — dann eine Zeile mit dem effektiven Satz.
+   */
+  const ustZeilen = (() => {
+    const gruppen = ustNachSaetzen(
+      positionen.map((p) => ({
+        menge: p.menge,
+        einzelpreis: p.einzelpreis,
+        rabattProzent: p.rabatt_prozent,
+        mwstSatz: p.mwst_satz,
+      })),
+      { reverseCharge }
+    )
+    const summeGruppen = gruppen.reduce((s, g) => s + g.betrag, 0)
+    if (gruppen.length > 0 && Math.abs(summeGruppen - mwstGesamt) < 0.02) {
+      return gruppen
+        .map((g) => `<div class="total-row"><span>zzgl. Umsatzsteuer ${formatProzent(g.satz)}</span><span>${formatEuro(g.betrag)}</span></div>`)
+        .join('')
+    }
+    const effektiv = nettoGesamt > 0 ? (mwstGesamt / nettoGesamt) * 100 : 0
+    return `<div class="total-row"><span>zzgl. Umsatzsteuer ${formatProzent(effektiv)}</span><span>${formatEuro(mwstGesamt)}</span></div>`
+  })()
+
   const html = `<!DOCTYPE html>
 <html lang="de">
 <head>
@@ -212,7 +244,7 @@ export async function GET(
     </div>
     ${angebot.reverse_charge
       ? '<div class="total-row"><span>zzgl. Umsatzsteuer (Reverse Charge)</span><span>0,00 €</span></div>'
-      : `<div class="total-row"><span>zzgl. Umsatzsteuer 20%</span><span>${formatEuro(mwstGesamt)}</span></div>`
+      : ustZeilen
     }
     <div class="total-row final">
       <span>Gesamtbetrag brutto</span>

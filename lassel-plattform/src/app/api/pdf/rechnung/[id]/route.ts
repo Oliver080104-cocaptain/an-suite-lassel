@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { renderHtmlToPdfResponse } from '@/lib/pdf-renderer'
 import { buildAdressblock, isHausinhabungAktiv } from '@/lib/adressblock'
-import { num, round2 } from '@/lib/money'
+import { num, round2, ustNachSaetzen } from '@/lib/money'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,6 +20,12 @@ function formatDate(d: string | null | undefined): string {
   if (!d) return ''
   try { return new Date(d).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' }) }
   catch { return String(d) }
+}
+
+/** Steuersatz ohne unnoetige Nachkommastellen: 20 -> "20%", 13,5 -> "13,5%". */
+function formatProzent(n: number): string {
+  const gerundet = Math.round(n * 100) / 100
+  return `${new Intl.NumberFormat('de-AT', { maximumFractionDigits: 2 }).format(gerundet)}%`
 }
 
 function formatEuro(n: unknown): string {
@@ -146,17 +152,28 @@ export async function GET(
 
   const positionen: any[] = positionenRaw || []
 
-  // Bei Schlussrechnungen: alle Anzahlungen + Teilrechnungen zum gleichen Angebot laden
+  // Bei Schlussrechnungen: alle Anzahlungen + Teilrechnungen zum gleichen Angebot laden.
+  //
+  // Ausgeschlossen werden stornierte, gelöschte und noch im Entwurf stehende
+  // Vorab-Rechnungen. Vorher zog die Schlussrechnung deren Beträge mit ab —
+  // der Kunde bekam einen Restbetrag, der um eine nie fakturierte oder wieder
+  // aufgehobene Anzahlung zu niedrig war, und Lassel fakturierte dauerhaft zu
+  // wenig. Dieselbe Regel gilt in angebote/[id] (`fakturierteRechnungen`).
   let vorabRechnungen: any[] = []
   if (rechnung.ist_schlussrechnung && rechnung.angebot_id) {
     const { data: vorabData } = await supabase
       .from('rechnungen')
-      .select('id, rechnungsnummer, rechnungstyp, teilbetrag_brutto, brutto_gesamt, rechnungsdatum')
+      .select('id, rechnungsnummer, rechnungstyp, teilbetrag_brutto, brutto_gesamt, rechnungsdatum, status, geloescht_am')
       .eq('angebot_id', rechnung.angebot_id)
       .in('rechnungstyp', ['anzahlung', 'teilrechnung'])
       .neq('id', rechnung.id)
       .order('rechnungsdatum', { ascending: true })
-    vorabRechnungen = vorabData || []
+    // Filter in JS statt in der Abfrage: geloescht_am und status sind von der
+    // Schema-Drift betroffen, eine serverseitige Bedingung darauf könnte die
+    // gesamte Abfrage mit 400 killen.
+    vorabRechnungen = (vorabData || []).filter(
+      (r) => r.geloescht_am == null && r.status !== 'storniert' && r.status !== 'entwurf'
+    )
   }
 
   // Typ-Mapping für Titel
@@ -235,6 +252,39 @@ export async function GET(
   const mwstGesamt = reverseCharge ? 0 : num(rechnung.mwst_gesamt, 0)
   const bruttoGesamt = reverseCharge ? nettoGesamt : num(rechnung.brutto_gesamt, 0)
 
+  /**
+   * Umsatzsteuer je Satz ausweisen statt pauschal „20%".
+   * § 11 UStG verlangt den Steuersatz; bei gemischten Sätzen getrennt.
+   *
+   * Die Gruppen kommen aus den Positionen. Weicht deren Summe vom
+   * gespeicherten mwst_gesamt ab (Teilfaktura: die Angebotspositionen hängen
+   * nur als Referenz am Beleg), ist der Kopfbetrag maßgeblich — dann wird
+   * eine einzelne Zeile mit dem effektiven Satz gedruckt.
+   */
+  const ustZeilen = (() => {
+    const gruppen = ustNachSaetzen(
+      positionen.map((p) => ({
+        menge: p.menge,
+        einzelpreis: p.einzelpreis,
+        rabattProzent: p.rabatt_prozent,
+        mwstSatz: p.mwst_satz,
+      })),
+      { reverseCharge }
+    )
+    const summeGruppen = gruppen.reduce((s, g) => s + g.betrag, 0)
+    const passt = gruppen.length > 0 && Math.abs(summeGruppen - mwstGesamt) < 0.02
+
+    if (passt) {
+      return gruppen
+        .map((g) => `
+    <div class="total-row"><span>zzgl. Umsatzsteuer ${formatProzent(g.satz)}</span><span>${formatEuro(g.betrag)}</span></div>`)
+        .join('')
+    }
+    const effektiv = nettoGesamt > 0 ? (mwstGesamt / nettoGesamt) * 100 : 0
+    return `
+    <div class="total-row"><span>zzgl. Umsatzsteuer ${formatProzent(effektiv)}</span><span>${formatEuro(mwstGesamt)}</span></div>`
+  })()
+
   const html = `<!DOCTYPE html>
 <html lang="de">
 <head>
@@ -299,8 +349,7 @@ export async function GET(
       <span>${formatEuro(nettoGesamt)}</span>
     </div>
     ${reverseCharge ? `
-    <div class="total-row"><span>USt. (Reverse Charge)</span><span>0,00 €</span></div>` : `
-    <div class="total-row"><span>zzgl. Umsatzsteuer 20%</span><span>${formatEuro(mwstGesamt)}</span></div>`}
+    <div class="total-row"><span>USt. (Reverse Charge)</span><span>0,00 €</span></div>` : ustZeilen}
     <div class="total-row final">
       <span>Gesamtbetrag brutto</span>
       <span>${formatEuro(bruttoGesamt)}</span>

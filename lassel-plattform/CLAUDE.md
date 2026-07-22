@@ -1,5 +1,38 @@
 @AGENTS.md
 
+## Stand — hier zuerst lesen (2026-07-22)
+
+**Was live ist und wie es geschaltet ist:**
+
+| Bereich | Zustand | Schalter / Voraussetzung |
+|---|---|---|
+| E-Mail-Versand Angebot/Rechnung | läuft über **n8n** wie bisher | `EMAIL_VERSAND_MODUS` (Default `n8n`, alternativ `graph`) |
+| Versand über Microsoft Graph | fertig, **nicht aktiv** | `MS_GRAPH_*` setzen, dann Modus auf `graph` |
+| Lese-API `/api/v1/**` | fertig, **inaktiv ohne Token** | `API_TOKEN_READ` |
+| MCP-Server `/api/mcp` | fertig, 9 Tools | derselbe Token, als Custom Connector eintragen |
+| Entwurfsraum (Schreibzugriff) | fertig, Migrationen eingespielt | `API_TOKEN_WRITE` + `SUPABASE_SERVICE_ROLE_KEY` |
+| Zoho-Ablage nach Graph-Versand | **abgeschaltet** | `N8N_ZOHO_WEBHOOK_ANGEBOT` / `_RECHNUNG` |
+
+**Drei Fallen, die man kennen muss, bevor man hier etwas ändert:**
+
+1. **Die Detailseiten sind eingefrorene Snapshots.** `angebote/[id]`, `rechnungen/[id]`
+   und `lieferscheine/[id]` kopieren den Beleg EINMAL in den React-State
+   (Init-Guard-Refs, nie zurückgesetzt) und schreiben bei jedem Autosave den
+   KOMPLETTEN Datensatz plus alle Positionen zurück — beim Angebot als
+   delete-then-insert. Wer nebenher schreibt, verliert. Deshalb schreibt die API
+   nicht direkt, sondern über den Entwurfsraum.
+2. **Das Repo-Schema ist nicht die Wahrheit.** `supabase/schema.sql` und die
+   Migrationen beschreiben nicht den Ist-Stand der Produktionsdatenbank; allein
+   `rechnungen` hat rund 21 Spalten, die in keiner SQL-Datei stehen. Deshalb der
+   Schema-Drift-Retry an fünf Stellen — und deshalb selektiert die API `*` und
+   filtert die Ausgabefelder in JavaScript.
+3. **Es gibt keine Authentifizierung.** RLS ist überall `Allow all`, der Anon-Key
+   steht im Browser-Bundle. Jede Regel in einer Route ist damit eine Konvention,
+   keine Grenze. Ausnahmen sind `beleg_entwuerfe` und `belegnummern_kreise`:
+   RLS an, keine Policy, nur über Server-Routen mit Service-Role erreichbar.
+
+**Was noch manuell zu tun ist:** siehe „Offene TODOs" ganz unten.
+
 ## Monitoring Status (Stand 2026-05-04)
 
 - `src/lib/monitoring.ts` live (project_slug: `lassel`, ingest:
@@ -13,9 +46,15 @@
 - `/api/heartbeat-ping` live (Bearer `CRON_SECRET`)
 - Vercel Cron `*/5 * * * *` in `vercel.json` aktiv
 
-## Session 2026-07-22 — E-Mail-Versand raus aus n8n, rein in Microsoft Graph
+## Session 2026-07-22
 
-### ⚠️ AKTUELL AKTIV: Modus "n8n" — es hat sich für die Anwender NICHTS geändert
+Vier Blöcke, in dieser Reihenfolge entstanden: Versand-Umbau → Lese-API + MCP →
+Bestandsbugs → Entwurfsraum. Commits `2b34949`, `ce0272d`, `fec1a98`, `6f88850`,
+`211e70c`.
+
+### Teil 1 — E-Mail-Versand raus aus n8n, rein in Microsoft Graph
+
+#### ⚠️ AKTUELL AKTIV: Modus "n8n" — es hat sich für die Anwender NICHTS geändert
 `EMAIL_VERSAND_MODUS` steuert den Versandweg, Default ist **`n8n`**:
 
 | Wert | Verhalten |
@@ -65,13 +104,13 @@ hieß nur „Trigger angenommen", nicht „mit Anhang zugestellt".
 Verifiziert: `tsc --noEmit` grün, `next build` grün, ZIP gegen `Expand-Archive`
 getestet, keine neuen Lint-Findings (angebote/[id] sogar 89→87 Errors).
 
-### ⚠️ Deploy-Action nötig
+#### ⚠️ Deploy-Action nötig
 1. **Azure-App-Registrierung** anlegen, Anwendungsberechtigungen `Mail.Send`
    **und** `Mail.ReadWrite`, Admin-Consent erteilen. PowerShell zum Einschränken
    auf `office@hoehenarbeiten-lassel.at` steht im Kopf von `src/lib/graph-mail.ts`.
 2. **Vercel-Env:** `MS_GRAPH_TENANT_ID`, `MS_GRAPH_CLIENT_ID`,
    `MS_GRAPH_CLIENT_SECRET`, `MS_GRAPH_SENDER`.
-3. **Migration 022 ausführen** (`email-anhaenge`-Bucket) — steht seit 2026-06-17 offen.
+3. ~~Migration 022~~ — am 2026-07-22 eingespielt, Bucket verifiziert.
 4. **Reduzierten n8n-Flow importieren**, danach `N8N_ZOHO_WEBHOOK_ANGEBOT` setzen
    (siehe `n8n/README.md`). Beide Zoho-Webhook-Variablen sind absichtlich leer
    vorbelegt — feuert die Plattform einen Flow, dessen Mail-Nodes noch aktiv
@@ -79,7 +118,7 @@ getestet, keine neuen Lint-Findings (angebote/[id] sogar 89→87 Errors).
 5. **Rechnungs-Flow `/webhook/rechnung-versenden` genauso reduzieren**, erst
    danach `N8N_ZOHO_WEBHOOK_RECHNUNG` setzen.
 
-### Härtung nach adversarialem Review
+#### Härtung nach adversarialem Review
 Ein Finder-/Verifier-Panel über die neuen Dateien brachte u.a. diese echten
 Befunde, alle behoben:
 - **ZIP-Entdopplung kollidierte mit sich selbst**: bei „Skizze.jpg", „Skizze.jpg",
@@ -105,7 +144,7 @@ Befunde, alle behoben:
 - **Beleg-Prüfung + Origin-Check** vor dem Versand, `badRequest` loggt jetzt.
 - **Kein PII mehr ans externe Monitoring** (Empfängeradresse und Betreff raus).
 
-### Bewusst NICHT gemacht
+#### Bewusst NICHT gemacht
 - **Echte Authentifizierung vor `/api/email/senden`.** Die Route ist wie alle
   anderen in dieser App unauthentifiziert; Origin-Check und Beleg-Prüfung sind
   Plausibilitätsschranken, kein Zugriffsschutz. Wer die URL kennt und eine
@@ -120,7 +159,98 @@ Befunde, alle behoben:
   einen Netzwerk-Hop. Funktioniert nur, weil `/api/pdf/**` öffentlich ist —
   bei einer späteren Auth-Härtung muss das mitwandern.
 
-## Session 2026-07-22 (4) — Entwurfsraum: Schreibzugriff für die API
+### Teil 2 — Lese-API v1 + MCP-Server
+
+Volle Doku: `docs/api-v1.md`.
+
+- **`/api/v1/**`** (`src/app/api/v1/[...pfad]/route.ts`) — ein Catch-all-Handler
+  für alle Endpunkte, damit Auth, Limits und Fehlerformat garantiert überall
+  gleich sind. Bearer-Token aus `API_TOKEN_READ`, fail-closed (503 ohne Token).
+  Endpunkte: health, angebote/rechnungen/lieferscheine (Liste + Detail +
+  pdf-url), produkte, stammdaten, kennzahlen, suche.
+- **`/api/mcp`** (`src/app/api/mcp/route.ts`) — MCP-Server, Streamable HTTP,
+  stateless, 9 Tools (7 lesende, dazu `angebot_entwurf_anlegen` und
+  `entwuerfe_auflisten` aus Teil 4). **Handgeschrieben statt `mcp-handler`**: das Paket pinnt
+  zod ^3 (Projekt hat ^4.3.6), und der SDK-Transport erwartet Node-req/res statt
+  Web-Request. Sind ~150 Zeilen ohne Dependency-Risiko.
+- **`src/lib/api-core.ts`** — Auth (timing-safe), Fehlerformat, Feld-Whitelist.
+- **`src/lib/api-belege.ts`** — Feld-Freigaben und Lesezugriffe je Belegart,
+  inkl. `hinweise[]` zu Reverse Charge / Teilfaktura / Schlussrechnung.
+
+**Drift-fest gebaut:** die API selektiert `*` und filtert die Ausgabefelder in
+JavaScript. Eine Spalte, die es in Prod nicht gibt, fehlt dann in der Antwort,
+statt die Abfrage mit 400 zu killen. Ebenso läuft der `geloescht_am`-Filter in
+JS — `.is('geloescht_am', null)` würde auf Tabellen ohne die Spalte scheitern.
+
+**Bewusst nur lesend.** Gründe im Code dokumentiert: Autosave überschreibt jeden
+API-Write nach ~1 s lautlos; Belegnummern sind nicht atomar; Schema-Drift; die
+Teilfaktura-Summenlogik. `mitarbeiter` wird nur mit `id/name/aktiv` ausgeliefert
+(shared mit Tourenplaner), `tickets` gar nicht.
+
+Verifiziert gegen den laufenden Dev-Server mit echten Daten: MCP-Handshake
+(initialize/tools/list/tools/call/ping, 401 mit `WWW-Authenticate`, 202 auf
+Notifications, 405 auf GET, 400 bei unbekannter Protokollversion), alle sieben
+Tools, Feld-Whitelists, Fehlerpfade.
+
+### Teil 3 — Bestandsbugs behoben
+
+Sieben verifizierte Bugs, alle mit Wirkung auf echte Geschäftsdaten.
+
+**1. Teilfaktura blähte den Rechnungsbetrag auf** (`rechnungen/[id]:totals`).
+Bei Anzahlung/Teilrechnung trägt die Rechnung die Abschlagszeile PLUS alle
+Angebotspositionen zum vollen Preis — die stehen nur als Referenz drauf. `totals`
+summierte stumpf über alle Positionen, und der Autosave schrieb das eine Sekunde
+nach dem Öffnen in `netto_gesamt/mwst_gesamt/brutto_gesamt`. Eine Anzahlung über
+3.000 € wurde damit allein durchs Ansehen zu 15.600 € brutto. Jetzt ist
+`teilbetrag_netto` maßgeblich; 7/7 Testfälle inkl. Reverse Charge und gemischter
+Steuersätze geprüft, normale Rechnungen rechnen unverändert.
+
+**2. Mehrzeilige Positionsbeschreibungen gingen verloren** (`rechnungen/[id]:buildPosData`).
+Die DB-Spalte trägt `"Produktname\nLangtext"`; beim Speichern schrieb die Rechnung
+nur `p.produktName`. Der Langtext war eine Sekunde nach dem Öffnen aus Datenbank
+und PDF verschwunden. Angebot und Lieferschein machten es bereits richtig — die
+Zusammensetzung ist jetzt in allen drei Fällen gleich.
+
+**3. Phantom-Save beim Öffnen jeder Rechnung** (`rechnungen/[id]`, faelligAm-Effect).
+Der Effect erzeugte bei jedem Laden ein neues `invoice`-Objekt, auch wenn sich
+nichts änderte. Das hebelte den `justInitialized`-Schutz aus und war der Auslöser
+für 1 und 2. Gibt jetzt dieselbe Referenz zurück, wenn der Wert stimmt.
+
+**4. Storno-Rechnung war nicht speicherbar** (`rechnungen/[id]:774`).
+Geschrieben wurde `storno_von_rechnung_id` (UUID) — eine Spalte, die in keiner
+Migration existiert. Gelesen und gespeichert wird `storno_von` (Belegnummer).
+Der Insert schlug fehl, und selbst wenn er durchging, blockierte die
+Storno-Pflichtprüfung jedes weitere Speichern.
+
+**5. Teilfaktura-Felder wurden nie geladen** (`rechnungen/[id]`).
+`teilbetrag_netto`, `teilbetrag_brutto`, `ist_schlussrechnung` und
+`bereits_fakturiert_netto` fehlten im Ladepfad und in `buildRechnungData`. Eine
+aus dem Angebot erzeugte Anzahlung ließ sich deshalb nicht speichern
+("Teilbetrag > 0 erforderlich"). Jetzt geladen und persistiert.
+
+**6. Anzahlung zu Reverse-Charge-Angebot wies 20 % USt aus** (`angebote/[id]:843`).
+Die Abschlagszeile hatte hart `mwst_satz: 20`. Nutzt jetzt `effRate`, das direkt
+darüber bereits Reverse-Charge-bewusst berechnet wird.
+
+**7. Vier Webhooks legten bei Duplikaten unbegrenzt neue Datensätze an.**
+`webhooks/offer`, `sammelrechnung`, `product` und `vermittler` suchten den
+bestehenden Datensatz per `.maybeSingle()` ohne `.limit(1)`. Existiert bereits ein
+Duplikat, wirft PostgREST, `existing` ist undefined, der Code läuft in den
+INSERT-Zweig — und legt bei **jedem** weiteren Aufruf einen weiteren Datensatz an.
+`webhooks/invoice` hatte den Fix samt Kommentar schon, die anderen vier nicht.
+
+Nebenbei: `emailAn` im Rechnungs-Versandmodal las `invoice.kunde_email`, der State
+ist aber camelCase — der Fallback griff nie.
+
+Verifiziert: `tsc`, `eslint` (beide Detailseiten haben jetzt WENIGER Findings als
+vorher), `next build`, plus 7 Rechenfälle für die Teilfaktura-Summen.
+
+#### Nicht angefasst, bewusst
+- **`visibilitychange` speichert bedingungslos** (`rechnungen/[id]`, `lieferscheine/[id]`).
+  Jeder Tab-Wechsel schreibt den kompletten Beleg zurück. Nach den Fixes oben
+  nicht mehr destruktiv, aber unnötig. Sauber wäre ein Dirty-Guard.
+
+### Teil 4 — Entwurfsraum: Schreibzugriff für die API
 
 Volle Doku: `docs/api-v1.md`. Der Agent kann jetzt Angebote **vorschlagen**;
 ein Mensch macht daraus per Klick einen Beleg.
@@ -180,99 +310,78 @@ Sätze, untergeschobene Felder), 8 Routenprüfungen gegen den Dev-Server
 Die SQL-Migrationen konnten mangels lokaler Postgres-Instanz nicht ausgeführt
 werden — sie sind idempotent, brauchen aber einen ersten Lauf unter Aufsicht.
 
-## Session 2026-07-22 (3) — Bestandsbugs behoben
+### Teil 5 — Breite Fehlersuche: 59 bestätigte Funde, 5 davon behoben
 
-Sieben verifizierte Bugs, alle mit Wirkung auf echte Geschäftsdaten.
+Ein Finder-/Verifier-Panel über zehn Linsen (Geld, Persistenz, Folgebelege, PDF,
+ein-/ausgehende Webhooks, UI-State, Löschen, Auswertungen, Lieferscheine) hat
+69 Funde gemeldet; bei 59 haben **beide** unabhängigen Prüfer bestätigt.
+Behoben wurden die fünf mit dem klarsten Schaden-/Aufwand-Verhältnis:
 
-**1. Teilfaktura blähte den Rechnungsbetrag auf** (`rechnungen/[id]:totals`).
-Bei Anzahlung/Teilrechnung trägt die Rechnung die Abschlagszeile PLUS alle
-Angebotspositionen zum vollen Preis — die stehen nur als Referenz drauf. `totals`
-summierte stumpf über alle Positionen, und der Autosave schrieb das eine Sekunde
-nach dem Öffnen in `netto_gesamt/mwst_gesamt/brutto_gesamt`. Eine Anzahlung über
-3.000 € wurde damit allein durchs Ansehen zu 15.600 € brutto. Jetzt ist
-`teilbetrag_netto` maßgeblich; 7/7 Testfälle inkl. Reverse Charge und gemischter
-Steuersätze geprüft, normale Rechnungen rechnen unverändert.
+1. **PDFs schrieben hart „zzgl. Umsatzsteuer 20 %"** neben einen rate-genau
+   gerechneten Betrag. Bei einer 10 %-Position stimmte der Satz nicht zum
+   Betrag, bei gemischten Sätzen fehlte die getrennte Ausweisung ganz — nach
+   § 11 UStG ein formal mangelhafter Beleg. Neu: `ustNachSaetzen()` in
+   `money.ts`, beide PDF-Routen weisen je Satz eine Zeile aus. Weicht die
+   Gruppensumme vom Kopfbetrag ab (Teilfaktura), wird eine Zeile mit dem
+   effektiven Satz gedruckt statt zu lügen. 7 Rechenfälle geprüft, Quersumme
+   stimmt jeweils mit `computeTotals` überein.
+2. **Storno einer Anzahlung vervielfachte den Gutschriftsbetrag.**
+   `handleStorno` kopierte ALLE Positionen negativ — auch die Angebotszeilen,
+   die bei Teilfaktura nur als Referenz mitlaufen. Aus dem Storno einer
+   3.600-€-Anzahlung wurde eine Gutschrift über 19.200 €. Derselbe
+   Wurzelfehler wie in Teil 3; jetzt wird bei Anzahlung/Teilrechnung nur die
+   Abschlagszeile storniert. Nebenbei: der Langtext bleibt erhalten.
+3. **Schlussrechnungs-PDF zog stornierte, gelöschte und Entwurfs-Anzahlungen
+   ab** — der Kunde bekam einen Restbetrag, der um eine nie fakturierte
+   Anzahlung zu niedrig war. Jetzt dieselbe Regel wie `fakturierteRechnungen`.
+4. **`produkt_id` wurde nie in den State geladen** (`angebote/[id]`). Der Fix
+   aus Teil 3 (Feld in `buildPosData` aufnehmen) lief für jedes bereits
+   gespeicherte Angebot ins Leere, weil delete-then-insert nur schreibt, was
+   im State steht. Jetzt im Init-Effect ergänzt.
+5. **Statusfilter der Angebotsliste nutzte `draft`** — der DB-Wert ist
+   `entwurf`. Der häufigste Status war nicht filterbar; `offen`, `final` und
+   `archiviert` fehlten ganz.
 
-**2. Mehrzeilige Positionsbeschreibungen gingen verloren** (`rechnungen/[id]:buildPosData`).
-Die DB-Spalte trägt `"Produktname\nLangtext"`; beim Speichern schrieb die Rechnung
-nur `p.produktName`. Der Langtext war eine Sekunde nach dem Öffnen aus Datenbank
-und PDF verschwunden. Angebot und Lieferschein machten es bereits richtig — die
-Zusammensetzung ist jetzt in allen drei Fällen gleich.
+#### Bestätigt, aber NICHT behoben — nach Schwere geordnet
+Diese 54 Funde liegen vor und sind je einzeln belegt. Sie brauchen entweder
+eine fachliche Entscheidung oder greifen tiefer in gewachsene Pfade ein:
 
-**3. Phantom-Save beim Öffnen jeder Rechnung** (`rechnungen/[id]`, faelligAm-Effect).
-Der Effect erzeugte bei jedem Laden ein neues `invoice`-Objekt, auch wenn sich
-nichts änderte. Das hebelte den `justInitialized`-Schutz aus und war der Auslöser
-für 1 und 2. Gibt jetzt dieselbe Referenz zurück, wenn der Wert stimmt.
+- **Stale-Cache in `savePositions`** (`rechnungen/[id]`, `lieferscheine/[id]`):
+  neu hinzugefügte Positionen werden nach dem ersten Autosave nie wieder
+  aktualisiert, weil gegen den nie invalidierten React-Query-Cache verglichen
+  wird. Oberfläche zeigt 850 €, DB behält 0 €.
+- **`bereits_fakturiert_netto` wird gespeichert, aber im PDF nie abgezogen** —
+  der CreateInvoiceDialog sagt dem Anwender ausdrücklich das Gegenteil.
+- **Anzahlungs-PDF: Positionsliste summiert sich nicht zum Summenblock**
+  (die Referenzzeilen stehen mit vollem Preis drin).
+- **`OfferListItem` „Rechnung"-Button** erzeugt eine 0-€-Rechnung ohne
+  Kopfdaten — ein völlig anderer Beleg als der Dialog-Pfad.
+- **PDF liest `company_settings`**, in die die Einstellungen-Seite nie
+  schreibt → geänderte Bankdaten erreichen die Rechnung nie.
+- **Webhooks verschlucken Positions-Insert-Fehler** (offer, invoice,
+  sammelrechnung) → Beleg mit Summen, aber ohne Zeilen, n8n bekommt 200.
+- **`delivery-note`-Webhook ist nicht idempotent** und speichert
+  `zoho_ticket_id` nicht → jeder Aufruf ein neuer Lieferschein.
+- **Ausgehende n8n-Aufrufe prüfen `res.ok` nicht** → „erfolgreich in Zoho
+  abgelegt", obwohl der Flow tot ist.
+- **Lieferschein wird ohne Nummer gespeichert**, Zoho bekommt trotzdem eine.
+- **`syncPositionsToTicket` splittet den bereits gesplitteten State erneut**
+  → Produktname im Tourenplaner-Ticket leer.
+- **Fotos und Erledigt-Haken per Array-Index** → wandern beim Umsortieren.
+- **Papierkorb: endgültiges Löschen meldet Erfolg, löscht nur die Positionen.**
+- **UID verschwindet, sobald eine Hausinhabung eingetragen ist**
+  (`adressblock.ts:45` setzt sie hart auf `''`, `uid_von_hi` liest niemand).
+- **Storno-/Gutschrifts-PDF fordert zur Überweisung auf.**
+- **Rabatte tauchen in keinem PDF auf** → Menge × Einzelpreis ≠ Gesamtpreis.
+- **Analytics: offene Forderungen nur aus dem gewählten Jahr** → am 1. Januar
+  fallen alle Altforderungen aus der Mahnübersicht.
+- **`invalidateQueries(['invoices'])` trifft die Liste nicht**, die an
+  `['rechnungen']` hängt → Listen bleiben bis zu 5 Minuten veraltet.
+- **Query-Key-Kollisionen**: `['vermittler']`/`['mitarbeiter']` liegen unter
+  demselben Schlüssel mit unterschiedlich gefilterten Abfragen.
 
-**4. Storno-Rechnung war nicht speicherbar** (`rechnungen/[id]:774`).
-Geschrieben wurde `storno_von_rechnung_id` (UUID) — eine Spalte, die in keiner
-Migration existiert. Gelesen und gespeichert wird `storno_von` (Belegnummer).
-Der Insert schlug fehl, und selbst wenn er durchging, blockierte die
-Storno-Pflichtprüfung jedes weitere Speichern.
-
-**5. Teilfaktura-Felder wurden nie geladen** (`rechnungen/[id]`).
-`teilbetrag_netto`, `teilbetrag_brutto`, `ist_schlussrechnung` und
-`bereits_fakturiert_netto` fehlten im Ladepfad und in `buildRechnungData`. Eine
-aus dem Angebot erzeugte Anzahlung ließ sich deshalb nicht speichern
-("Teilbetrag > 0 erforderlich"). Jetzt geladen und persistiert.
-
-**6. Anzahlung zu Reverse-Charge-Angebot wies 20 % USt aus** (`angebote/[id]:843`).
-Die Abschlagszeile hatte hart `mwst_satz: 20`. Nutzt jetzt `effRate`, das direkt
-darüber bereits Reverse-Charge-bewusst berechnet wird.
-
-**7. Vier Webhooks legten bei Duplikaten unbegrenzt neue Datensätze an.**
-`webhooks/offer`, `sammelrechnung`, `product` und `vermittler` suchten den
-bestehenden Datensatz per `.maybeSingle()` ohne `.limit(1)`. Existiert bereits ein
-Duplikat, wirft PostgREST, `existing` ist undefined, der Code läuft in den
-INSERT-Zweig — und legt bei **jedem** weiteren Aufruf einen weiteren Datensatz an.
-`webhooks/invoice` hatte den Fix samt Kommentar schon, die anderen vier nicht.
-
-Nebenbei: `emailAn` im Rechnungs-Versandmodal las `invoice.kunde_email`, der State
-ist aber camelCase — der Fallback griff nie.
-
-Verifiziert: `tsc`, `eslint` (beide Detailseiten haben jetzt WENIGER Findings als
-vorher), `next build`, plus 7 Rechenfälle für die Teilfaktura-Summen.
-
-### Nicht angefasst, bewusst
-- **`linkedInvoices` zählt Rechnungs-Entwürfe als fakturiert** (`angebote/[id]:131-146`).
-  Ein Entwurf setzt das Angebot sofort auf „vollständig fakturiert" und kürzt über
-  `bereits_fakturiert_netto` eine spätere Schlussrechnung. Ob ein Entwurf zählen
-  soll, ist eine fachliche Entscheidung — bitte klären.
-- **`visibilitychange` speichert bedingungslos** (`rechnungen/[id]`, `lieferscheine/[id]`).
-  Jeder Tab-Wechsel schreibt den kompletten Beleg zurück. Nach den Fixes oben
-  nicht mehr destruktiv, aber unnötig. Sauber wäre ein Dirty-Guard.
-
-## Session 2026-07-22 (2) — Lese-API v1 + MCP-Server
-
-Volle Doku: `docs/api-v1.md`.
-
-- **`/api/v1/**`** (`src/app/api/v1/[...pfad]/route.ts`) — ein Catch-all-Handler
-  für alle Endpunkte, damit Auth, Limits und Fehlerformat garantiert überall
-  gleich sind. Bearer-Token aus `API_TOKEN_READ`, fail-closed (503 ohne Token).
-  Endpunkte: health, angebote/rechnungen/lieferscheine (Liste + Detail +
-  pdf-url), produkte, stammdaten, kennzahlen, suche.
-- **`/api/mcp`** (`src/app/api/mcp/route.ts`) — MCP-Server, Streamable HTTP,
-  stateless, 7 Tools. **Handgeschrieben statt `mcp-handler`**: das Paket pinnt
-  zod ^3 (Projekt hat ^4.3.6), und der SDK-Transport erwartet Node-req/res statt
-  Web-Request. Sind ~150 Zeilen ohne Dependency-Risiko.
-- **`src/lib/api-core.ts`** — Auth (timing-safe), Fehlerformat, Feld-Whitelist.
-- **`src/lib/api-belege.ts`** — Feld-Freigaben und Lesezugriffe je Belegart,
-  inkl. `hinweise[]` zu Reverse Charge / Teilfaktura / Schlussrechnung.
-
-**Drift-fest gebaut:** die API selektiert `*` und filtert die Ausgabefelder in
-JavaScript. Eine Spalte, die es in Prod nicht gibt, fehlt dann in der Antwort,
-statt die Abfrage mit 400 zu killen. Ebenso läuft der `geloescht_am`-Filter in
-JS — `.is('geloescht_am', null)` würde auf Tabellen ohne die Spalte scheitern.
-
-**Bewusst nur lesend.** Gründe im Code dokumentiert: Autosave überschreibt jeden
-API-Write nach ~1 s lautlos; Belegnummern sind nicht atomar; Schema-Drift; die
-Teilfaktura-Summenlogik. `mitarbeiter` wird nur mit `id/name/aktiv` ausgeliefert
-(shared mit Tourenplaner), `tickets` gar nicht.
-
-Verifiziert gegen den laufenden Dev-Server mit echten Daten: MCP-Handshake
-(initialize/tools/list/tools/call/ping, 401 mit `WWW-Authenticate`, 202 auf
-Notifications, 405 auf GET, 400 bei unbekannter Protokollversion), alle sieben
-Tools, Feld-Whitelists, Fehlerpfade.
+Vollständige Liste mit Szenario und Begründung je Fund:
+`.claude/…/scratchpad/einstimmig.json` der Session (nicht im Repo).
 
 ## Session 2026-07-13 — Audit + Steuer/RC/Fail-silent/Secret/Analytics-Fixes
 
@@ -353,15 +462,44 @@ Drei Fixes, alle nach `main` gepusht (Vercel deployt auto):
 
 ## Offene TODOs
 
-- [ ] **Migration 022 in Supabase SQL-Editor ausführen** (`email-anhaenge`-Bucket)
-      — bis dahin Fehler "Storage-Bucket fehlt" beim Senden mit Anhang.
-- [x] ~~n8n-Node "Bilder extrahieren" auf URL-Download umstellen~~ — hinfällig,
-      der Mailversand läuft seit 2026-07-22 nicht mehr über n8n.
+### Manuell, außerhalb des Codes
+- [ ] **Vercel-Env setzen:** `API_TOKEN_READ`, `API_TOKEN_WRITE`
+      (`openssl rand -hex 32`), `SUPABASE_SERVICE_ROLE_KEY`. Ohne die antworten
+      API und MCP mit 503 bzw. 500 — sie stehen nie versehentlich offen.
+- [ ] **Ein Testversand** an eine eigene Adresse. Die Route
+      `/api/email/senden` liegt seit 2026-07-22 im Weg, auch im Modus `n8n`,
+      wo sie nur durchreicht. Payload-Gleichheit ist verifiziert (0 Unterschiede
+      über 23 Felder), ein Livelauf steht aus.
+- [ ] **Erste Übernahme im UI** unter `/entwuerfe` durchspielen — der Pfad
+      Nummernvergabe → Kopf-Insert → Positionen → Rollback ist der einzige
+      ungetestete, weil er einen echten Beleg erzeugt.
+- [ ] **MCP-Connector** in claude.ai eintragen: `https://<domain>/api/mcp`,
+      Header `Authorization: Bearer <token>` (siehe `docs/api-v1.md`).
+
+### Erledigt am 2026-07-22
+- [x] ~~Migration 022 (`email-anhaenge`-Bucket)~~ — eingespielt, Bucket verifiziert.
+- [x] ~~Migrationen 023 + 024~~ — eingespielt, Zähler gegen den Bestand geprüft.
+- [x] ~~n8n-Node „Bilder extrahieren" auf URL-Download umstellen~~ — hinfällig,
+      der Mailversand geht bei Modus `graph` nicht mehr durch n8n.
+- [x] ~~Fachliche Frage: zählt ein Rechnungs-Entwurf als fakturiert?~~ — nein,
+      entschieden und umgesetzt (`fakturierteRechnungen`).
+
+### Code, offen
 - [ ] **Rechnungs-Flow `/webhook/rechnung-versenden` reduzieren** (Mail-Nodes raus),
-      danach `N8N_ZOHO_WEBHOOK_RECHNUNG` in Vercel setzen — siehe `n8n/README.md`.
+      danach `N8N_ZOHO_WEBHOOK_RECHNUNG` setzen — nur nötig für Modus `graph`.
+      Fertiges JSON liegt in `n8n/rechnung-zoho-ablage.reduziert.json`.
+- [ ] **Parkraumsperre-Mail** (`/api/parksperre-senden`) läuft weiter über n8n,
+      gleiches Anhang-Risiko. Umstellung auf `sendMail()` wären ~20 Zeilen.
+- [ ] **Dirty-Guard im Autosave** der drei Detailseiten — `visibilitychange`
+      schreibt heute bei jedem Tab-Wechsel den kompletten Beleg zurück.
+      Achtung: nur den Kopf-Update abbrechen, `savePositions` weiterlaufen
+      lassen, sonst gehen preisneutrale Positionsänderungen verloren.
+- [ ] **Altgeneratoren auf `naechste_belegnummer()` umstellen** — elf Stellen
+      zählen weiter `COUNT+1`. Die atomare Vergabe existiert seit Migration 023
+      parallel; ein Trigger hält beide Verfahren synchron.
+- [ ] **Echte Auth + restriktive RLS** — wichtigster offener Punkt aus dem Audit
+      2026-07-13, durch API und MCP dringlicher geworden.
 - [ ] Monitoring Runde 3: Errors + Info einbauen (9 + 5 Stellen)
-- [ ] Lieferscheinnummer Race Condition fix (DB-Constraint statt
-      Frontend-Count in `api/webhooks/delivery-note`)
 - [ ] Webhook-Invoice Schema-Drift Retry (analog zu
       `upsertAngebotSafe` im Offer-Webhook)
 - [ ] Tourenplaner Ticket-Sync silent fix

@@ -88,3 +88,32 @@ export function computeTotals(
   }
   return { netto: round2(netto), mwst: round2(mwst), brutto: round2(netto + mwst) }
 }
+
+/**
+ * Umsatzsteuer nach Sätzen gruppiert — für die getrennte Ausweisung auf
+ * Belegen. § 11 UStG verlangt die Angabe des Steuersatzes; bei gemischten
+ * Sätzen muss das Entgelt je Satz getrennt ausgewiesen werden.
+ *
+ * Die PDF-Routen haben vorher pauschal "zzgl. Umsatzsteuer 20%" gedruckt und
+ * daneben den rate-genau gerechneten Gesamtbetrag gestellt. Bei einer
+ * 10%-Position passten Satz und Betrag damit nicht zusammen.
+ *
+ * Bei `reverseCharge` ist das Ergebnis leer — dort weist der Beleg ohnehin
+ * eine eigene Zeile aus.
+ */
+export function ustNachSaetzen(
+  lines: TotalsLine[],
+  opts?: { reverseCharge?: boolean }
+): { satz: number; netto: number; betrag: number }[] {
+  if (opts?.reverseCharge === true) return []
+  const gruppen = new Map<number, { satz: number; netto: number; betrag: number }>()
+  for (const l of lines) {
+    const satz = num(l.mwstSatz, STANDARD_MWST)
+    const n = lineNetto(l)
+    const g = gruppen.get(satz) || { satz, netto: 0, betrag: 0 }
+    g.netto = round2(g.netto + n)
+    g.betrag = round2(g.betrag + round2(n * (satz / 100)))
+    gruppen.set(satz, g)
+  }
+  return [...gruppen.values()].sort((a, b) => b.satz - a.satz)
+}
