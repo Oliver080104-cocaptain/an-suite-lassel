@@ -21,7 +21,7 @@ interface Props {
   docId: string
   /** Dokumentnummer wie "AN-2026-00059" oder "RE-2026-00012". */
   docNummer: string
-  /** Dokumenttyp steuert Betreff-Default, Supabase-Table, Webhook + PDF-Pfad.
+  /** Dokumenttyp steuert Betreff-Default, Supabase-Table und PDF-Pfad.
    *  Default 'angebot' für Backward-Compat zu bestehenden Aufrufen. */
   docType?: 'angebot' | 'rechnung'
   kundeName: string
@@ -30,10 +30,10 @@ interface Props {
   erstelltVon?: string
   emailAn?: string
   onSent?: () => void
-  /** Optionale Extra-Felder die ins Webhook-Payload gemerged werden
-   *  (ticketId, ticketNumber, referenzAngebotNummer, positionen, etc.).
-   *  Werden flach auf Top-Level des Payloads gelegt — user-gesetzte
-   *  Felder wie `status` oder `pdfUrl` werden NICHT überschrieben. */
+  /** Optionale Extra-Felder für die Zoho-Ablage in n8n (ticketId,
+   *  ticketNumber, referenzAngebotNummer, positionen, etc.). Werden an
+   *  /api/email/senden durchgereicht und dort dem Zoho-Payload vorangestellt —
+   *  die verbindlichen Felder (id, Nummer, pdfUrl) setzt der Server. */
   extraPayload?: Record<string, unknown>
 }
 
@@ -41,18 +41,12 @@ const DOC_CONFIG = {
   angebot: {
     tabelle: 'angebote',
     statusUpdate: 'versendet',
-    pdfPath: 'angebot',
-    pdfFilePrefix: 'Angebot',
-    webhook: 'https://n8n.srv1367876.hstgr.cloud/webhook/ab34322b-aed4-4a93-b232-9178bf75ecaf',
     betreff: (nr: string) => `Ihr Angebot ${nr}`,
     kiTyp: 'angebot',
   },
   rechnung: {
     tabelle: 'rechnungen',
     statusUpdate: 'offen',
-    pdfPath: 'rechnung',
-    pdfFilePrefix: 'Rechnung',
-    webhook: 'https://n8n.srv1367876.hstgr.cloud/webhook/rechnung-versenden',
     betreff: (nr: string) => `Ihre Rechnung ${nr}`,
     kiTyp: 'rechnung',
   },
@@ -265,8 +259,8 @@ export default function EmailVorschauModal({
   /**
    * Lädt die ausgewählten Anhänge direkt aus dem Browser in den public
    * Bucket `email-anhaenge` (Migration 022) und gibt [{url, fileName, mimeType}]
-   * zurück. Direkt-Upload umgeht Vercels Body-Limit; n8n holt die Dateien
-   * später per URL und hängt sie an die ausgehende E-Mail.
+   * zurück. Direkt-Upload umgeht Vercels 4,5-MB-Body-Limit; /api/email/senden
+   * holt die Dateien serverseitig per URL und bündelt sie als Skizzen.zip.
    */
   const uploadAttachmentsDirect = async (): Promise<{ url: string; fileName: string; mimeType: string }[]> => {
     if (dateien.length === 0) return []
@@ -302,86 +296,54 @@ export default function EmailVorschauModal({
       // auf "versendet" gesetzt und der User sieht den Fehler.
       const attachments = await uploadAttachmentsDirect()
 
-      // Absolute PDF-URL bauen — n8n braucht http(s)://…
-      const pdfUrl = `${window.location.origin}/api/pdf/${cfg.pdfPath}/${docId}`
-      const pdfFileName = `${cfg.pdfFilePrefix}_${docNummer}.pdf`
-
-      // Payload-Aufbau in drei Schichten:
-      // 1) coreDefault: sensible Basiswerte für kunde/objekt/erstelltDurch/summen
-      //    — werden durch extraPayload überschrieben falls Caller reicheres
-      //    Objekt liefert (z.B. kunde inkl. strasse/plz/ort).
-      // 2) extraPayload: alles was der Caller mitschickt (ticketId,
-      //    positionen, …) — merged drüber.
-      // 3) coreIdentity: id, pdfUrl, status, email, timestamp — IMMER
-      //    vom Modal verbindlich, überschreibt extras falls Konflikt.
-      const emailBlock = {
-        sendenAn: emailAn,
-        betreff,
-        nachrichtHtml: `<pre>${nachricht}</pre>`,
-        mitarbeiter: selectedMitarbeiter?.name || selectedSig?.name || '',
-        signatur: signaturText,
+      // Zusatzfelder für die Zoho-Ablage. Die verbindlichen Werte (docId,
+      // Nummer, pdfUrl) setzt der Server — hier nur der Kontext, den der
+      // Caller kennt (ticketId, Positionen, Kunden-/Objektdaten).
+      const zohoPayload: Record<string, unknown> = {
+        ...(docType === 'rechnung'
+          ? { kunde: { name: kundeName } }
+          : { rechnungsempfaenger: { name: kundeName } }),
+        objekt: { bezeichnung: objektAdresse },
+        erstelltDurch: erstelltVon,
+        summen: { brutto: bruttoGesamt },
+        ...(extraPayload || {}),
+        status: cfg.statusUpdate,
       }
-      const coreDefault = docType === 'rechnung'
-        ? {
-            kunde: { name: kundeName },
-            objekt: { bezeichnung: objektAdresse },
-            erstelltDurch: erstelltVon,
-            summen: { brutto: bruttoGesamt },
-          }
-        : {
-            rechnungsempfaenger: { name: kundeName },
-            objekt: { bezeichnung: objektAdresse },
-            erstelltDurch: erstelltVon,
-            summen: { brutto: bruttoGesamt },
-          }
-      const coreIdentity = docType === 'rechnung'
-        ? {
-            rechnungsId: docId,
-            rechnungsNummer: docNummer,
-            pdfUrl,
-            pdfFileName,
-            status: cfg.statusUpdate,
-            email: emailBlock,
-            timestamp: new Date().toISOString(),
-          }
-        : {
-            offerId: docId,
-            angebotNummer: docNummer,
-            pdfUrl,
-            pdfFileName,
-            status: cfg.statusUpdate,
-            email: emailBlock,
-            timestamp: new Date().toISOString(),
-          }
-      // attachments zuletzt — modal-verbindlich, überschreibt evtl. extraPayload.
-      // Top-Level (analog zu pdfUrl/pdfFileName), damit n8n sie wie das PDF
-      // per URL abholen und an die Mail anhängen kann.
-      const payload = { ...coreDefault, ...(extraPayload || {}), ...coreIdentity, attachments }
 
-      const webhookName_emailVersand = `email-versand-${docType || 'angebot'}`
-      // Webhook feuern und das ERGEBNIS prüfen — kein blindes success mehr.
-      // Ein 4xx/5xx von n8n rejectet fetch NICHT, daher explizit res.ok prüfen.
+      // Versand läuft jetzt synchron über die eigene Route (Microsoft Graph)
+      // statt über n8n. Ein Non-2xx heißt: die Mail ist NICHT raus — der
+      // Status darf dann nicht auf "versendet" springen.
       let res: Response
       try {
-        res = await fetch(cfg.webhook, {
+        res = await fetch('/api/email/senden', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            docType,
+            docId,
+            docNummer,
+            an: emailAn,
+            betreff,
+            nachricht,
+            signatur: signaturText,
+            mitarbeiter: selectedMitarbeiter?.name || selectedSig?.name || '',
+            attachments,
+            zohoPayload,
+          }),
         })
       } catch (err) {
-        await logEvent('error', 'webhook-outgoing',
-          `Zoho-Webhook nicht erreichbar — ${webhookName_emailVersand} für ${docNummer}`,
-          { webhookName: webhookName_emailVersand, docNummer, error: (err as Error).message }
+        await logEvent('error', 'email-versand',
+          `Versand-Route nicht erreichbar für ${docNummer}`,
+          { docType, docNummer, error: (err as Error).message }
         )
         throw new Error('E-Mail-Dienst nicht erreichbar. Bitte erneut versuchen.')
       }
+      const ergebnis = await res.json().catch(() => ({} as { error?: string; zohoAblage?: string }))
       if (!res.ok) {
-        const detail = await res.text().catch(() => '')
-        await logEvent('error', 'webhook-outgoing',
-          `Zoho-Webhook fehlgeschlagen (HTTP ${res.status}) — ${webhookName_emailVersand} für ${docNummer}`,
-          { webhookName: webhookName_emailVersand, docNummer, status: res.status, detail: detail.slice(0, 300) }
+        throw new Error(
+          (ergebnis as { error?: string }).error
+            || `E-Mail-Versand fehlgeschlagen (HTTP ${res.status}). Status wurde nicht geändert.`
         )
-        throw new Error(`E-Mail-Versand fehlgeschlagen (HTTP ${res.status}). Status wurde nicht geändert.`)
       }
 
       // Status ERST nach bestätigtem Versand setzen (nicht vorher).
@@ -395,6 +357,16 @@ export default function EmailVorschauModal({
       }
 
       toast.success('E-Mail versendet')
+      // Die Zoho-Ablage ist nicht versandkritisch — schlägt sie fehl, ist die
+      // Mail trotzdem raus. Trotzdem sichtbar machen, statt still zu schlucken.
+      const zohoAblage = (ergebnis as { zohoAblage?: string }).zohoAblage
+      if (zohoAblage === 'fehlgeschlagen' || zohoAblage === 'uebersprungen') {
+        toast.warning('E-Mail ist raus, aber die Zoho-Ablage des PDFs hat nicht geklappt.')
+      } else if (zohoAblage === 'deaktiviert') {
+        // Solange der zugehörige n8n-Flow nicht reduziert und die Env-Variable
+        // nicht gesetzt ist, landet das PDF nicht automatisch im WorkDrive.
+        toast.info('E-Mail versendet. Die automatische Zoho-Ablage ist noch nicht eingerichtet.')
+      }
       onSent?.()
       onClose()
     } catch (err: any) {

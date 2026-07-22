@@ -1,0 +1,344 @@
+{
+  "name": "Rechnung → Zoho WorkDrive + Ticketstatus (reduziert)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "rechnung-versenden",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [-672, 560],
+      "id": "de8fd1cd-2d38-4823-9d10-474f2e6749e5",
+      "name": "Webhook",
+      "webhookId": "ab34322b-aed4-4a93-b232-9178bf75ecaf",
+      "notes": "Wird von der Plattform NACH erfolgreichem Mailversand aufgerufen (src/app/api/email/senden/route.ts, Modus 'graph'). Der Mailversand läuft nicht mehr hier."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Webhook-Daten aus dem Body holen\nconst payload = $json.body || $json;\n\n// PDF-URL extrahieren\nconst pdfUrl = payload.pdfUrl;\n\nif (!pdfUrl) {\n  throw new Error('Keine pdfUrl im Webhook-Payload gefunden!');\n}\n\n// Der Webhook ist oeffentlich erreichbar. Ohne diese Pruefung koennte jeder\n// eine beliebige Fremddatei unter einem existierenden Namen in den WorkDrive\n// legen (der Upload laeuft mit override-name-exist=true) oder n8n dazu bringen,\n// interne Hosts abzurufen. Nur PDFs der eigenen Plattform sind erlaubt.\nconst ERLAUBTE_BASIS = 'https://lasselgmbh-angebotssuite.co-captain.at/api/pdf/';\nif (!String(pdfUrl).startsWith(ERLAUBTE_BASIS)) {\n  throw new Error('pdfUrl zeigt nicht auf die Angebotssuite: ' + pdfUrl);\n}\n\n// Dateiname: die Plattform schickt pdfFileName mit, Fallback auf die\n// Rechnungsnummer. Sonderzeichen raus, damit nichts in den Upload-Query-String\n// injiziert wird.\nconst rohName = payload.pdfFileName\n  || (payload.rechnungsNummer ? `${payload.rechnungsNummer}.pdf` : 'Rechnung.pdf');\nconst fileName = String(rohName).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120);\n\n// Zentraler Rechnungs-Ordner (ALLE Rechnungen)\nconst folderId = 'mo10kb73a6ab7bfc64135ba18a56c5a3b4625';\n\nconst ticketId = payload.ticketId || null;\nconst rechnungsId = payload.rechnungsId || null;\n\nreturn [{\n  json: {\n    pdfUrl: pdfUrl,\n    fileName: fileName,\n    folderId: folderId,\n    ticketId: ticketId,\n    rechnungsId: rechnungsId\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-160, 224],
+      "id": "25604a8c-8c8e-4685-9ed3-3f3d6315525b",
+      "name": "Payload vorbereiten für Hochladen in RE Ordner in Zoho"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "EwASX66E02hD_cI2BHhc0",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/EwASX66E02hD_cI2BHhc0",
+          "cachedResultName": "Zoho Workdrive Credential 2"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": ["trigger_source"],
+          "schema": [
+            {
+              "id": "trigger_source",
+              "displayName": "trigger_source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [-160, 400],
+      "id": "a9890d33-26b6-4439-ace8-269b8ad86240",
+      "name": "Access Token holen"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.body.pdfUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [-160, 576],
+      "id": "e13bee10-8133-402a-85e7-5f65a5aae268",
+      "name": "Rechnung herunterladen"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "numberInputs": 3,
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [80, 384],
+      "id": "821073ae-c47c-442b-918e-7ebf286d8b47",
+      "name": "Daten für Upload sammeln"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Payload-Daten vom ersten Input (Payload vorbereiten)\nconst payloadData = $('Payload vorbereiten für Hochladen in RE Ordner in Zoho').first().json;\nconst fileName = payloadData.fileName;\nconst folderId = payloadData.folderId;\n\n// Access Token vom zweiten Input\nconst accessToken = $('Access Token holen').first().json.access_token;\n\n// PDF Binary vom dritten Input (Rechnung herunterladen)\nconst pdfBinary = $('Rechnung herunterladen').first().binary.data;\n\n// Validierung\nif (!accessToken) {\n  throw new Error('Access Token fehlt!');\n}\n\nif (!pdfBinary) {\n  throw new Error('Kein PDF Binary gefunden! Download fehlgeschlagen?');\n}\n\nif (!fileName || !folderId) {\n  throw new Error('fileName oder folderId fehlt!');\n}\n\nreturn [{\n  json: {\n    folderId: folderId,\n    fileName: fileName,\n    accessToken: accessToken\n  },\n  binary: {\n    file: pdfBinary\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [304, 400],
+      "id": "6df25649-74d7-4e73-aa55-cf2505690208",
+      "name": "Combine for Upload"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://workdrive.zoho.eu/api/v1/upload?filename={{ $json.fileName }}&parent_id={{ $json.folderId }}&override-name-exist=true",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Zoho-oauthtoken {{ $json.accessToken }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "parent_id",
+              "value": "={{ $json.folderId }}"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "content",
+              "inputDataFieldName": "=file"
+            },
+            {
+              "name": "override-name-exist",
+              "value": "true"
+            },
+            {
+              "name": "filename",
+              "value": "={{ $json.fileName }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [528, 400],
+      "id": "7faeb00e-ac02-4feb-bdf7-ec1463ba722d",
+      "name": "UPLOAD TO WORKDRIVE"
+    },
+    {
+      "parameters": {
+        "url": "=https://www.zohoapis.eu/crm/v3/Ticket/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zohoOAuth2Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "criteria",
+              "value": "=(Name:equals:{{ $json.body.ticketNumber }})"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [-160, 800],
+      "id": "0cbc42fb-2363-42a7-bf03-152f4032ddf9",
+      "name": "Ticket suchen",
+      "credentials": {
+        "zohoOAuth2Api": {
+          "id": "XmCikR828yB5FOwq",
+          "name": "office@hoehenarbeiten-lassel.at"
+        }
+      },
+      "notes": "Bleibt erhalten — dieser Zweig hat mit dem Mailversand nichts zu tun."
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://www.zohoapis.eu/crm/v3/Ticket/{{ $json.data[0].id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zohoOAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"data\": [\n    {\n      \"Projektstatus\": \"Rechnung noch nicht beglichen\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [80, 800],
+      "id": "c8b6c6b9-f58e-4b44-bfaa-73e011f8042e",
+      "name": "Rechnung noch nicht beglichen",
+      "credentials": {
+        "zohoOAuth2Api": {
+          "id": "XmCikR828yB5FOwq",
+          "name": "office@hoehenarbeiten-lassel.at"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Payload vorbereiten für Hochladen in RE Ordner in Zoho",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Access Token holen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Rechnung herunterladen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Ticket suchen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Payload vorbereiten für Hochladen in RE Ordner in Zoho": {
+      "main": [
+        [
+          {
+            "node": "Daten für Upload sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Access Token holen": {
+      "main": [
+        [
+          {
+            "node": "Daten für Upload sammeln",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Rechnung herunterladen": {
+      "main": [
+        [
+          {
+            "node": "Daten für Upload sammeln",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Daten für Upload sammeln": {
+      "main": [
+        [
+          {
+            "node": "Combine for Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine for Upload": {
+      "main": [
+        [
+          {
+            "node": "UPLOAD TO WORKDRIVE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ticket suchen": {
+      "main": [
+        [
+          {
+            "node": "Rechnung noch nicht beglichen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {
+    "Webhook": [
+      {
+        "headers": {
+          "content-type": "application/json",
+          "user-agent": "lassel-angebotssuite"
+        },
+        "params": {},
+        "query": {},
+        "body": {
+          "kunde": { "name": "Sienel & Würzl Hausverwaltung", "strasse": "", "plz": "", "ort": "" },
+          "objekt": { "bezeichnung": "Haupstraße 50, 2020 Magersdorf" },
+          "erstelltDurch": "Reinhard Lassel",
+          "summen": { "netto": 0, "ust": 0, "brutto": 0 },
+          "ticketId": null,
+          "ticketNumber": "2026042310579711",
+          "rechnungstyp": "normal",
+          "datum": "2026-04-23",
+          "faelligAm": "2026-05-23",
+          "referenzAngebotNummer": "AN-2026-00059",
+          "status": "offen",
+          "rechnungsId": "efa692ee-f670-4615-8c6e-791b75130543",
+          "rechnungsNummer": "RE-2026-00060",
+          "pdfUrl": "https://lasselgmbh-angebotssuite.co-captain.at/api/pdf/rechnung/efa692ee-f670-4615-8c6e-791b75130543",
+          "pdfFileName": "Rechnung_RE-2026-00060.pdf",
+          "versendetAn": "info@oswebdev.com",
+          "timestamp": "2026-07-22T12:42:58.307Z"
+        },
+        "webhookUrl": "https://n8n.srv1367876.hstgr.cloud/webhook/rechnung-versenden",
+        "executionMode": "production"
+      }
+    ]
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "8657ea16c0e7d8dd976424a3f014e435f5e2ef33eb26f48b9348aa0d3d18633a"
+  }
+}

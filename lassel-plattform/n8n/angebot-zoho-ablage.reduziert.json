@@ -1,0 +1,261 @@
+{
+  "name": "Angebot/Rechnung → Zoho WorkDrive Ablage (reduziert)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ab34322b-aed4-4a93-b232-9178bf75ecaf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [-400, 400],
+      "id": "30004a10-8859-4adb-b1f8-a7681e3c8011",
+      "name": "Webhook",
+      "webhookId": "ab34322b-aed4-4a93-b232-9178bf75ecaf",
+      "notes": "Wird von der Plattform NACH erfolgreichem Mailversand aufgerufen (src/app/api/email/senden/route.ts). Der Mailversand läuft nicht mehr hier, sondern direkt über Microsoft Graph."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Webhook-Daten aus dem Body holen\nconst payload = $json.body || $json;\n\n// PDF-URL extrahieren\nconst pdfUrl = payload.pdfUrl;\n\nif (!pdfUrl) {\n  throw new Error('Keine pdfUrl im Webhook-Payload gefunden!');\n}\n\n// Der Webhook ist oeffentlich erreichbar. Ohne diese Pruefung koennte jeder\n// eine beliebige Fremddatei unter einem existierenden Namen in den WorkDrive\n// legen (der Upload laeuft mit override-name-exist=true) oder n8n dazu bringen,\n// interne Hosts abzurufen. Nur PDFs der eigenen Plattform sind erlaubt.\nconst ERLAUBTE_BASIS = 'https://lasselgmbh-angebotssuite.co-captain.at/api/pdf/';\nif (!String(pdfUrl).startsWith(ERLAUBTE_BASIS)) {\n  throw new Error('pdfUrl zeigt nicht auf die Angebotssuite: ' + pdfUrl);\n}\n\n// Dateiname: die Plattform schickt pdfFileName mit. Fallback auf die\n// Belegnummer (Angebot ODER Rechnung), erst danach auf einen Standardnamen.\n// Sonderzeichen raus, damit nichts in den Upload-Query-String injiziert wird.\nconst belegNummer = payload.angebotNummer || payload.rechnungsNummer || null;\nconst rohName = payload.pdfFileName\n  || (belegNummer ? `${belegNummer}.pdf` : 'Beleg.pdf');\nconst fileName = String(rohName).replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120);\n\n// NUR der zentrale AN-Ordner (NICHT workdriveFolderId!)\nconst folderId = 'mo10k0d6534f6b2ce4d528eeb2db6a2bae9e5';\n\nconst ticketId = payload.ticketId || null;\n\nreturn [{\n  json: {\n    pdfUrl: pdfUrl,\n    fileName: fileName,\n    folderId: folderId,\n    ticketId: ticketId\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-160, 240],
+      "id": "10bc6e96-7a36-4a89-9bd4-1e874f166c56",
+      "name": "Payload vorbereiten für Hochladen in AN Ordner in Zoho"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "EwASX66E02hD_cI2BHhc0",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/EwASX66E02hD_cI2BHhc0",
+          "cachedResultName": "Zoho Workdrive Credential 2"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": ["trigger_source"],
+          "schema": [
+            {
+              "id": "trigger_source",
+              "displayName": "trigger_source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [-160, 416],
+      "id": "87083a64-d9ee-409b-8700-18ab1c7badfc",
+      "name": "Access Token holen"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.body.pdfUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [-160, 592],
+      "id": "cda67c91-e5a6-4dd5-bc89-261c9b1207d0",
+      "name": "Angebot herunterladen"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "numberInputs": 3,
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [80, 400],
+      "id": "3c95499e-82da-4280-be0d-066190538bd4",
+      "name": "Daten für Upload sammeln"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Payload-Daten vom ersten Input (Payload vorbereiten)\nconst payloadData = $('Payload vorbereiten für Hochladen in AN Ordner in Zoho').first().json;\nconst fileName = payloadData.fileName;\nconst folderId = payloadData.folderId;\n\n// Access Token vom zweiten Input\nconst accessToken = $('Access Token holen').first().json.access_token;\n\n// PDF Binary vom dritten Input (Angebot herunterladen)\nconst pdfBinary = $('Angebot herunterladen').first().binary.data;\n\n// Validierung\nif (!accessToken) {\n  throw new Error('Access Token fehlt!');\n}\n\nif (!pdfBinary) {\n  throw new Error('Kein PDF Binary gefunden! Download fehlgeschlagen?');\n}\n\nif (!fileName || !folderId) {\n  throw new Error('fileName oder folderId fehlt!');\n}\n\nreturn [{\n  json: {\n    folderId: folderId,\n    fileName: fileName,\n    accessToken: accessToken\n  },\n  binary: {\n    file: pdfBinary\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [304, 416],
+      "id": "718c7c73-30f0-4965-bdcc-276044c12fe9",
+      "name": "Combine for Upload"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://workdrive.zoho.eu/api/v1/upload?filename={{ $json.fileName }}&parent_id={{ $json.folderId }}&override-name-exist=true",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Zoho-oauthtoken {{ $json.accessToken }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "parent_id",
+              "value": "={{ $json.folderId }}"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "content",
+              "inputDataFieldName": "=file"
+            },
+            {
+              "name": "override-name-exist",
+              "value": "true"
+            },
+            {
+              "name": "filename",
+              "value": "={{ $json.fileName }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [528, 416],
+      "id": "afe0f042-5c9d-400f-8f22-f6f9e58757e9",
+      "name": "UPLOAD TO WORKDRIVE"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Payload vorbereiten für Hochladen in AN Ordner in Zoho",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Access Token holen",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Angebot herunterladen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Payload vorbereiten für Hochladen in AN Ordner in Zoho": {
+      "main": [
+        [
+          {
+            "node": "Daten für Upload sammeln",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Access Token holen": {
+      "main": [
+        [
+          {
+            "node": "Daten für Upload sammeln",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Angebot herunterladen": {
+      "main": [
+        [
+          {
+            "node": "Daten für Upload sammeln",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Daten für Upload sammeln": {
+      "main": [
+        [
+          {
+            "node": "Combine for Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine for Upload": {
+      "main": [
+        [
+          {
+            "node": "UPLOAD TO WORKDRIVE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {
+    "Webhook": [
+      {
+        "headers": {
+          "content-type": "application/json",
+          "user-agent": "lassel-angebotssuite"
+        },
+        "params": {},
+        "query": {},
+        "body": {
+          "rechnungsempfaenger": { "name": "Weyrgasse 7, 1030 Wien" },
+          "objekt": { "bezeichnung": "Weyrgasse 7" },
+          "erstelltDurch": "Nikolas Schmadlak",
+          "summen": { "brutto": 2028 },
+          "status": "versendet",
+          "offerId": "7cb73f81-f583-4ee5-9a94-3fd95946f2b0",
+          "angebotNummer": "AN-2026-00069",
+          "pdfUrl": "https://lasselgmbh-angebotssuite.co-captain.at/api/pdf/angebot/7cb73f81-f583-4ee5-9a94-3fd95946f2b0",
+          "pdfFileName": "Angebot_AN-2026-00069.pdf",
+          "versendetAn": "akozak@aon.at",
+          "timestamp": "2026-07-22T09:34:02.776Z"
+        },
+        "webhookUrl": "https://n8n.srv1367876.hstgr.cloud/webhook/ab34322b-aed4-4a93-b232-9178bf75ecaf",
+        "executionMode": "production"
+      }
+    ]
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "8657ea16c0e7d8dd976424a3f014e435f5e2ef33eb26f48b9348aa0d3d18633a"
+  }
+}
