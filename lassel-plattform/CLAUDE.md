@@ -7,7 +7,7 @@
 | Bereich | Zustand | Schalter / Voraussetzung |
 |---|---|---|
 | E-Mail-Versand Angebot/Rechnung | läuft über **n8n** wie bisher | `EMAIL_VERSAND_MODUS` (Default `n8n`, alternativ `graph`) |
-| Versand über Microsoft Graph | fertig, **nicht aktiv** | `MS_GRAPH_*` setzen, dann Modus auf `graph` |
+| Versand über Microsoft Graph | Code fertig, **extern blockiert** | siehe „Graph-Rollout: Stand 2026-07-26" |
 | Lese-API `/api/v1/**` | fertig, **inaktiv ohne Token** | `API_TOKEN_READ` |
 | MCP-Server `/api/mcp` | fertig, 9 Tools | derselbe Token, als Custom Connector eintragen |
 | Entwurfsraum (Schreibzugriff) | fertig, unter „Sonstiges → Entwürfe" | `API_TOKEN_WRITE` + `SUPABASE_SERVICE_ROLE_KEY` |
@@ -33,6 +33,124 @@
    RLS an, keine Policy, nur über Server-Routen mit Service-Role erreichbar.
 
 **Was noch manuell zu tun ist:** siehe „Offene TODOs" ganz unten.
+
+## Angebots-Gültigkeit: zwei Monate (2026-07-27)
+
+Fachliche Festlegung: ein Angebot ist standardmäßig **zwei Monate ab
+Angebotsdatum** gültig. 30 Tage waren zu kurz, und der Zoho-Webhook schrieb
+bisher gar kein Datum (`gueltig_bis: null`).
+
+Einzige Quelle: `src/lib/angebot-gueltigkeit.ts` → `gueltigBisDefault(datum?)`.
+Wer einen weiteren Pfad baut, der Angebote anlegt, holt den Vorschlag dort —
+nicht erneut `addDays(…, 30)` schreiben. Genutzt in:
+`api/webhooks/offer` (Zoho), `lib/entwuerfe.ts` (API-/MCP-Übernahme),
+`angebote/[id]` (neues Angebot + Altbestand ohne Datum beim Öffnen).
+Ein mitgeschicktes bzw. im UI gesetztes Datum hat immer Vorrang.
+
+Dazu im Zoho-Webhook: `gueltig_bis` wird beim **UPDATE** nur noch angefasst,
+wenn Zoho wirklich einen Wert schickt. Vorher setzte jedes Zoho-Update das Feld
+zurück auf `null` und hätte den neuen Standard (und ein im UI gesetztes Datum)
+wieder ausgeleert. `angebotsdatum` und `faellig_bis` der Rechnung sind
+unverändert — das 30-Tage-Zahlungsziel bleibt.
+
+## Graph-Rollout: Stand 2026-07-26 — hier weitermachen
+
+Der Code ist fertig und unverändert seit 2026-07-22. Was fehlt, liegt
+**ausschließlich auf der Microsoft-Seite**. Zwei Punkte, beide bei der IT von
+Lassel angefragt.
+
+### Wo wir stehen
+
+Die Azure-App ist angelegt, Tenant- und Client-ID sind in `.env.local`
+hinterlegt und **verifiziert korrekt** — Azure findet die Registrierung
+(App-ID `308901ee-e83d-42fe-a5b5-d208194ef4c7`). Der Token-Call scheitert
+trotzdem:
+
+```
+POST https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token
+  scope=https://graph.microsoft.com/.default & grant_type=client_credentials
+→ HTTP 401
+  AADSTS7000215: Invalid client secret provided ...
+  for a secret added to app '308901ee-e83d-42fe-a5b5-d208194ef4c7'
+```
+
+**Blocker 1 — Client-Secret passt nicht zur App.** Nicht abgelaufen (das wäre
+`AADSTS7000222`), und nicht die klassische Verwechslung mit der Geheimnis-ID
+(der hinterlegte Wert hat 40 Zeichen mit `~`, also Wert-Format). Bleibt: Secret
+gehört zu einer anderen Registrierung, wurde zwischenzeitlich rotiert, oder
+enthält einen Abtippfehler (`O`/`0`, `l`/`I`/`1` kommen mehrfach vor).
+→ Neues Geheimnis in **dieser** App anlegen, Spalte **Wert** per Copy-Paste.
+
+**Blocker 2 — Berechtigungen hängen an der falschen API.** Die IT hat
+mitgeteilt: „die mail.readwrite und mail.send sind Office 365 Exchange Online
+Berechtigungen nicht Graph". Das ist plausibel und wäre die nächste Hürde: ein
+Token für `graph.microsoft.com` erbt Rollen der Legacy-API *Office 365 Exchange
+Online* nicht — `sendMail` käme mit `403 ErrorAccessDenied` zurück. Gebraucht
+werden unter *API-Berechtigungen → Microsoft Graph → **Anwendungs**berechtigungen*:
+`Mail.Send` und `Mail.ReadWrite`, danach **Administratorzustimmung**.
+Die Exchange-Online-Einträge dürfen bleiben, sie stören nicht.
+
+⚠️ **Blocker 2 ist noch NICHT verifiziert** — dafür braucht es erst einen
+gültigen Token. Nicht als Tatsache behandeln, sondern messen (siehe unten).
+
+### Wie man es prüft, ohne zu raten
+
+Ein Diagnose-Skript liest die `roles` direkt aus dem Token und sendet erst bei
+grünem Licht. Es lag im Scratchpad der Session vom 2026-07-26 und ist in zehn
+Minuten neu geschrieben — Logik:
+
+1. `.env.local` parsen, Client-Credentials-Token für
+   `https://graph.microsoft.com/.default` holen
+2. JWT-Payload base64-dekodieren, `roles` ausgeben
+   → enthält `Mail.Send`? enthält `Mail.ReadWrite`? Das beantwortet Blocker 2
+   empirisch statt per Vermutung
+3. nur wenn `Mail.Send` da ist: `POST /users/{sender}/sendMail`, HTTP 202 =
+   angenommen
+
+Fehlercodes zur Einordnung: `AADSTS700016` = Tenant/Client falsch ·
+`AADSTS7000215` = Secret falsch · `AADSTS7000222` = Secret abgelaufen ·
+`403 ErrorAccessDenied` = Token ok, aber Rolle fehlt oder Postfachzugriff
+verweigert · `404 MailboxNotEnabledForRESTAPI` = `MS_GRAPH_SENDER` ist kein
+echtes Exchange-Online-Postfach.
+
+### Wenn beide Blocker weg sind — Reihenfolge
+
+1. Testmail über das Diagnose-Skript an eine eigene Adresse (umgeht die App
+   komplett, isoliert also reine Microsoft-Probleme)
+2. `EMAIL_VERSAND_MODUS=graph` lokal, Versand über das echte Modal — einmal
+   **ohne** und einmal **mit ~5 MB Fotos**. Das deckt beide Codepfade ab:
+   inline (≤ 2,5 MB) und Entwurf + Upload-Session (darüber). Nur der zweite
+   Pfad braucht `Mail.ReadWrite`.
+3. Die vier `MS_GRAPH_*` in Vercel setzen, dann dort `EMAIL_VERSAND_MODUS=graph`
+4. `n8n/angebot-zoho-ablage.reduziert.json` importieren → erst danach
+   `N8N_ZOHO_WEBHOOK_ANGEBOT` setzen
+5. Dasselbe für die Rechnung → `N8N_ZOHO_WEBHOOK_RECHNUNG`
+
+Schritt 4/5 nicht vergessen: ohne sie versendet die Plattform korrekt, aber das
+PDF landet **nicht mehr** im Zoho-WorkDrive und das CRM-Ticket-Update
+„Rechnung noch nicht beglichen" entfällt. Umgekehrte Reihenfolge schickt dem
+Kunden den Beleg doppelt.
+
+### Nebenbefund aus derselben Prüfung: Vercel-Env ist dünner als gedacht
+
+`vercel env ls` am 2026-07-26 zeigt **nur acht** Variablen: `API2PDF_KEY`,
+`NEXT_PUBLIC_SUPABASE_URL/_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
+`OPENAI_API_KEY`, `N8N_BASE_URL`, `NEXT_PUBLIC_APP_URL`, `WEBHOOK_SECRET`.
+
+Es fehlen also nicht nur die `MS_GRAPH_*`, sondern auch:
+- **`MONITORING_API_KEY`** — `monitoring.ts:38` steigt ohne Key still aus.
+  Das Monitoring ist seit dem Umbau am 2026-07-13 in Produktion **tot**.
+  Gerade beim Mail-Rollout will man Fehler sehen → mit setzen.
+- **`CRON_SECRET`** — Papierkorb-Cleanup und Heartbeat-Ping.
+- **`API_TOKEN_READ` / `API_TOKEN_WRITE`** — API und MCP antworten ohne sie
+  mit 503 bzw. 500 (fail-closed, also kein Sicherheitsproblem, nur inaktiv).
+
+### Offene Entscheidung, kein Blocker
+
+`/api/email/senden` unterstützt `antwortAn` → `replyTo`
+(`route.ts:560-563`), das Modal schickt das Feld nie. Im Modus `graph` geht
+damit jede Mail von `office@…` raus und Antworten landen dort — nicht bei der
+Person aus der gewählten Signatur. Falls gewünscht: ~5 Zeilen im Modal.
 
 ## Monitoring Status (Stand 2026-05-04)
 
@@ -604,13 +722,28 @@ Drei Fixes, alle nach `main` gepusht (Vercel deployt auto):
 ## Offene TODOs
 
 ### Manuell, außerhalb des Codes
+- [ ] **Graph-Rollout — bei der IT von Lassel offen** (Stand 2026-07-26):
+      gültiges Client-Secret für App `308901ee-…` **und** `Mail.Send` +
+      `Mail.ReadWrite` als **Microsoft-Graph**-Anwendungsberechtigungen mit
+      Admin-Consent. Details, Fehlercodes und Prüfweg: Abschnitt
+      „Graph-Rollout: Stand 2026-07-26" oben. Erst danach ist ein Testversand
+      überhaupt möglich.
 - [ ] **Vercel-Env setzen:** `API_TOKEN_READ`, `API_TOKEN_WRITE`
-      (`openssl rand -hex 32`), `SUPABASE_SERVICE_ROLE_KEY`. Ohne die antworten
-      API und MCP mit 503 bzw. 500 — sie stehen nie versehentlich offen.
+      (`openssl rand -hex 32`). Ohne die antworten API und MCP mit 503 bzw.
+      500 — sie stehen nie versehentlich offen.
+      (`SUPABASE_SERVICE_ROLE_KEY` ist entgegen einer früheren Notiz **bereits
+      gesetzt**, am 2026-07-26 per `vercel env ls` geprüft.)
+- [ ] **`MONITORING_API_KEY` in Vercel setzen** — fehlt dort weiterhin, damit
+      läuft das Monitoring seit 2026-07-13 in Prod ins Leere
+      (`monitoring.ts:38` gibt ohne Key still auf). Wert steht in `.env.local`.
+- [ ] **`CRON_SECRET` in Vercel setzen** — Papierkorb-Cleanup und
+      Heartbeat-Ping hängen daran, fehlt aktuell ebenfalls.
 - [ ] **Ein Testversand** an eine eigene Adresse. Die Route
       `/api/email/senden` liegt seit 2026-07-22 im Weg, auch im Modus `n8n`,
       wo sie nur durchreicht. Payload-Gleichheit ist verifiziert (0 Unterschiede
       über 23 Felder), ein Livelauf steht aus.
+      ⚠️ Achtung beim lokalen Test: in **beiden** Modi geht eine echte Mail
+      raus — im Modus `n8n` feuert schon der Dev-Server den Produktiv-Webhook.
 - [ ] **Firmendaten in den Einstellungen prüfen** (IBAN, UID, Fußtext) — das
       Rechnungs-PDF liest sie seit 2026-07-22 aus `company_settings`, statt
       fest hinterlegte Werte zu drucken. Einmal vor dem nächsten

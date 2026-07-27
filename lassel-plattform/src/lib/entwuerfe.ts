@@ -21,6 +21,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { ApiError } from '@/lib/api-core'
 import { naechsteBelegnummer } from '@/lib/belegnummer'
 import { num, round2, STANDARD_MWST } from '@/lib/money'
+import { gueltigBisDefault } from '@/lib/angebot-gueltigkeit'
 
 /**
  * Strikte Validierung: unbekannte Felder werden ABGELEHNT, nicht geschluckt.
@@ -136,7 +137,8 @@ export async function entwurfUebernehmen(
       // gruppiert nach dem Klartextfeld erstellt_von.
       source: 'api',
       angebotsdatum: daten.angebotsdatum || heute,
-      gueltig_bis: daten.gueltigBis || null,
+      // Ohne Angabe zwei Monate ab Angebotsdatum — siehe angebot-gueltigkeit.ts.
+      gueltig_bis: daten.gueltigBis || gueltigBisDefault(daten.angebotsdatum || heute),
       kunde_name: daten.kunde.name,
       kunde_strasse: daten.kunde.strasse || null,
       kunde_plz: daten.kunde.plz || null,

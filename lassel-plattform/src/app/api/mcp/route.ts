@@ -186,7 +186,7 @@ const TOOLS = [
         },
         reverseCharge: { type: 'boolean', description: 'Bauleistung nach §19 Abs. 1a UStG — keine USt' },
         angebotsdatum: { type: 'string', description: 'YYYY-MM-DD, Standard heute' },
-        gueltigBis: { type: 'string', description: 'YYYY-MM-DD' },
+        gueltigBis: { type: 'string', description: 'YYYY-MM-DD. Ohne Angabe: zwei Monate ab Angebotsdatum.' },
         ansprechpartner: { type: 'string' },
         ticketNummer: { type: 'string' },
         notizen: { type: 'string' },

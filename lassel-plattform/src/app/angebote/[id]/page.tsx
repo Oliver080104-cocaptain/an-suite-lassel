@@ -28,6 +28,7 @@ import { generateRechnungsNummer, getTypInfo, type Rechnungstyp } from '@/lib/re
 import { logEvent } from '@/lib/monitoring'
 import { zohoFetch } from '@/lib/zoho-webhook'
 import { num, round2, computeTotals, STANDARD_MWST } from '@/lib/money'
+import { gueltigBisDefault } from '@/lib/angebot-gueltigkeit'
 
 const MITARBEITER_LISTE = [
   'Nikolas Schmadlak',
@@ -48,7 +49,7 @@ export default function OfferDetailPage() {
   const [offer, setOffer] = useState<any>({
     angebotsnummer: '',
     angebotsdatum: format(new Date(), 'yyyy-MM-dd'),
-    gueltig_bis: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
+    gueltig_bis: gueltigBisDefault(),
     status: 'entwurf',
     kunde_name: '',
     kunde_uid: '',
@@ -223,7 +224,8 @@ export default function OfferDetailPage() {
     if (existingOffer && !offerInitialized.current) {
       setOffer({
         ...existingOffer,
-        gueltig_bis: existingOffer.gueltig_bis || format(addDays(new Date(), 30), 'yyyy-MM-dd'),
+        // Altbestand ohne Gültigkeitsdatum: zwei Monate ab Angebotsdatum.
+        gueltig_bis: existingOffer.gueltig_bis || gueltigBisDefault(existingOffer.angebotsdatum),
         objekt_plz: existingOffer.objekt_plz || '',
         objekt_ort: existingOffer.objekt_ort || '',
         erstellt_von: existingOffer.erstellt_von || '',

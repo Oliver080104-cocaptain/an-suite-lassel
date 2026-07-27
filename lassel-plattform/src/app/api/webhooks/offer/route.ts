@@ -5,6 +5,7 @@ import { resolveKundeName, isKundeNameFallback } from '@/lib/webhook-kunde'
 import { logEvent } from '@/lib/monitoring'
 import { naechsteBelegnummer } from '@/lib/belegnummer'
 import { num, computeTotals, lineNetto, STANDARD_MWST } from '@/lib/money'
+import { gueltigBisDefault } from '@/lib/angebot-gueltigkeit'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -59,6 +60,7 @@ function buildAngebotData(payload: any, opts: { includeIdentity: boolean }) {
   const zoho = meta?.zoho || {}
   const objekt = kunde?.objektAdresse || {}
   const gasse = objekt.gasse || ''
+  const angebotsdatum = angebot.datum || new Date().toISOString().split('T')[0]
 
   const data: Record<string, unknown> = {
     // Rechnungsempfänger (= Hausverwaltung falls rechnungAnHI, sonst Direktkunde)
@@ -90,8 +92,7 @@ function buildAngebotData(payload: any, opts: { includeIdentity: boolean }) {
     uid_von_hi: kunde.uidVonHI || null,
 
     // Angebots-Meta
-    angebotsdatum: angebot.datum || new Date().toISOString().split('T')[0],
-    gueltig_bis: angebot.gueltigBis || null,
+    angebotsdatum,
     geschaeftsfallnummer: angebot.geschaeftsfallnummer || zoho.geschaeftsfallnummer || null,
     erstellt_von: angebot.erstelltDurch || zoho.ownerName || null,
     notizen: angebot.bemerkung || null,
@@ -100,6 +101,16 @@ function buildAngebotData(payload: any, opts: { includeIdentity: boolean }) {
     // Ticket-Refs
     ticket_nummer: payload.ticketNumber || null,
     zoho_ticket_id: payload.ticketId || null,
+  }
+
+  // Gültigkeit: Zoho schickt `gueltigBis` praktisch nie mit. Beim Anlegen wird
+  // deshalb der Standard gesetzt (zwei Monate ab Angebotsdatum) statt null.
+  // Beim UPDATE bleibt das Feld unangetastet, wenn Zoho keinen Wert liefert —
+  // sonst würde jedes Zoho-Update das im UI gesetzte Datum wieder ausleeren.
+  if (angebot.gueltigBis) {
+    data.gueltig_bis = angebot.gueltigBis
+  } else if (opts.includeIdentity) {
+    data.gueltig_bis = gueltigBisDefault(angebotsdatum)
   }
 
   // status + angebotsnummer nur bei INSERT setzen, nicht bei UPDATE
