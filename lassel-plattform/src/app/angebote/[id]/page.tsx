@@ -29,6 +29,7 @@ import { logEvent } from '@/lib/monitoring'
 import { zohoFetch } from '@/lib/zoho-webhook'
 import { num, round2, computeTotals, STANDARD_MWST } from '@/lib/money'
 import { gueltigBisDefault } from '@/lib/angebot-gueltigkeit'
+import { ANGEBOT_STATUS, normalisiereAngebotStatus } from '@/lib/angebot-status'
 
 const MITARBEITER_LISTE = [
   'Nikolas Schmadlak',
@@ -347,7 +348,10 @@ export default function OfferDetailPage() {
       angebotsnummer: offerState.angebotsnummer,
       angebotsdatum: offerState.angebotsdatum,
       gueltig_bis: offerState.gueltig_bis,
-      status: offerState.status || 'entwurf',
+      // Notbremse gegen das Enum: ein Status, den `angebot_status` nicht kennt,
+      // laesst das ganze UPDATE scheitern (invalid input value for enum) —
+      // inklusive Positionen und Zoho-Ablage. Siehe lib/angebot-status.ts.
+      status: normalisiereAngebotStatus(offerState.status),
       kunde_name: offerState.kunde_name || '',
       kunde_uid: offerState.kunde_uid || null,
       kunde_strasse: offerState.kunde_strasse || null,
@@ -1281,7 +1285,7 @@ export default function OfferDetailPage() {
                   <Label>Status</Label>
                   <div className="p-3 bg-blue-50 border-2 border-blue-300 rounded-lg mt-1">
                     <Select
-                      value={offer.status || 'entwurf'}
+                      value={normalisiereAngebotStatus(offer.status)}
                       onValueChange={async (v) => {
                         setOffer((prev: any) => ({ ...prev, status: v }))
                         if (v === 'angenommen' && offerId) {
@@ -1321,15 +1325,9 @@ export default function OfferDetailPage() {
                     >
                       <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="entwurf">Entwurf</SelectItem>
-                        <SelectItem value="in_bearbeitung">In Bearbeitung</SelectItem>
-                        <SelectItem value="ready_for_pdf">Bereit für PDF</SelectItem>
-                        <SelectItem value="final">Final</SelectItem>
-                        <SelectItem value="versendet">Versendet</SelectItem>
-                        <SelectItem value="angenommen">Angenommen</SelectItem>
-                        <SelectItem value="abgelehnt">Abgelehnt</SelectItem>
-                        <SelectItem value="abgelaufen">Abgelaufen</SelectItem>
-                        <SelectItem value="storniert">Storniert</SelectItem>
+                        {ANGEBOT_STATUS.map((s) => (
+                          <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>

@@ -1,0 +1,264 @@
+{
+  "name": "Angebot aus Zoho-Ticket",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "84ce7001-d1d3-445f-b45b-03133c1faba2",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -720,
+        300
+      ],
+      "id": "322198be-522c-423f-86d7-3350a48a44c1",
+      "name": "Webhook",
+      "webhookId": "84ce7001-d1d3-445f-b45b-03133c1faba2",
+      "notes": "Unveraenderte Produktions-URL — die Deluge-Funktion in Zoho muss nicht angefasst werden."
+    },
+    {
+      "parameters": {
+        "url": "=https://www.zohoapis.eu/crm/v3/Ticket/{{ $('Webhook').first().json.body.ticketId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zohoOAuth2Api",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -500,
+        300
+      ],
+      "id": "9799c03b-0694-42e5-9983-a0a163bfd694",
+      "name": "Ticket laden",
+      "credentials": {
+        "zohoOAuth2Api": {
+          "id": "XmCikR828yB5FOwq",
+          "name": "office@hoehenarbeiten-lassel.at"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "notes": "Pflichtquelle. Schlaegt sie fehl, bricht der Lauf sichtbar ab — ohne Ticket gibt es kein Angebot."
+    },
+    {
+      "parameters": {
+        "url": "=https://www.zohoapis.eu/crm/v3/Accounts/{{ $('Ticket laden').first().json?.data?.[0]?.Kunde_Gasse?.id || 'kein-lookup' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zohoOAuth2Api",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -280,
+        300
+      ],
+      "id": "86695864-6f64-4fda-9585-2457f507f79f",
+      "name": "Kunde laden",
+      "credentials": {
+        "zohoOAuth2Api": {
+          "id": "XmCikR828yB5FOwq",
+          "name": "office@hoehenarbeiten-lassel.at"
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "notesInFlow": true,
+      "notes": "Darf fehlschlagen — Angebot entsteht trotzdem"
+    },
+    {
+      "parameters": {
+        "url": "=https://www.zohoapis.eu/crm/v3/Hausverwaltung/{{ $('Ticket laden').first().json?.data?.[0]?.Zust_ndige_Hausverwaltung?.id || 'kein-lookup' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zohoOAuth2Api",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -60,
+        300
+      ],
+      "id": "34633c48-34ed-4769-be04-9473bc0245fa",
+      "name": "Hausverwaltung laden",
+      "credentials": {
+        "zohoOAuth2Api": {
+          "id": "XmCikR828yB5FOwq",
+          "name": "office@hoehenarbeiten-lassel.at"
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "notesInFlow": true,
+      "notes": "Darf fehlschlagen — Kundenname faellt auf Account/Gasse zurueck"
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * Baut den Payload fuer POST /api/webhooks/offer.\n *\n * Wichtigste Aenderung gegenueber dem alten Flow: jede Quelle wird EXPLIZIT\n * ueber $('Node') gelesen. Vorher liefen Ticket, Account und Hausverwaltung\n * durch einen Merge (combineByPosition). Alle drei Zoho-Antworten haben \"data\"\n * auf oberster Ebene — die Schluessel kollidierten, und die nachgeladenen\n * Datensaetze fielen still unter den Tisch (daher kunde.name: \"\").\n */\n\n// ---------- Helfer ----------\nconst txt = (v) => (v === null || v === undefined ? '' : String(v).trim());\n\n/** Zahl mit Standardwert. 0 bleibt 0 (nicht wie \"|| 20\" still auf den Default). */\nconst zahl = (v, standard) => {\n  if (v === null || v === undefined || v === '') return standard;\n  const n = Number(String(v).replace(',', '.'));\n  return Number.isFinite(n) ? n : standard;\n};\n\n/** Zoho-Lookups kommen mal als {id, name}, mal als reiner String. */\nconst lookupName = (v) => {\n  if (!v) return '';\n  if (typeof v === 'string') return v.trim();\n  if (typeof v === 'object') return txt(v.name || v.Name || v.Account_Name);\n  return '';\n};\n\n/**\n * Erster Datensatz eines Zoho-Nodes — oder null, wenn der Node nichts,\n * einen Fehler oder eine leere Antwort geliefert hat. Genau diese Toleranz\n * ersetzt den Merge: eine tote Nebenabfrage kostet nur ihr eigenes Feld.\n */\nconst zohoRecord = (nodeName) => {\n  try {\n    const j = $(nodeName).first().json;\n    const rec = j && Array.isArray(j.data) ? j.data[0] : null;\n    return rec && rec.id ? rec : null;\n  } catch (e) {\n    return null;\n  }\n};\n\n/** Heute in Wiener Zeit — UTC waere zwischen 00:00 und 02:00 der Vortag. */\nconst heute = () => {\n  try {\n    return DateTime.now().setZone('Europe/Vienna').toISODate();\n  } catch (e) {\n    return new Date().toISOString().slice(0, 10);\n  }\n};\n\n// ---------- Quellen ----------\nconst hookBody = ($('Webhook').first().json || {}).body || {};\n\nconst ticket = zohoRecord('Ticket laden');\nif (!ticket) {\n  throw new Error(\n    'Ticket ' + (txt(hookBody.ticketId) || '(ohne ID)') +\n    ' konnte nicht aus Zoho geladen werden — Angebot wird NICHT angelegt.'\n  );\n}\n\n// Beide Nebenabfragen duerfen fehlschlagen (Lookup leer, Zoho-Aussetzer).\nconst objektAccount = zohoRecord('Kunde laden');\nconst hausverwaltung = zohoRecord('Hausverwaltung laden');\n\nconst ticketId = txt(ticket.id) || txt(hookBody.ticketId);\nconst ticketNummer = txt(ticket.Name) || txt(hookBody.ticketNumber);\nif (!ticketId) {\n  throw new Error('TicketID fehlt — ohne sie erkennt die Plattform Wiederholungen nicht.');\n}\n\n// ---------- Objekt / Gasse ----------\n// \"Staettermayergasse 22, 1150 Wien\" -> Strasse / PLZ / Ort\nconst gassenName = lookupName(ticket.Kunde_Gasse) || txt(objektAccount && objektAccount.Account_Name);\n\nlet objStrasse = '';\nlet objPlz = '';\nlet objOrt = '';\nconst teile = gassenName.split(',');\nif (teile.length >= 2) {\n  objStrasse = teile[0].trim();\n  const rest = teile.slice(1).join(',').trim();\n  const m = /^(\\d{4,5})\\s+(.+)$/.exec(rest);\n  if (m) {\n    objPlz = m[1];\n    objOrt = m[2].trim();\n  } else {\n    objOrt = rest;\n  }\n} else if (gassenName) {\n  objStrasse = gassenName;\n}\n\n// Luecken aus dem Account-Datensatz fuellen — der wird jetzt endlich benutzt.\nobjStrasse = objStrasse || txt(objektAccount && objektAccount.Billing_Street);\nobjPlz = objPlz || txt(objektAccount && objektAccount.Billing_Code) || txt(ticket.Bezirk);\nobjOrt = objOrt || txt(objektAccount && objektAccount.Billing_City);\n\n// ---------- Rechnungsempfaenger ----------\nconst hvName =\n  txt(hausverwaltung && hausverwaltung.Name) ||\n  txt(hausverwaltung && hausverwaltung.Hausverwaltung) ||\n  txt(hausverwaltung && hausverwaltung.Account_Name) ||\n  lookupName(ticket.Zust_ndige_Hausverwaltung);\n\nconst accountName = lookupName(ticket.Account_Name) || txt(objektAccount && objektAccount.Account_Name);\n\n// Reihenfolge wie resolveKundeName() in der Plattform: HV -> Account -> Gasse.\n// ansprechpartner ist NIE der Kunde, sondern die/der interne MitarbeiterIn.\nconst kundeName = hvName || accountName || gassenName;\n\nconst rgStrasse =\n  txt(ticket.Rechnungsadresse_Strasse) ||\n  txt(hausverwaltung && (hausverwaltung.Billing_Street || hausverwaltung.Strasse)) ||\n  txt(objektAccount && objektAccount.Billing_Street);\nconst rgPlz =\n  txt(ticket.Rechnungsadresse_PLZ) ||\n  txt(hausverwaltung && (hausverwaltung.Billing_Code || hausverwaltung.PLZ)) ||\n  txt(objektAccount && objektAccount.Billing_Code);\nconst rgOrt =\n  txt(ticket.Rechnungsadresse_Stadt) ||\n  txt(hausverwaltung && (hausverwaltung.Billing_City || hausverwaltung.Ort)) ||\n  txt(objektAccount && objektAccount.Billing_City);\n\nconst uid =\n  txt(ticket.USt_ID) ||\n  txt(hausverwaltung && (hausverwaltung.USt_ID || hausverwaltung.UID)) ||\n  txt(objektAccount && objektAccount.USt_ID);\n\nconst kunde = {\n  name: kundeName,\n  strasse: rgStrasse,\n  plz: rgPlz,\n  ort: rgOrt,\n  land: 'Österreich',\n  ansprechpartner: txt(ticket.Ticket_erstellt_von),\n  email:\n    txt(ticket.E_Mail) ||\n    txt(ticket.Email) ||\n    txt(ticket.Rechnungs_E_Mail) ||\n    txt(hausverwaltung && hausverwaltung.Email),\n  emailAngebot: txt(ticket.E_Mail) || txt(hausverwaltung && hausverwaltung.Email),\n  emailRechnung: txt(ticket.Rechnungs_E_Mail),\n  uidnummer: uid,\n  uidVonHI: txt(ticket.UID_von_HI),\n  rechnungAnHI: Boolean(ticket.Rechnung_an_HI),\n  telefon:\n    txt(ticket.Ansprechperson_Tel) ||\n    txt(ticket.Phone) ||\n    txt(hausverwaltung && hausverwaltung.Phone),\n  ustId: uid,\n  objektAdresse: {\n    gasse: gassenName,\n    strasse: objStrasse,\n    plz: objPlz,\n    ort: objOrt,\n    bezirk: txt(ticket.Bezirk),\n  },\n};\n\n// ---------- Steuer ----------\n// Beides kommt aus dem Zoho-Body; Deluge rechnet es dort bereits aus.\n// Der alte Flow hat es verworfen und JEDES Angebot mit 20 % angelegt —\n// bei Reverse Charge also mit falscher Steuer.\nconst reverseCharge =\n  hookBody.reverseCharge === true ||\n  String(hookBody.reverseCharge).toLowerCase() === 'true' ||\n  String(ticket.Reverse_Charge).toLowerCase() === 'true';\nconst ustSatz = reverseCharge ? 0 : zahl(hookBody.steuerWert, 20);\n\n// ---------- Positionen ----------\nconst dlRoh = ticket.Dienstleistung_en;\nconst dienstleistungen = Array.isArray(dlRoh)\n  ? dlRoh.map(txt).filter(Boolean)\n  : (txt(dlRoh) ? [txt(dlRoh)] : []);\n\n// Preise aus dem Deluge-Quote uebernehmen, falls dort welche stehen.\nconst quoteZeilen = Array.isArray(hookBody.quote && hookBody.quote.Product_Details)\n  ? hookBody.quote.Product_Details\n  : [];\n\nconst positionen = dienstleistungen.map((dl, i) => {\n  const q = quoteZeilen[i] || {};\n  return {\n    pos: i + 1,\n    produktName: dl,\n    // Bewusst leer: die Plattform setzt \"produktName\\nbeschreibung\" zusammen,\n    // ein \"X fuer Gasse Y\" unter der Ueberschrift \"X\" stand doppelt im PDF.\n    // Das Objekt steht ohnehin im Belegkopf (objekt_bezeichnung).\n    beschreibung: '',\n    menge: zahl(q.quantity, 1),\n    einheit: 'Stk',\n    einzelpreisNetto: Math.max(0, zahl(q.list_price, 0)),\n    rabattProzent: 0,\n    ustSatz: ustSatz,\n  };\n});\n\nif (positionen.length === 0) {\n  const q = quoteZeilen[0] || {};\n  positionen.push({\n    pos: 1,\n    produktName: 'Dienstleistung',\n    beschreibung: gassenName ? 'Arbeiten für ' + gassenName : 'Arbeiten laut Ticket',\n    menge: zahl(q.quantity, 1),\n    einheit: 'Stk',\n    einzelpreisNetto: Math.max(0, zahl(q.list_price, 0)),\n    rabattProzent: 0,\n    ustSatz: ustSatz,\n  });\n}\n\n// ---------- Angebot ----------\nconst angebot = {\n  // Angebotsdatum = Erstellungstag. Vorher stand hier ticket.Startdatum, also\n  // der geplante Arbeitsbeginn — daraus haette die Plattform auch die\n  // Gueltigkeit gerechnet.\n  datum: heute(),\n  // gueltigBis bewusst NICHT gesetzt: die Plattform setzt zwei Monate ab\n  // Angebotsdatum (gueltigBisDefault). Der alte Flow schrieb 30 Tage und\n  // ueberschrieb damit den fachlichen Standard.\n  erstelltDurch: lookupName(ticket.Owner),\n  geschaeftsfallnummer: txt(ticket.Gesch_ftsfallnummer),\n  bemerkung: [\n    txt(ticket.Angebotsbemerkung),\n    txt(ticket.Dienstleistung_Zusatz),\n    txt(ticket.Description),\n  ].filter(Boolean).join(' | '),\n  skizzenLink:\n    txt(ticket.Skizzen_Link) ||\n    txt(ticket.Fotos_Ordnerlink) ||\n    txt(ticket.Angebot_Link) ||\n    txt(ticket.Workdrive_Link),\n  objektBeschreibung: gassenName,\n  dienstleistungen: dienstleistungen,\n  reverseCharge: reverseCharge,\n};\n\n// ---------- Payload ----------\nconst vermittler = ticket.Vermittler_von_Ticket || null;\n\nconst payload = {\n  source: 'zoho',\n  entityType: 'ticket',\n  ticketId: ticketId,\n  ticketNumber: ticketNummer,\n  kunde: kunde,\n  angebot: angebot,\n  positionen: positionen,\n  meta: {\n    workdriveFolderId: txt(ticket.Workdrive_ID) || txt(ticket.Foto_Ordner_ID),\n    // callbackUrl bewusst entfernt: die alte zeigte auf /webhook-test/ einer\n    // anderen n8n-Instanz. Die Plattform ruft sie synchron auf und wartete\n    // jedes Mal auf einen toten Endpunkt.\n    quellen: {\n      kundeGeladen: Boolean(objektAccount),\n      hausverwaltungGeladen: Boolean(hausverwaltung),\n    },\n    zoho: {\n      ownerId: txt(ticket.Owner && ticket.Owner.id),\n      ownerEmail: txt(ticket.Owner && ticket.Owner.email),\n      ownerName: lookupName(ticket.Owner),\n      ticketErstelltVon: txt(ticket.Ticket_erstellt_von),\n      kundeGasseId: txt(ticket.Kunde_Gasse && ticket.Kunde_Gasse.id),\n      kundeGasseName: gassenName,\n      accountName: accountName,\n      hausverwaltungId:\n        txt(hausverwaltung && hausverwaltung.id) ||\n        txt(ticket.Zust_ndige_Hausverwaltung && ticket.Zust_ndige_Hausverwaltung.id),\n      hausverwaltungName: hvName,\n      kundenTyp: txt(ticket.Kunden_Typ),\n      hausinhabung: txt(ticket.Hausinhabung_HI),\n      vermittler: vermittler\n        ? { id: txt(vermittler.id), name: lookupName(vermittler) }\n        : null,\n      projektstatus: txt(ticket.Projektstatus),\n      startdatum: txt(ticket.Startdatum),\n      enddatum: txt(ticket.Enddatum),\n      auftragssumme: zahl(ticket.Auftragssumme, 0),\n      bezirk: txt(ticket.Bezirk),\n      layoutId: txt(ticket.Layout && ticket.Layout.id),\n      preislistenTyp: txt(ticket.Preislisten_Typ),\n      standortZuweisung: txt(ticket.Standort_Zuweisung),\n      workdriveLink: txt(ticket.Workdrive_Link),\n      fotosOrdnerlink: txt(ticket.Fotos_Ordnerlink),\n      angeboteOrdnerlink: txt(ticket.Angebote_Ordnerlink),\n      rechnungenOrdnerlink: txt(ticket.Rechnungen_Ordnerlink),\n      lat: ticket.Lat === undefined ? null : ticket.Lat,\n      lng: ticket.Lng === undefined ? null : ticket.Lng,\n      mapsLink: txt(ticket.Maps_Link),\n    },\n  },\n};\n\nreturn [{ json: payload }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        300
+      ],
+      "id": "6b0198c6-8fe9-474b-a136-addbd92f05cc",
+      "name": "Angebots-Payload bauen"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://an-suite-lassel.vercel.app/api/webhooks/offer",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "={\n  \"Content-Type\": \"application/json\",\n  \"x-webhook-secret\": \"lassel-2026-secure-webhook\"\n}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        380,
+        300
+      ],
+      "id": "556b97f9-957c-4404-989c-6fca0f768528",
+      "name": "AN-Suite: Angebot anlegen",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "Wiederholung ist gefahrlos: die Plattform erkennt das Ticket wieder und aktualisiert das vorhandene Angebot, statt ein zweites anzulegen."
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://www.zohoapis.eu/crm/v3/Ticket/{{ $('Ticket laden').first().json.data[0].id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "zohoOAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"data\": [\n    {\n      \"Projektstatus\": \"Angebot in Erstellung\"\n    }\n  ]\n}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        600,
+        300
+      ],
+      "id": "0b43365e-6dee-485f-9169-d4c5411a6485",
+      "name": "Zoho: Projektstatus setzen",
+      "credentials": {
+        "zohoOAuth2Api": {
+          "id": "XmCikR828yB5FOwq",
+          "name": "office@hoehenarbeiten-lassel.at"
+        }
+      },
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "notes": "Laeuft erst NACH dem Anlegen. Vorher stand der Status auch dann auf \"Angebot in Erstellung\", wenn gar keines entstanden ist."
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Ticket laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ticket laden": {
+      "main": [
+        [
+          {
+            "node": "Kunde laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kunde laden": {
+      "main": [
+        [
+          {
+            "node": "Hausverwaltung laden",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hausverwaltung laden": {
+      "main": [
+        [
+          {
+            "node": "Angebots-Payload bauen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Angebots-Payload bauen": {
+      "main": [
+        [
+          {
+            "node": "AN-Suite: Angebot anlegen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AN-Suite: Angebot anlegen": {
+      "main": [
+        [
+          {
+            "node": "Zoho: Projektstatus setzen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "8657ea16c0e7d8dd976424a3f014e435f5e2ef33eb26f48b9348aa0d3d18633a"
+  }
+}

@@ -13,21 +13,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import EmptyState from '@/components/shared/EmptyState'
 import OfferListItem from '@/components/offers/OfferListItem'
 import { format } from 'date-fns'
+import { ANGEBOT_STATUS } from '@/lib/angebot-status'
 
-// Die Werte müssen exakt den DB-Werten der Spalte angebote.status entsprechen
-// (ENUM angebot_status, siehe schema.sql). 'draft' stand hier nie in der
-// Datenbank — der häufigste Status war damit nicht filterbar und wurde
-// dauerhaft mit Anzahl 0 angezeigt. 'final', 'archiviert' und 'offen' fehlten
-// ganz, obwohl sie im Detail-Dropdown auswählbar sind.
+// Filter und Detail-Dropdown lesen dieselbe Liste (lib/angebot-status.ts) —
+// vorher standen die Werte doppelt im Code und liefen auseinander: hier fehlten
+// 'final', 'archiviert' und 'offen', dort waren vier Werte auswählbar, die das
+// DB-Enum gar nicht kennt.
 const offerStatusOptions = [
   { value: 'all', label: 'Alle Status' },
-  { value: 'entwurf', label: 'Entwurf' },
-  { value: 'offen', label: 'Offen' },
-  { value: 'versendet', label: 'Versendet' },
-  { value: 'final', label: 'Final' },
-  { value: 'angenommen', label: 'Angenommen' },
-  { value: 'abgelehnt', label: 'Abgelehnt' },
-  { value: 'archiviert', label: 'Archiviert' },
+  ...ANGEBOT_STATUS.map((s) => ({ value: s.value as string, label: s.label as string })),
 ]
 
 export default function AngebotePage() {
