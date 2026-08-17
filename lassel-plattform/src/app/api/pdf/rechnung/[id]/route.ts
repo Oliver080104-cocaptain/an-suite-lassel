@@ -142,7 +142,6 @@ export async function GET(
     { data: rechnung, error },
     { data: positionenRaw },
     { data: companySettings },
-    { data: einstellungen },
   ] = await Promise.all([
     supabase.from('rechnungen').select('*').eq('id', id).single(),
     supabase.from('rechnung_positionen').select('*').eq('rechnung_id', id).order('position'),
@@ -153,7 +152,6 @@ export async function GET(
     // global gepflegte Rechnungs-Fusstext war dauerhaft leer. Das Angebots-PDF
     // liest company_settings bereits korrekt.
     supabase.from('company_settings').select('*').limit(1).maybeSingle(),
-    supabase.from('einstellungen').select('key, value'),
   ])
 
   if (error || !rechnung) return new NextResponse('Rechnung nicht gefunden', { status: 404 })
@@ -202,11 +200,12 @@ export async function GET(
     ? 'SCHLUSSRECHNUNG'
     : (typToPdfTitle[rechnung.rechnungstyp || 'normal'] || 'RECHNUNG'))
 
-  // Einstellungen parsen
+  // Altbestand: frueher lagen Firmendaten in einer Key/Value-Tabelle
+  // `einstellungen`. Die Tabelle hat in der Produktionsdatenbank gar keine
+  // Spalten key/value (sie haelt Arbeitszeiten und Depot-Adresse) — die
+  // Abfrage lief bei JEDEM Rechnungs-PDF in einen 400er und lieferte nie
+  // etwas. Ersatzlos entfernt; Quelle ist company_settings.
   const s: Record<string, string> = {}
-  einstellungen?.forEach((e: any) => {
-    try { s[e.key] = JSON.parse(e.value) } catch { s[e.key] = e.value }
-  })
 
   // Vorrang: company_settings (Einstellungen-Seite) > einstellungen-Key/Value
   // (Altbestand) > fest hinterlegter Default. Die Feldnamen unterscheiden

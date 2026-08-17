@@ -32,6 +32,7 @@ import { naechsteBelegnummer } from '@/lib/belegnummer'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
 import { num, STANDARD_MWST, computeTotals } from '@/lib/money'
+import { insertMitDriftSchutz } from '@/lib/schema-drift'
 
 interface MatchField {
   field: string
@@ -169,8 +170,10 @@ export default function OfferListItem({ offer, onDelete, searchTerm = '' }: Prop
       }
       if (!newInvoice) throw letzterFehler ?? new Error('Rechnung konnte nicht angelegt werden')
 
-      for (const pos of positions || []) {
-        await supabase.from('rechnung_positionen').insert({
+      // Drift-Schutz statt roher Inserts: `produkt_id` fehlt in der Prod-DB,
+      // ohne das waere die Rechnung hier mit Nummer angelegt und ohne eine
+      // einzige Position geblieben.
+      const posZeilen = (positions || []).map((pos: Record<string, unknown>) => ({
           rechnung_id: newInvoice.id,
           position: pos.position,
           produkt_id: pos.produkt_id,
@@ -182,8 +185,15 @@ export default function OfferListItem({ offer, onDelete, searchTerm = '' }: Prop
           // 0%-USt bleibt 0 statt still auf den Regelsatz zu springen
           mwst_satz: num(pos.mwst_satz, STANDARD_MWST),
           gesamtpreis: num(pos.gesamtpreis, 0),
-        })
-      }
+      }))
+
+      const { error: posErr } = await insertMitDriftSchutz(
+        supabase, 'rechnung_positionen', posZeilen,
+        { kontext: 'OfferListItem Rechnung erzeugen' }
+      )
+      // Vorher wurde der Rueckgabewert gar nicht geprueft: die Rechnung galt
+      // als erstellt, auch wenn keine einzige Position ankam.
+      if (posErr) throw new Error(posErr.message)
 
       toast.success('Rechnung erstellt')
       router.push(`/rechnungen/${newInvoice.id}`)

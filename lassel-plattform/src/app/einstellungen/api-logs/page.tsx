@@ -19,7 +19,10 @@ export default function ApiLogsPage() {
       const { data, error } = await supabase
         .from('api_logs')
         .select('*')
-        .order('created_at', { ascending: false })
+        // Die Tabelle hat keine Spalte created_at, sondern `timestamp` —
+        // PostgREST hat die Abfrage deshalb mit 400 abgelehnt und die Seite
+        // zeigte dauerhaft eine leere Liste.
+        .order('timestamp', { ascending: false })
         .limit(100)
       if (error) { console.error('API logs error:', error); return [] }
       return data || []

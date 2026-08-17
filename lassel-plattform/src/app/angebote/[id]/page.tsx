@@ -30,6 +30,7 @@ import { zohoFetch } from '@/lib/zoho-webhook'
 import { num, round2, computeTotals, STANDARD_MWST } from '@/lib/money'
 import { gueltigBisDefault } from '@/lib/angebot-gueltigkeit'
 import { ANGEBOT_STATUS, normalisiereAngebotStatus } from '@/lib/angebot-status'
+import { insertMitDriftSchutz } from '@/lib/schema-drift'
 
 const MITARBEITER_LISTE = [
   'Nikolas Schmadlak',
@@ -482,9 +483,14 @@ export default function OfferDetailPage() {
     if (delErr) throw delErr
 
     if (currentPositions.length > 0) {
-      const { error: insErr } = await supabase
-        .from('angebot_positionen')
-        .insert(currentPositions.map(buildPosData))
+      // Ueber den Drift-Schutz: `produkt_id` steht in schema.sql, in der
+      // Produktionsdatenbank aber nicht. Ohne diesen Weg scheitert JEDES
+      // Speichern des Angebots an der einen fehlenden Spalte — und weil das
+      // Loeschen oben schon durch ist, stuenden die Positionen dann auf null.
+      const { error: insErr } = await insertMitDriftSchutz(
+        supabase, 'angebot_positionen', currentPositions.map(buildPosData),
+        { kontext: 'angebote/[id] savePositions' }
+      )
       if (insErr) throw insErr
     }
   }
@@ -895,7 +901,14 @@ export default function OfferDetailPage() {
       }
 
       if (posToInsert.length > 0) {
-        const { error: posInsErr } = await supabase.from('rechnung_positionen').insert(posToInsert)
+        // Drift-Schutz: der Rechnungskopf ist an dieser Stelle bereits
+        // angelegt und hat eine Nummer gezogen. Scheitert der Positions-Insert
+        // an einer fehlenden Spalte (produkt_id), bleibt eine leere Rechnung
+        // zurueck — die Nummer ist vergeben, der Beleg unbrauchbar.
+        const { error: posInsErr } = await insertMitDriftSchutz(
+          supabase, 'rechnung_positionen', posToInsert,
+          { kontext: 'angebote/[id] Rechnung erzeugen' }
+        )
         if (posInsErr) { console.error('Rechnung-Positionen Insert:', posInsErr); throw posInsErr }
       }
 

@@ -91,7 +91,9 @@ export default function PowerSuchePage() {
   const { data: tickets = [], isLoading } = useQuery({
     queryKey: ['tickets'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('tickets').select('*').order('created_date', { ascending: false }).limit(1000)
+      // tickets hat created_at, nicht created_date — mit dem alten Namen
+      // antwortete PostgREST mit 400 und die Power-Suche warf beim Laden.
+      const { data, error } = await supabase.from('tickets').select('*').order('created_at', { ascending: false }).limit(1000)
       if (error) throw error
       return data || []
     },

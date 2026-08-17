@@ -22,6 +22,7 @@ import { ApiError } from '@/lib/api-core'
 import { naechsteBelegnummer } from '@/lib/belegnummer'
 import { num, round2, STANDARD_MWST } from '@/lib/money'
 import { gueltigBisDefault } from '@/lib/angebot-gueltigkeit'
+import { insertMitDriftSchutz } from '@/lib/schema-drift'
 
 /**
  * Strikte Validierung: unbekannte Felder werden ABGELEHNT, nicht geschluckt.
@@ -199,7 +200,12 @@ export async function entwurfUebernehmen(
       gesamtpreis: zeilenNetto(p),
     }))
 
-    const { error: posError } = await db.from('angebot_positionen').insert(positionen)
+    // Drift-Schutz: `produkt_id` steht in schema.sql, in der Produktionsdatenbank
+    // aber nicht. Ohne das scheitert JEDE Uebernahme — nach dem Kopf-Insert und
+    // nach der Nummernvergabe, also mit gezogener Nummer.
+    const { error: posError } = await insertMitDriftSchutz(
+      db, 'angebot_positionen', positionen, { kontext: 'entwuerfe/uebernehmen' }
+    )
     if (posError) {
       // Kopf ohne Positionen wäre ein Blindgänger in der Liste.
       await db.from('angebote').delete().eq('id', angebotId)

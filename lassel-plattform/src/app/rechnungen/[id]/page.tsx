@@ -980,7 +980,14 @@ export default function InvoiceDetailPage() {
       const allTz = [...(teilzahlungen as any[]), { betrag }]
       const bezahltGesamt = allTz.reduce((s: number, t: any) => s + (Number(t.betrag) || 0), 0)
       const newStatus = bezahltGesamt >= totals.summeBrutto ? 'bezahlt' : 'teilweise_bezahlt'
-      await supabase.from('rechnungen').update({ bezahlt_betrag: bezahltGesamt, status: newStatus }).eq('id', invoiceId)
+      // `bezahlt_betrag` gibt es in der Datenbank nicht — weder in der Prod-DB
+      // noch in schema.sql. Das Update scheiterte deshalb komplett: die
+      // Teilzahlung war gespeichert, der Rechnungsstatus blieb aber auf
+      // "offen" und die Zoho-Meldung "bezahlt" unterblieb. Der bezahlte
+      // Betrag steht ohnehin in `teilzahlungen` und wird daraus gerechnet.
+      const { error: statusErr } = await supabase
+        .from('rechnungen').update({ status: newStatus }).eq('id', invoiceId)
+      if (statusErr) throw statusErr
       setInvoice(p => ({ ...p, status: newStatus, bezahltBetrag: bezahltGesamt }))
       // Deckt die Teilzahlung den Rechnungsbetrag vollstaendig ab, ist die
       // Rechnung bezahlt — Zoho muss das genauso erfahren wie beim Dropdown.
@@ -1006,7 +1013,10 @@ export default function InvoiceDetailPage() {
       const remaining = (teilzahlungen as any[]).filter((t: any) => t.id !== tzId)
       const bezahltGesamt = remaining.reduce((s: number, t: any) => s + (Number(t.betrag) || 0), 0)
       const newStatus = bezahltGesamt <= 0 ? 'offen' : bezahltGesamt >= totals.summeBrutto ? 'bezahlt' : 'teilweise_bezahlt'
-      await supabase.from('rechnungen').update({ bezahlt_betrag: bezahltGesamt, status: newStatus }).eq('id', invoiceId)
+      // Siehe addTeilzahlung: die Spalte bezahlt_betrag existiert nicht.
+      const { error: statusErr } = await supabase
+        .from('rechnungen').update({ status: newStatus }).eq('id', invoiceId)
+      if (statusErr) throw statusErr
       setInvoice(p => ({ ...p, status: newStatus, bezahltBetrag: bezahltGesamt }))
       refetchTeilzahlungen()
       queryClient.invalidateQueries({ queryKey: ['invoices'] })

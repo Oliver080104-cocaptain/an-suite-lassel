@@ -34,6 +34,39 @@
 
 **Was noch manuell zu tun ist:** siehe „Offene TODOs" ganz unten.
 
+## Schema-Abgleich: `npm run schema-check` (2026-08-17)
+
+**Vor jedem Commit, der eine Spalte schreibt oder filtert, einmal laufen
+lassen.** Das Skript holt das echte Schema der Produktionsdatenbank aus der
+OpenAPI-Definition von PostgREST (rein lesend) und vergleicht es per AST gegen
+jeden `insert`/`update`/`select`/Filter im Code. Exit-Code 1 bei Abweichung.
+
+Grund: Falle 2 oben ist kein theoretisches Risiko. Am 17.08.2026 sind
+nacheinander drei Dinge in Produktion ausgefallen, alle aus derselben Wurzel —
+der Code schreibt etwas, das die Datenbank nicht kennt, und dann scheitert der
+GESAMTE Vorgang, nicht nur das eine Feld:
+
+| Symptom | Ursache |
+|---|---|
+| Angebot speichern, Rechnung erzeugen, Entwurf übernehmen | `produkt_id` steht in `schema.sql`, in der Prod-DB nicht → Migration 027 |
+| Angebotsstatus setzen | Dropdown bot vier Werte an, die das ENUM `angebot_status` nie kannte |
+| Zahlung erfassen | `bezahlt_betrag` existiert nirgends — Rechnung blieb trotz Zahlung „offen" |
+| Angebot aus Zoho anlegen | Trigger aus 023/025 (siehe Migration 026) |
+
+Zwei Ebenen der Absicherung, beide nötig:
+1. **`src/lib/schema-drift.ts`** — `insertMitDriftSchutz()` verwirft eine
+   fehlende Spalte und schreibt den Rest, statt den Beleg scheitern zu lassen.
+   Genutzt bei allen Positions-Inserts (Angebot, Rechnung aus Angebot,
+   Entwurfsübernahme). Rechnung, Lieferschein und der Offer-Webhook haben
+   je eigene ältere Kopien derselben Logik.
+2. **`src/lib/angebot-status.ts`** — die einzige Quelle für erlaubte
+   Angebotsstatus. `angebote.status` ist das einzige ENUM im Schema;
+   Rechnung und Lieferschein tragen dort TEXT.
+
+Was das Skript **nicht** sieht: Payloads, die aus einem State-Objekt kommen
+(11 Stellen, am Ende der Ausgabe gelistet). Die sind am 17.08. von Hand geprüft
+worden und waren sauber.
+
 ## Angebots-Gültigkeit: zwei Monate (2026-07-27)
 
 Fachliche Festlegung: ein Angebot ist standardmäßig **zwei Monate ab
