@@ -208,9 +208,14 @@ export async function entwurfUebernehmen(
     )
     if (posError) {
       // Kopf ohne Positionen wäre ein Blindgänger in der Liste.
-      await db.from('angebote').delete().eq('id', angebotId)
+      // Ergebnis des Rollbacks prüfen: schlägt auch der fehl, bleibt ein
+      // leeres Angebot mit vergebener Nummer stehen — die Meldung „wurde
+      // zurückgenommen" wäre dann schlicht falsch.
+      const { error: rollbackError } = await db.from('angebote').delete().eq('id', angebotId)
       throw new ApiError(502, 'positionen-fehlgeschlagen',
-        `Positionen konnten nicht angelegt werden, das Angebot wurde zurückgenommen: ${posError.message}`)
+        rollbackError
+          ? `Positionen konnten nicht angelegt werden (${posError.message}). Das Angebot ${angebotsnummer} konnte auch nicht zurückgenommen werden (${rollbackError.message}) — es steht leer in der Liste und muss von Hand gelöscht werden.`
+          : `Positionen konnten nicht angelegt werden, das Angebot wurde zurückgenommen: ${posError.message}`)
     }
 
     await db.from('beleg_entwuerfe')

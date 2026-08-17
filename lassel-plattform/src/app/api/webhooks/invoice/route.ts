@@ -221,10 +221,12 @@ export async function POST(req: NextRequest) {
         if (insError) {
           // Kopf zurücknehmen: eine Rechnung mit Summen und ohne Zeilen ist
           // schlimmer als gar keine — sie sieht in der Liste vollständig aus.
-          await supabase.from('rechnungen').delete().eq('id', newRechnung.id)
+          const { error: rollbackError } = await supabase.from('rechnungen').delete().eq('id', newRechnung.id)
           await logEvent('error', 'webhook-invoice',
-            `Rechnungspositionen konnten nicht gespeichert werden, Rechnung ${rechnungsnummer} wurde zurückgenommen`,
-            { rechnungsnummer, ticketId, error: insError.message })
+            rollbackError
+              ? `Rechnungspositionen konnten nicht gespeichert werden UND die Rechnung ${rechnungsnummer} nicht zurückgenommen — sie steht leer in der Liste`
+              : `Rechnungspositionen konnten nicht gespeichert werden, Rechnung ${rechnungsnummer} wurde zurückgenommen`,
+            { rechnungsnummer, ticketId, error: insError.message, rollbackError: rollbackError?.message ?? null })
           return NextResponse.json({ error: insError.message }, { status: 500 })
         }
       }

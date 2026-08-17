@@ -313,11 +313,22 @@ export async function POST(req: NextRequest) {
         })),
         { reverseCharge }
       )
-      await supabase.from('angebote').update({
+      // Ergebnis pruefen: schlaegt das fehl, steht das Angebot mit 0 € in
+      // jeder Liste und in Zoho. Der Aufruf gilt trotzdem als erfolgreich —
+      // Angebot und Positionen sind da, und ein Retry von n8n liefe in den
+      // UPDATE-Zweig, der die Summen gar nicht mehr anfasst.
+      const { error: summenError } = await supabase.from('angebote').update({
         netto_gesamt,
         mwst_gesamt,
         brutto_gesamt,
       }).eq('id', angebotId)
+      if (summenError) {
+        console.error('[webhooks/offer] summen update error:', summenError)
+        await logEvent('error', 'webhook-offer',
+          `Summen konnten nicht geschrieben werden für ${angebotsnummer} — Angebot steht mit 0 € in den Listen`,
+          { angebotsnummer, ticketId, error: summenError.message }
+        )
+      }
     }
 
     // Callback an n8n (optional)

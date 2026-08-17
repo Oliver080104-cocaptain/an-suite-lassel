@@ -113,10 +113,12 @@ export async function POST(req: NextRequest) {
         // Kopf zurücknehmen, sonst bliebe ein leerer Lieferschein mit
         // verbrauchter Nummer stehen und die Duplikatsprüfung würde ihn
         // beim nächsten Aufruf für gültig halten.
-        await supabase.from('lieferscheine').delete().eq('id', newLS.id)
+        const { error: rollbackError } = await supabase.from('lieferscheine').delete().eq('id', newLS.id)
         await logEvent('error', 'webhook-delivery-note',
-          `Positionen konnten nicht gespeichert werden, Lieferschein ${lieferscheinnummer} wurde zurückgenommen`,
-          { lieferscheinnummer, ticketId, error: posError.message })
+          rollbackError
+            ? `Positionen konnten nicht gespeichert werden UND der Lieferschein ${lieferscheinnummer} nicht zurückgenommen — er steht leer in der Liste`
+            : `Positionen konnten nicht gespeichert werden, Lieferschein ${lieferscheinnummer} wurde zurückgenommen`,
+          { lieferscheinnummer, ticketId, error: posError.message, rollbackError: rollbackError?.message ?? null })
         return NextResponse.json({ error: posError.message }, { status: 500 })
       }
     }

@@ -848,7 +848,11 @@ export default function InvoiceDetailPage() {
     // überschreibt.
     await acquireAutosaveLock()
     try {
-      await supabase.from('rechnungen').update({ status: 'bezahlt', brutto_gesamt: totals.summeBrutto }).eq('id', invoiceId)
+      // Ergebnis pruefen: sonst meldet die Oberflaeche "bezahlt", der Zoho-Flow
+      // wird gefeuert — und in der Datenbank steht die Rechnung weiter offen.
+      const { error: bezErr } = await supabase
+        .from('rechnungen').update({ status: 'bezahlt', brutto_gesamt: totals.summeBrutto }).eq('id', invoiceId)
+      if (bezErr) throw bezErr
       setInvoice(prev => ({ ...prev, status: 'bezahlt', summeBrutto: totals.summeBrutto }))
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
       queryClient.invalidateQueries({ queryKey: ['invoice', invoiceId] })
@@ -970,13 +974,16 @@ export default function InvoiceDetailPage() {
     if (isNaN(betrag) || betrag <= 0) { toast.error('Ungültiger Betrag'); return }
     await acquireAutosaveLock()
     try {
-      await supabase.from('teilzahlungen').insert({
+      // supabase-js wirft nicht, es liefert { error }. Ohne diese Pruefung
+      // meldete der Toast "Zahlung erfasst", auch wenn nichts gespeichert war.
+      const { error: tzErr } = await supabase.from('teilzahlungen').insert({
         rechnung_id: invoiceId,
         betrag,
         datum: newTeilzahlung.datum,
         zahlungsart: newTeilzahlung.zahlungsart,
         notizen: newTeilzahlung.notizen || null,
       })
+      if (tzErr) throw tzErr
       const allTz = [...(teilzahlungen as any[]), { betrag }]
       const bezahltGesamt = allTz.reduce((s: number, t: any) => s + (Number(t.betrag) || 0), 0)
       const newStatus = bezahltGesamt >= totals.summeBrutto ? 'bezahlt' : 'teilweise_bezahlt'
@@ -1009,7 +1016,8 @@ export default function InvoiceDetailPage() {
     if (!invoiceId) return
     await acquireAutosaveLock()
     try {
-      await supabase.from('teilzahlungen').delete().eq('id', tzId)
+      const { error: delErr } = await supabase.from('teilzahlungen').delete().eq('id', tzId)
+      if (delErr) throw delErr
       const remaining = (teilzahlungen as any[]).filter((t: any) => t.id !== tzId)
       const bezahltGesamt = remaining.reduce((s: number, t: any) => s + (Number(t.betrag) || 0), 0)
       const newStatus = bezahltGesamt <= 0 ? 'offen' : bezahltGesamt >= totals.summeBrutto ? 'bezahlt' : 'teilweise_bezahlt'

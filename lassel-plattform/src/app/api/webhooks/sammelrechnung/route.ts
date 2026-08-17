@@ -162,10 +162,12 @@ export async function POST(req: NextRequest) {
         // Kopf zurücknehmen — eine Sammelrechnung mit Summen und ohne
         // Leistungszeilen ist nicht rechtskonform und über den Webhook nicht
         // mehr reparierbar (der nächste Aufruf meldet 'already_exists').
-        await supabase.from('rechnungen').delete().eq('id', newRechnung.id)
+        const { error: rollbackError } = await supabase.from('rechnungen').delete().eq('id', newRechnung.id)
         await logEvent('error', 'webhook-sammelrechnung',
-          `Positionen konnten nicht gespeichert werden, Sammelrechnung ${rechnungsnummer} wurde zurückgenommen`,
-          { rechnungsnummer, ticketId, error: posError.message })
+          rollbackError
+            ? `Positionen konnten nicht gespeichert werden UND die Sammelrechnung ${rechnungsnummer} nicht zurückgenommen — sie steht leer in der Liste`
+            : `Positionen konnten nicht gespeichert werden, Sammelrechnung ${rechnungsnummer} wurde zurückgenommen`,
+          { rechnungsnummer, ticketId, error: posError.message, rollbackError: rollbackError?.message ?? null })
         return NextResponse.json({ error: posError.message }, { status: 500 })
       }
     }
